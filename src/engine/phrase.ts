@@ -69,45 +69,47 @@ const MID = 45;
  * 0.7 s, so even a slow sweep still gives one note per patch.
  */
 export const DEMO_PHRASE: Phrase = {
-  id: 'demo-v7',
+  id: 'demo-v8',
   label: 'demo phrase',
   notes: [
     // Everything that is not explicitly demonstrating velocity sits at a mid
     // velocity. This matters more than it looks: on FM, velocity does not just
     // set the level, it drives the modulators, so a note at 127 has audibly
-    // more sidebands than the same note at 70. A phrase played flat out gives
-    // a bright, hard, resonant impression of every patch in the corpus - which
-    // is not what any of them sound like when you actually play them.
+    // more sidebands than the same note at 45. A phrase played flat out gives a
+    // bright, hard impression of every patch in the corpus - which is not what
+    // any of them sound like when you actually play them.
+    //
+    // One note, alone, with a clear gap after it: brushing across the map cuts
+    // the phrase almost immediately, and what you want to have heard in that
+    // moment is one clean note.
     { at: 0.0, note: C4, velocity: MID, dur: 0.35 },
-    // Repeated strikes: how the patch retriggers.
-    { at: 0.7, note: C4, velocity: MID, dur: 0.11 },
-    { at: 0.85, note: C4, velocity: MID, dur: 0.14 },
     // Bottom and top of the keyboard: level and brightness scaling.
-    { at: 1.05, note: C2, velocity: MID, dur: 0.24 },
-    { at: 1.34, note: C6, velocity: MID, dur: 0.24 },
-    // A velocity ramp on short notes, which shows the whole response curve
-    // rather than just its two ends.
-    { at: 1.63, note: C4, velocity: 20, dur: 0.13 },
-    { at: 1.79, note: C4, velocity: 45, dur: 0.13 },
-    { at: 1.95, note: C4, velocity: 70, dur: 0.13 },
-    { at: 2.11, note: C4, velocity: 95, dur: 0.13 },
-    { at: 2.27, note: C4, velocity: 120, dur: 0.13 },
+    { at: 0.7, note: C2, velocity: MID, dur: 0.24 },
+    { at: 0.99, note: C6, velocity: MID, dur: 0.24 },
     // A triad: how it stacks. Three notes rather than four, because the DX7's
     // own output stage clips on a loud four-note chord for about one patch in
     // seven, and that distortion is baked into the render.
-    { at: 2.5, note: C4, velocity: MID, dur: 1.3 },
-    { at: 2.5, note: E4, velocity: MID, dur: 1.3 },
-    { at: 2.5, note: G4, velocity: MID, dur: 1.3 },
+    { at: 1.28, note: C4, velocity: MID, dur: 1.2 },
+    { at: 1.28, note: E4, velocity: MID, dur: 1.2 },
+    { at: 1.28, note: G4, velocity: MID, dur: 1.2 },
+    // A velocity ramp on short notes, which shows the whole response curve
+    // rather than just its two ends. Last of the short material, so it leads
+    // straight into the held note.
+    { at: 2.7, note: C4, velocity: 20, dur: 0.13 },
+    { at: 2.86, note: C4, velocity: 45, dur: 0.13 },
+    { at: 3.02, note: C4, velocity: 70, dur: 0.13 },
+    { at: 3.18, note: C4, velocity: 95, dur: 0.13 },
+    { at: 3.34, note: C4, velocity: 120, dur: 0.13 },
     // A long held note under a mod wheel sweep: what the LFO is set up to do.
-    { at: 3.95, note: A3, velocity: MID, dur: 2.2 },
+    { at: 3.7, note: A3, velocity: MID, dur: 2.2 },
   ],
   mod: [
     { at: 0.0, value: 0 },
     { at: 3.9, value: 0 },
-    { at: 5.7, value: 1 },
-    { at: 6.4, value: 0.1 },
+    { at: 5.6, value: 1 },
+    { at: 6.3, value: 0.1 },
   ],
-  totalSec: 7.7,
+  totalSec: 7.5,
 };
 
 /**
@@ -119,12 +121,12 @@ export const DEMO_PHRASE: Phrase = {
  * keeps a sweep across the map ahead of the mouse.
  */
 export const HOVER_PHRASE: Phrase = {
-  id: 'hover-v5',
+  id: 'hover-v6',
   label: 'hover taste',
   notes: [
     { at: 0.0, note: C4, velocity: MID, dur: 0.35 },
-    { at: 0.7, note: C4, velocity: MID, dur: 0.11 },
-    { at: 0.85, note: C4, velocity: MID, dur: 0.4 },
+    { at: 0.7, note: C2, velocity: MID, dur: 0.24 },
+    { at: 0.99, note: C6, velocity: MID, dur: 0.4 },
   ],
   mod: [{ at: 0, value: 0 }],
   totalSec: 2.0,
