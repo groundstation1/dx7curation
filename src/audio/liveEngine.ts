@@ -28,7 +28,35 @@ interface LiveVoice {
   midi: number;
   released: boolean;
   age: number;
+  /** 1 until the voice has settled into a drone, then ramps down to 0. */
+  gain: number;
+  /** Blocks rendered since key-up, for the hard ceiling on a release. */
+  heldBlocks: number;
 }
+
+/**
+ * How long a drone takes to disappear once its release has finished.
+ *
+ * Long enough not to click, short enough that letting go of a key means the
+ * note stops. See Dx7Note.settled for why this is needed at all: a patch with
+ * a non-zero fourth envelope level sounds forever after key-up, which on the
+ * hardware ends when the next note steals the voice. Here it would sit in the
+ * pool sounding under everything you hovered next.
+ */
+const DRONE_FADE_SEC = 0.25;
+
+/**
+ * The longest a released voice may keep sounding before it is faded out
+ * regardless of what its envelope is doing.
+ *
+ * The settled test alone is not quite enough: TRAIN's release runs for nearly
+ * five seconds at close to full level before it settles, so on a real DX7 it
+ * simply keeps going. Here that reads as a stuck note. Six seconds is longer
+ * than any tail worth auditioning - the demo phrase is seven and a half in
+ * total - and it puts a hard ceiling on how long a key you let go of can be
+ * heard for.
+ */
+const MAX_RELEASE_SEC = 6;
 
 export class LiveEngine {
   private ctx: AudioContext | null = null;
@@ -40,6 +68,8 @@ export class LiveEngine {
   private transpose = 0;
   private modWheel = 0;
   private buf = new Int32Array(N);
+  /** For voices being faded, which have to be scaled before they are summed. */
+  private scratch = new Int32Array(N);
   private ageCounter = 0;
   private lastActivity = 0;
 
@@ -107,7 +137,7 @@ export class LiveEngine {
     const note = new Dx7Note();
     note.init(this.patch, Math.max(0, Math.min(127, midi + this.transpose)), velocity);
     note.setModWheel(this.modWheel);
-    this.voices.push({ note, midi, released: false, age: ++this.ageCounter });
+    this.voices.push({ note, midi, released: false, age: ++this.ageCounter, gain: 1, heldBlocks: 0 });
     this.lfo.keydown();
   }
 
@@ -144,11 +174,27 @@ export class LiveEngine {
       out.fill(0);
       return;
     }
+    const rate = this.ctx?.sampleRate ?? 44100;
+    const fadeStep = N / (DRONE_FADE_SEC * rate);
+    const maxBlocks = (MAX_RELEASE_SEC * rate) / N;
     for (let start = 0; start < out.length; start += N) {
       this.buf.fill(0);
       const lfoVal = this.lfo.getsample();
       const lfoDelay = this.lfo.getdelay();
-      for (const v of this.voices) v.note.compute(this.buf, lfoVal, lfoDelay);
+      for (const v of this.voices) {
+        if (v.released) v.heldBlocks++;
+        if (v.released && v.gain === 1 && (v.note.settled || v.heldBlocks > maxBlocks)) v.gain -= fadeStep;
+        if (v.gain >= 1) {
+          v.note.compute(this.buf, lfoVal, lfoDelay);
+          continue;
+        }
+        // Fading, so it has to be rendered on its own before it is summed.
+        this.scratch.fill(0);
+        v.note.compute(this.scratch, lfoVal, lfoDelay);
+        const g = Math.max(0, v.gain);
+        for (let j = 0; j < N; j++) this.buf[j] += Math.round(this.scratch[j] * g);
+        v.gain -= fadeStep;
+      }
       for (let j = 0; j < N && start + j < out.length; j++) {
         const val = this.buf[j] >> 4;
         const clip = val < -(1 << 24) ? -32768 : val >= 1 << 24 ? 32767 : val >> 9;
@@ -159,7 +205,8 @@ export class LiveEngine {
       }
     }
     for (let i = this.voices.length - 1; i >= 0; i--) {
-      if (this.voices[i].released && !this.voices[i].note.isPlaying()) this.voices.splice(i, 1);
+      const v = this.voices[i];
+      if (v.released && (!v.note.isPlaying() || v.gain <= 0)) this.voices.splice(i, 1);
     }
   }
 }

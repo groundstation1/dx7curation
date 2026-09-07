@@ -224,6 +224,25 @@ export class Dx7Note {
     this.pitchenv.keydown(false);
   }
 
+  /**
+   * True once every carrier has run out of envelope stages.
+   *
+   * A DX7 envelope's fourth level is where it settles after key-up, not
+   * necessarily silence: with L4 above zero the release ends on an audible
+   * level and the voice sounds until something takes it away. Thirteen of the
+   * 128 factory voices do this, TRAIN at full scale. On the hardware the next
+   * note steals it; a live engine that never steals has to notice for itself,
+   * which is what this is for. `isPlaying` stays true throughout - the voice
+   * genuinely is still making sound.
+   */
+  get settled(): boolean {
+    if (!this.initialised) return true;
+    for (let op = 0; op < 6; op++) {
+      if (isCarrier(this.algorithm, op) && this.env[op].stage < 4) return false;
+    }
+    return true;
+  }
+
   isPlaying(): boolean {
     if (!this.initialised) return false;
     for (let op = 0; op < 6; op++) {

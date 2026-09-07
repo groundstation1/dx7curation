@@ -56,6 +56,7 @@ node test/run.ts          # sysex round-trips, tuning accuracy, rendering
 node test/pipeline.ts     # the whole pipeline end to end on four cartridges
 node test/algograph.ts    # all 32 algorithms against their front-panel layouts
 node test/phrase.ts       # the audition phrase
+node test/drone.ts        # voices that never stop on their own
 node test/interpolate.ts  # blending voices
 node test/bench.ts        # render throughput
 ```
@@ -98,6 +99,14 @@ and where the name is allowed to win.
 envelope are donated intact from one contributor, and so is the envelope shape.
 Averaging them produces a tuning nobody had, and an envelope that sustains less
 than any of its inputs.
+
+**A released note is not always a finished note.** A DX7 envelope's fourth
+level is where it settles after key-up, and it does not have to be zero: six of
+the 128 factory voices end their release on an audible level and sound forever,
+TRAIN at full scale. The hardware ends them by stealing the voice. The live
+engine fades a voice out once its envelope has settled, and in any case six
+seconds after key-up, so a key you let go of cannot keep sounding under
+everything you audition next.
 
 **Auditions are cut before the next one renders.** Stopping the old sound only
 once the new buffer arrives sounds fine on a plucked patch and terrible on a

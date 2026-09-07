@@ -574,14 +574,68 @@ export function operatorCard(v: Uint8Array, op: number, carrier: boolean, feedba
 }
 
 /**
- * The diagram plus a hover card per operator.
+ * One hover card for the whole application.
+ *
+ * It has to live outside the diagram - fixed to the viewport, so it never
+ * covers the picture it describes and no scrolling sidebar can clip it - and
+ * anything outside the diagram outlives the diagram. A card per panel meant a
+ * panel could be re-rendered mid-hover, taking its operator cells with it, and
+ * the pointerleave that would have hidden the card never arrived: a tooltip
+ * stuck to the screen with nothing under it. One shared card can always be
+ * found and hidden, whatever happened to the thing that opened it.
+ */
+let tipEl: HTMLElement | null = null;
+let tipOwner: Element | null = null;
+
+function tip(): HTMLElement {
+  if (tipEl) return tipEl;
+  tipEl = document.createElement('div');
+  tipEl.className = 'op-tip';
+  tipEl.hidden = true;
+  document.body.appendChild(tipEl);
+
+  // The backstops. pointerleave on the cell handles the ordinary case; these
+  // catch every way of leaving it that does not produce one - the panel being
+  // re-rendered, the pointer jumping, a scroll, the window losing focus.
+  document.addEventListener('pointermove', (e) => {
+    if (!tipOwner) return;
+    const over = (e.target as Element | null)?.closest?.('.op-cell');
+    if (over !== tipOwner) hideTip();
+  }, true);
+  window.addEventListener('scroll', hideTip, true);
+  window.addEventListener('blur', hideTip);
+  return tipEl;
+}
+
+function hideTip(): void {
+  tipOwner = null;
+  if (tipEl) tipEl.hidden = true;
+}
+
+/** Place the card outside `host`: left of it by preference, else right, else above. */
+function placeTip(el: HTMLElement, cell: Element, host: DOMRect): void {
+  const box = cell.getBoundingClientRect();
+  const gap = 12;
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+
+  let left = host.left - gap - w;
+  if (left < 6) {
+    const right = host.right + gap;
+    left = right + w <= window.innerWidth - 6 ? right : Math.max(6, host.left);
+  }
+  let top = box.top - h / 2 + box.height / 2;
+  if (left >= host.left && left <= host.right) top = host.top - gap - h;
+  el.style.left = `${Math.round(Math.max(6, Math.min(window.innerWidth - w - 6, left)))}px`;
+  el.style.top = `${Math.round(Math.max(6, Math.min(window.innerHeight - h - 6, top)))}px`;
+}
+
+/**
+ * The diagram, with a hover card per operator.
  *
  * The card appears immediately rather than after the browser's title-tooltip
  * delay, which matters when the point is to sweep across six operators and
- * compare them. It is placed outside the diagram - to the left of the panel by
- * preference, since the panel lives on the right - and fixed to the viewport
- * rather than the panel, so it never covers the picture it is describing and is
- * never clipped by a scrolling sidebar.
+ * compare them.
  */
 export function algorithmPanel(algorithm: number, voice?: Uint8Array): HTMLElement {
   const wrap = document.createElement('div');
@@ -591,37 +645,9 @@ export function algorithmPanel(algorithm: number, voice?: Uint8Array): HTMLEleme
 
   if (!voice) return wrap;
 
-  const tip = document.createElement('div');
-  tip.className = 'op-tip';
-  tip.hidden = true;
-
   const g = algorithmGraph(algorithm);
   const byOp = new Map(g.nodes.map((n) => [n.op, n]));
   const feedbackOps = new Set(g.feedback);
-
-  const hide = () => {
-    tip.hidden = true;
-    tip.remove();
-  };
-
-  const place = (cell: Element) => {
-    const box = cell.getBoundingClientRect();
-    const host = wrap.getBoundingClientRect();
-    const gap = 12;
-    const w = tip.offsetWidth;
-    const h = tip.offsetHeight;
-
-    let left = host.left - gap - w;
-    if (left < 6) {
-      const right = host.right + gap;
-      // No room either side: sit above the panel, still clear of the diagram.
-      left = right + w <= window.innerWidth - 6 ? right : Math.max(6, host.left);
-    }
-    let top = box.top - h / 2 + box.height / 2;
-    if (left >= host.left && left <= host.right) top = host.top - gap - h;
-    tip.style.left = `${Math.round(Math.max(6, Math.min(window.innerWidth - w - 6, left)))}px`;
-    tip.style.top = `${Math.round(Math.max(6, Math.min(window.innerHeight - h - 6, top)))}px`;
-  };
 
   for (const cell of Array.from(diagram.querySelectorAll('.op-cell'))) {
     const op = Number(cell.getAttribute('data-op'));
@@ -629,15 +655,15 @@ export function algorithmPanel(algorithm: number, voice?: Uint8Array): HTMLEleme
     if (!node) continue;
     cell.addEventListener('pointerenter', () => {
       if (!wrap.isConnected) return;
-      tip.replaceChildren(operatorCard(voice, op, node.carrier, feedbackOps.has(op)));
-      document.body.appendChild(tip);
-      tip.hidden = false;
-      place(cell);
+      const el = tip();
+      el.replaceChildren(operatorCard(voice, op, node.carrier, feedbackOps.has(op)));
+      el.hidden = false;
+      tipOwner = cell;
+      placeTip(el, cell, wrap.getBoundingClientRect());
     });
-    cell.addEventListener('pointerleave', hide);
+    cell.addEventListener('pointerleave', hideTip);
   }
-  // A card outside the panel outlives the panel unless it is told not to.
-  diagram.addEventListener('pointerleave', hide);
+  diagram.addEventListener('pointerleave', hideTip);
 
   return wrap;
 }
