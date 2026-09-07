@@ -1,0 +1,943 @@
+/*
+ * Application state.
+ *
+ * Everything expensive lives here in memory and is mirrored into IndexedDB, so
+ * a session survives a reload at any point: after ingest, after the analysis
+ * pass, after clustering, and after every single rating.
+ */
+import {
+  addVoices, clearAll, clearRatings, deleteRating, getAllFeatures, getAllRatings, getAllVoices, kvGet, kvSet,
+  putFeatures, putRating, setPinned,
+  type FeatureRecord, type RatingRecord, type VoiceRecord, type VoiceSource,
+} from '../db/store.ts';
+import { clampVoice, packVoice, packedKeyOf, unpackVoice, voiceName, setVoiceName, INIT_VOICE_PARAMS } from '../sysex/voice.ts';
+import { buildBank, BANK_FILE_SIZE } from '../sysex/write.ts';
+import { parseSysexFile, type ParseReport } from '../sysex/parse.ts';
+import { isCarrier } from '../engine/fmcore.ts';
+import { isInitVoice, isSilentByParams } from '../sysex/voice.ts';
+import { fitStandardizer, standardize, FEATURE_COUNT, type Standardizer } from '../features/vector.ts';
+import { buildNearDupeGraph, clusterAtThreshold, chooseRepresentatives, thresholdSweep, type NearDupeGraph, type NearDupeClusters, type SweepRow } from '../cluster/nearDupe.ts';
+import { pca } from '../cluster/pca.ts';
+import { fitWhitener, whitenAll, redundancyRatio, redundancyWeights, type Whitener } from '../cluster/whiten.ts';
+import { fitTaste, predictRating, tasteWeights, type TasteModel } from '../cluster/taste.ts';
+import { lda } from '../cluster/lda.ts';
+import { CATEGORIES, CATEGORIZER_VERSION, categorize, type Category } from '../cluster/category.ts';
+import type { AcousticFeatures } from '../features/acoustic.ts';
+import type { StructuralFeatures } from '../features/structural.ts';
+import { analyzeAll, type PoolProgress } from '../workers/pool.ts';
+import { isZip, extractZip } from '../util/zip.ts';
+
+export interface LoadedVoice {
+  id: number;
+  name: string;
+  unpacked: Uint8Array;
+  packed: Uint8Array;
+  sources: VoiceSource[];
+  pinned: boolean;
+  userSupplied: boolean;
+  clampedBytes: number;
+}
+
+export interface Analysis {
+  acoustic: Omit<AcousticFeatures, 'segments'>;
+  structural: StructuralFeatures;
+  vector: Float32Array;
+  category: Category;
+  subcategory: string;
+  categoryConfidence: number;
+  silent: boolean;
+}
+
+export interface IngestSummary {
+  files: number;
+  voicesRead: number;
+  added: number;
+  merged: number;
+  rejected: number;
+  clampedBytes: number;
+  checksumFailures: number;
+  skipped: Array<{ reason: string; count: number }>;
+  errors: Array<{ file: string; error: string }>;
+}
+
+type Listener = () => void;
+
+const VOICE_EXTENSIONS = /\.(syx|dx7|bin|dmp|vce|snd|raw)$/i;
+
+export class Store {
+  voices: LoadedVoice[] = [];
+  indexById = new Map<number, number>();
+  analysis: Array<Analysis | null> = [];
+  standardizer: Standardizer | null = null;
+  /** Standardised vectors, n * FEATURE_COUNT, row-major. */
+  flat: Float32Array | null = null;
+  /**
+   * The same vectors, whitened, and weighted by what the ratings care about.
+   *
+   * This is what every distance is measured in - near-duplicates, cluster
+   * representatives, the ordering of the final bank. `flat` stays unwhitened
+   * because PCA and the map axes want the raw variance structure.
+   */
+  whitened: Float32Array | null = null;
+  whitener: Whitener | null = null;
+  tasteModel: TasteModel | null = null;
+  /** How much redundancy the whitening removed; 1 means none. */
+  redundancy = 1;
+  /** 0 disables taste weighting of distances, 1 applies it fully. */
+  tasteStrength = 1;
+  graph: NearDupeGraph | null = null;
+  /**
+   * The looser of the two thresholds: groups voices into families that get a
+   * face-off, where members are similar but still audibly different.
+   */
+  threshold = 0.12;
+  /**
+   * The tighter threshold. Anything below it is treated as the same patch:
+   * merged silently, shown as one point on the map, and never face-offed,
+   * because there would be nothing to hear.
+   */
+  mergeThreshold = 0.03;
+  clusters: NearDupeClusters | null = null;
+  /** One voice index per near-duplicate cluster. */
+  representatives: number[] = [];
+  mergeClusters: NearDupeClusters | null = null;
+  mergeRepresentatives: number[] = [];
+  ratings = new Map<number, RatingRecord>();
+  categoryOverrides = new Map<number, Category>();
+  /** Extra keepers chosen in a face-off, by cluster id. */
+  faceoffExtras = new Map<number, number[]>();
+  projection: Float32Array | null = null;
+  pcaExplained: number[] = [];
+  /** Category-separating axes; see cluster/lda.ts. */
+  ldaProjection: Float32Array | null = null;
+  ldaExplained: number[] = [];
+  ldaReason = '';
+  lastIngest: IngestSummary | null = null;
+  busy: string | null = null;
+  /**
+   * Features stored by an older build whose vector had a different shape. They
+   * are discarded rather than migrated - re-rendering is a couple of minutes
+   * and guessing at missing dimensions would poison every distance.
+   */
+  staleFeatures = 0;
+
+  private listeners = new Set<Listener>();
+
+  subscribe(fn: Listener): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  emit(): void {
+    for (const fn of this.listeners) fn();
+  }
+
+  setBusy(label: string | null): void {
+    this.busy = label;
+    this.emit();
+  }
+
+  // ------------------------------------------------------------- lifecycle
+
+  async load(): Promise<void> {
+    const [voiceRows, featureRows, ratingRows] = await Promise.all([
+      getAllVoices(), getAllFeatures(), getAllRatings(),
+    ]);
+    this.voices = voiceRows.map(toLoaded);
+    this.reindex();
+    this.analysis = new Array(this.voices.length).fill(null);
+    this.staleFeatures = 0;
+    for (const f of featureRows) {
+      const ix = this.indexById.get(f.voiceId);
+      if (ix === undefined) continue;
+      const a = toAnalysis(f);
+      if (a) this.analysis[ix] = a;
+      else this.staleFeatures++;
+    }
+    for (const r of ratingRows) this.ratings.set(r.voiceId, r);
+
+    this.threshold = (await kvGet<number>('threshold')) ?? this.threshold;
+    this.mergeThreshold = (await kvGet<number>('mergeThreshold')) ?? this.mergeThreshold;
+    const overrides = (await kvGet<Array<[number, Category]>>('categoryOverrides')) ?? [];
+    this.categoryOverrides = new Map(overrides);
+    const extras = (await kvGet<Array<[number, number[]]>>('faceoffExtras')) ?? [];
+    this.faceoffExtras = new Map(extras);
+
+    if (this.analysisComplete) {
+      // Categories are a pure function of features that are already stored, so
+      // a change to the rules re-labels the corpus without re-rendering it.
+      const seen = await kvGet<number>('categorizerVersion');
+      if (seen !== CATEGORIZER_VERSION) {
+        this.setBusy('re-categorising');
+        await new Promise((r) => setTimeout(r, 0));
+        await this.recategorizeAll();
+      }
+      // PCA and LDA over tens of thousands of voices takes a few seconds and
+      // blocks the thread, so say so rather than looking hung.
+      this.setBusy('projecting the map');
+      await new Promise((r) => setTimeout(r, 0));
+      this.rebuildDerived();
+      this.setBusy(null);
+      const savedGraph = await kvGet<NearDupeGraph>('nearDupeGraph');
+      if (savedGraph && savedGraph.n === this.voices.length) {
+        this.graph = savedGraph;
+        this.applyThreshold(this.threshold, this.mergeThreshold, false);
+      }
+    }
+    this.emit();
+  }
+
+  private reindex(): void {
+    this.indexById.clear();
+    this.voices.forEach((v, i) => this.indexById.set(v.id, i));
+  }
+
+  get analysisComplete(): boolean {
+    return this.voices.length > 0 && this.analysis.every((a) => a !== null);
+  }
+
+  get analysedCount(): number {
+    return this.analysis.reduce((n, a) => n + (a ? 1 : 0), 0);
+  }
+
+  /**
+   * Recompute every category and subcategory from the stored features. Cheap
+   * next to re-rendering, so the classifier can be changed freely.
+   */
+  async recategorizeAll(): Promise<void> {
+    const records: FeatureRecord[] = [];
+    for (let i = 0; i < this.voices.length; i++) {
+      const a = this.analysis[i];
+      if (!a) continue;
+      const c = categorize(a.acoustic as never, a.structural, this.voices[i].name);
+      a.category = c.best;
+      a.subcategory = c.sub;
+      a.categoryConfidence = c.confidence;
+      records.push({
+        voiceId: this.voices[i].id,
+        acoustic: a.acoustic,
+        structural: a.structural,
+        vector: a.vector,
+        category: c.best,
+        subcategory: c.sub,
+        categoryConfidence: c.confidence,
+        silent: a.silent,
+      });
+    }
+    await putFeatures(records);
+    await kvSet('categorizerVersion', CATEGORIZER_VERSION);
+  }
+
+  subcategoryOf(index: number): string {
+    return this.analysis[index]?.subcategory ?? '';
+  }
+
+  categoryOf(index: number): Category | null {
+    const v = this.voices[index];
+    if (!v) return null;
+    return this.categoryOverrides.get(v.id) ?? this.analysis[index]?.category ?? null;
+  }
+
+  ratingOf(index: number): number | null {
+    const v = this.voices[index];
+    return v ? this.ratings.get(v.id)?.rating ?? null : null;
+  }
+
+  // ---------------------------------------------------------------- ingest
+
+  /**
+   * Read dropped files. Zip archives are unpacked in place, and anything that
+   * does not look like voice data is reported rather than silently dropped.
+   */
+  async ingestFiles(
+    files: File[],
+    opts: { userSupplied?: boolean; pinned?: boolean; onProgress?: (label: string, done: number, total: number) => void } = {},
+  ): Promise<IngestSummary> {
+    const summary: IngestSummary = {
+      files: 0, voicesRead: 0, added: 0, merged: 0, rejected: 0,
+      clampedBytes: 0, checksumFailures: 0, skipped: [], errors: [],
+    };
+    const skipTally = new Map<string, number>();
+    const pending: Array<Omit<VoiceRecord, 'id'>> = [];
+
+    const handleBytes = (bytes: Uint8Array, name: string) => {
+      let report: ParseReport;
+      try {
+        report = parseSysexFile(bytes, name);
+      } catch (err) {
+        summary.errors.push({ file: name, error: (err as Error).message });
+        return;
+      }
+      for (const s of report.skipped) skipTally.set(s.reason, (skipTally.get(s.reason) ?? 0) + s.count);
+      summary.files++;
+      summary.voicesRead += report.voices.length;
+      for (const raw of report.voices) {
+        if (raw.checksumOk === false) summary.checksumFailures++;
+        const unpacked = unpackVoice(raw.packed);
+        const { changed } = clampVoice(unpacked);
+        summary.clampedBytes += changed;
+        if (isInitVoice(unpacked) || isSilentByParams(unpacked, isCarrier)) {
+          summary.rejected++;
+          continue;
+        }
+        const packed = packVoice(unpacked);
+        pending.push({
+          packedKey: packedKeyOf(packed),
+          packed,
+          unpacked,
+          name: voiceName(unpacked),
+          sources: [{
+            file: raw.sourceFile,
+            bank: raw.bank,
+            slot: raw.slot,
+            name: voiceName(unpacked),
+            container: raw.container,
+            checksumOk: raw.checksumOk,
+          }],
+          pinned: opts.pinned ?? false,
+          clampedBytes: changed,
+          userSupplied: opts.userSupplied ?? false,
+        });
+      }
+    };
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      opts.onProgress?.(file.name, i, files.length);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (isZip(bytes)) {
+        const { files: inner, failed } = await extractZip(
+          bytes,
+          (name, size) => !name.endsWith('/') && size > 0 && (VOICE_EXTENSIONS.test(name) || size === 4104 || size === 163 || size % 4096 === 0),
+          (done, total) => opts.onProgress?.(`${file.name} (${done}/${total})`, i, files.length),
+        );
+        for (const f of failed) summary.errors.push({ file: `${file.name}:${f.name}`, error: f.error });
+        for (const f of inner) handleBytes(f.bytes, `${file.name}/${f.name}`);
+      } else {
+        handleBytes(bytes, file.name);
+      }
+    }
+
+    opts.onProgress?.('writing to the database', files.length, files.length);
+    const { added, merged } = await addVoices(pending);
+    summary.added = added;
+    summary.merged = merged;
+    summary.skipped = [...skipTally].map(([reason, count]) => ({ reason, count }));
+
+    const rows = await getAllVoices();
+    this.voices = rows.map(toLoaded);
+    this.reindex();
+    const previous = this.analysis;
+    this.analysis = new Array(this.voices.length).fill(null);
+    // Keep analysis for voices that were already there.
+    const featureRows = await getAllFeatures();
+    this.staleFeatures = 0;
+    for (const f of featureRows) {
+      const ix = this.indexById.get(f.voiceId);
+      if (ix === undefined) continue;
+      const a = toAnalysis(f);
+      if (a) this.analysis[ix] = a;
+      else this.staleFeatures++;
+    }
+    void previous;
+    this.lastIngest = summary;
+    this.graph = null;
+    this.clusters = null;
+    this.emit();
+    return summary;
+  }
+
+  // -------------------------------------------------------------- analysis
+
+  /** Render and analyse every voice that has no features yet. */
+  async runAnalysis(opts: { onProgress?: (p: PoolProgress) => void; signal?: AbortSignal } = {}): Promise<void> {
+    const jobs = this.voices
+      .map((v, i) => ({ v, i }))
+      .filter(({ i }) => this.analysis[i] === null)
+      .map(({ v }) => ({ id: v.id, unpacked: v.unpacked }));
+    if (jobs.length === 0) {
+      this.rebuildDerived();
+      this.emit();
+      return;
+    }
+
+    this.setBusy(`analysing ${jobs.length} voices`);
+    try {
+      await analyzeAll(jobs, {
+        onProgress: opts.onProgress,
+        signal: opts.signal,
+        onBatch: async (items) => {
+          const records: FeatureRecord[] = [];
+          for (const item of items) {
+            const ix = this.indexById.get(item.id);
+            if (ix === undefined) continue;
+            this.analysis[ix] = {
+              acoustic: item.acoustic as Analysis['acoustic'],
+              structural: item.structural,
+              vector: item.vector,
+              category: item.category as Category,
+              subcategory: item.subcategory,
+              categoryConfidence: item.categoryConfidence,
+              silent: item.silent,
+            };
+            records.push({
+              voiceId: item.id,
+              acoustic: item.acoustic,
+              structural: item.structural,
+              vector: item.vector,
+              category: item.category,
+              subcategory: item.subcategory,
+              categoryConfidence: item.categoryConfidence,
+              silent: item.silent,
+            });
+          }
+          await putFeatures(records);
+        },
+      });
+      if (this.analysisComplete) this.rebuildDerived();
+    } finally {
+      this.setBusy(null);
+    }
+  }
+
+  /** Standardise the vectors and compute the map projection. */
+  rebuildDerived(): void {
+    const vectors = this.analysis.map((a) => a?.vector).filter((v): v is Float32Array => !!v);
+    if (vectors.length === 0) return;
+    this.standardizer = fitStandardizer(vectors);
+    const n = this.voices.length;
+    const flat = new Float32Array(n * FEATURE_COUNT);
+    for (let i = 0; i < n; i++) {
+      const a = this.analysis[i];
+      if (a) flat.set(standardize(a.vector, this.standardizer), i * FEATURE_COUNT);
+    }
+    this.flat = flat;
+    this.whitener = fitWhitener(flat, n, FEATURE_COUNT);
+    this.redundancy = redundancyRatio(this.whitener);
+    this.refitTasteModel();
+    this.applyWhitening();
+
+    // The map's variation axes are computed on a redundancy-weighted copy, so
+    // that a family of near-duplicate features cannot claim a principal axis
+    // just by being numerous.
+    const pcaWeights = redundancyWeights(flat, n, FEATURE_COUNT);
+    const forPca = new Float32Array(n * FEATURE_COUNT);
+    for (let i = 0; i < n; i++) {
+      const base = i * FEATURE_COUNT;
+      for (let d = 0; d < FEATURE_COUNT; d++) forPca[base + d] = flat[base + d] * pcaWeights[d];
+    }
+    const p = pca(forPca, n, FEATURE_COUNT, 2);
+    this.projection = p.projection;
+    this.pcaExplained = p.explained;
+
+    const labels = new Int32Array(n).fill(-1);
+    for (let i = 0; i < n; i++) {
+      const c = this.categoryOf(i);
+      if (c) labels[i] = CATEGORIES.indexOf(c);
+    }
+    const l = lda(flat, n, FEATURE_COUNT, labels, CATEGORIES.length, 2);
+    this.ldaProjection = l.ok ? l.projection : null;
+    this.ldaExplained = l.explained;
+    this.ldaReason = l.reason ?? '';
+  }
+
+  /**
+   * Recompute the whitened matrix. Cheap enough to redo whenever the taste
+   * model or its strength changes.
+   */
+  applyWhitening(): void {
+    if (!this.flat || !this.whitener) return;
+    const weights = this.tasteModel
+      ? tasteWeights(this.tasteModel, FEATURE_COUNT, this.tasteStrength)
+      : undefined;
+    this.whitened = whitenAll(this.flat, this.voices.length, FEATURE_COUNT, this.whitener, weights);
+  }
+
+  /** Fit the rating model, if there are enough ratings to be worth it. */
+  refitTasteModel(): TasteModel | null {
+    if (!this.flat) return null;
+    const rows: number[] = [];
+    const ratings: number[] = [];
+    for (let i = 0; i < this.voices.length; i++) {
+      const r = this.ratings.get(this.voices[i].id);
+      if (r && this.analysis[i]) {
+        rows.push(i);
+        ratings.push(r.rating);
+      }
+    }
+    this.tasteModel = fitTaste(this.flat, FEATURE_COUNT, { rows, ratings });
+    return this.tasteModel;
+  }
+
+  /** Refit from the current ratings and rebuild everything that depends on it. */
+  async retrain(): Promise<void> {
+    this.setBusy('learning from your ratings');
+    await new Promise((r) => setTimeout(r, 0));
+    try {
+      this.refitTasteModel();
+      this.applyWhitening();
+    } finally {
+      this.setBusy(null);
+    }
+  }
+
+  setTasteStrength(v: number): void {
+    this.tasteStrength = Math.max(0, Math.min(1, v));
+    this.applyWhitening();
+    this.emit();
+  }
+
+  /** The model's guess at how this voice would be rated, or null. */
+  predictedRating(index: number): number | null {
+    if (!this.tasteModel || !this.flat || !this.analysis[index]) return null;
+    return predictRating(this.tasteModel, this.flat, FEATURE_COUNT, index);
+  }
+
+  /** The matrix distances should be measured in. */
+  get distanceSpace(): Float32Array | null {
+    return this.whitened ?? this.flat;
+  }
+
+  // ------------------------------------------------------------ clustering
+
+  async buildClusters(opts: { maxDistance?: number; blockSize?: number; onProgress?: (done: number, total: number, stage: string) => void } = {}): Promise<void> {
+    if (!this.flat) throw new Error('run the analysis pass first');
+    this.setBusy('finding near-duplicates');
+    try {
+      const space = this.distanceSpace;
+      if (!space) throw new Error('run the analysis pass first');
+      const graph = buildNearDupeGraph(
+        space, this.voices.length, FEATURE_COUNT, this.voices.map((v) => v.unpacked),
+        { maxDistance: opts.maxDistance ?? 0.4, blockSize: opts.blockSize ?? 400, onProgress: opts.onProgress },
+      );
+      this.graph = graph;
+      await kvSet('nearDupeGraph', graph);
+      this.applyThreshold(this.threshold, this.mergeThreshold, true);
+    } finally {
+      this.setBusy(null);
+    }
+  }
+
+  sweep(thresholds: number[]): SweepRow[] {
+    return this.graph ? thresholdSweep(this.graph, thresholds) : [];
+  }
+
+  applyThreshold(threshold: number, mergeThreshold = this.mergeThreshold, persist = true): void {
+    this.threshold = threshold;
+    this.mergeThreshold = Math.min(mergeThreshold, threshold);
+    const space = this.distanceSpace;
+    if (!this.graph || !space) return;
+    this.clusters = clusterAtThreshold(this.graph, this.threshold);
+    this.representatives = chooseRepresentatives(this.clusters.clusters, space, FEATURE_COUNT);
+    this.mergeClusters = clusterAtThreshold(this.graph, this.mergeThreshold);
+    this.mergeRepresentatives = chooseRepresentatives(this.mergeClusters.clusters, space, FEATURE_COUNT);
+    if (persist) {
+      void kvSet('threshold', this.threshold);
+      void kvSet('mergeThreshold', this.mergeThreshold);
+    }
+    this.emit();
+  }
+
+  // A voice added since the last clustering run has no entry in these tables,
+  // so every lookup guards its index rather than assuming they are in step.
+
+  /** Every voice in the same face-off family. */
+  clusterMembers(index: number): number[] {
+    if (!this.clusters || index >= this.clusters.labels.length) return [index];
+    const id = this.clusters.labels[index];
+    return id >= 0 ? this.clusters.clusters[id] : [index];
+  }
+
+  /** Every voice treated as identical to this one. */
+  mergedMembers(index: number): number[] {
+    if (!this.mergeClusters || index >= this.mergeClusters.labels.length) return [index];
+    const id = this.mergeClusters.labels[index];
+    return id >= 0 ? this.mergeClusters.clusters[id] : [index];
+  }
+
+  /** The voice that stands in for `index` once near-identical copies are merged. */
+  mergeRepresentativeOf(index: number): number {
+    if (!this.mergeClusters || index >= this.mergeClusters.labels.length) return index;
+    const id = this.mergeClusters.labels[index];
+    return id >= 0 ? this.mergeRepresentatives[id] : index;
+  }
+
+  /**
+   * Add a voice that was made here rather than imported - currently the output
+   * of the map's interpolation mode.
+   *
+   * It arrives pinned and flagged as user-supplied, because the only reason to
+   * keep one is that you want it in the final 128. It has no features until the
+   * next analysis pass, which the corpus screen will offer.
+   */
+  async addSynthesised(unpacked: Uint8Array, name: string, note: string): Promise<number | null> {
+    const clean = Uint8Array.from(unpacked);
+    setVoiceName(clean, name);
+    const packed = packVoice(clean);
+    const key = packedKeyOf(packed);
+    const existing = this.voices.findIndex((v) => packedKeyOf(v.packed) === key);
+    if (existing >= 0) {
+      // The blend landed exactly on a patch that is already here.
+      if (!this.voices[existing].pinned) await this.togglePin(existing);
+      return existing;
+    }
+    await addVoices([{
+      packedKey: key,
+      packed,
+      unpacked: clean,
+      name: voiceName(clean),
+      sources: [{ file: note, bank: 'interpolated', slot: 0, name: voiceName(clean), container: 'raw', checksumOk: null }],
+      pinned: true,
+      clampedBytes: 0,
+      userSupplied: true,
+    }]);
+    const rows = await getAllVoices();
+    this.voices = rows.map(toLoaded);
+    this.reindex();
+    const analysis: Array<Analysis | null> = new Array(this.voices.length).fill(null);
+    for (let i = 0; i < this.voices.length; i++) {
+      const prev = this.analysis[i];
+      if (prev && this.voices[i]) analysis[i] = prev;
+    }
+    this.analysis = analysis;
+    this.emit();
+    return this.voices.findIndex((v) => packedKeyOf(v.packed) === key);
+  }
+
+  isMergeRepresentative(index: number): boolean {
+    return this.mergeRepresentativeOf(index) === index;
+  }
+
+  /**
+   * The distinct sounds inside a face-off family: one per merge cluster, so
+   * every pair the user is asked to compare is actually audibly different.
+   */
+  familyContenders(index: number): number[] {
+    const members = this.clusterMembers(index);
+    const seen = new Set<number>();
+    const out: number[] = [];
+    for (const m of members) {
+      const rep = this.mergeRepresentativeOf(m);
+      if (seen.has(rep)) continue;
+      seen.add(rep);
+      out.push(rep);
+    }
+    return out;
+  }
+
+  /** The 2D map coordinates used for coverage ordering: LDA if it worked, else PCA. */
+  get mapProjection(): Float32Array | null {
+    return this.ldaProjection ?? this.projection;
+  }
+
+  /**
+   * Reorder so that each next voice is the one furthest from everything already
+   * covered. Rating in this order spreads attention across the whole space
+   * instead of grinding through the electric piano mass first.
+   */
+  coverageOrder(indices: number[]): number[] {
+    const proj = this.mapProjection;
+    if (!proj || indices.length < 3) return indices.slice();
+    const px = (i: number) => proj[i * 2];
+    const py = (i: number) => proj[i * 2 + 1];
+
+    let cx = 0;
+    let cy = 0;
+    for (const i of indices) {
+      cx += px(i);
+      cy += py(i);
+    }
+    cx /= indices.length;
+    cy /= indices.length;
+
+    const remaining = indices.slice();
+    let seedAt = 0;
+    let seedD = Infinity;
+    for (let k = 0; k < remaining.length; k++) {
+      const dx = px(remaining[k]) - cx;
+      const dy = py(remaining[k]) - cy;
+      const d = dx * dx + dy * dy;
+      if (d < seedD) {
+        seedD = d;
+        seedAt = k;
+      }
+    }
+
+    const order: number[] = [remaining[seedAt]];
+    remaining.splice(seedAt, 1);
+    const minDist = remaining.map((i) => {
+      const dx = px(i) - px(order[0]);
+      const dy = py(i) - py(order[0]);
+      return dx * dx + dy * dy;
+    });
+
+    while (remaining.length) {
+      let best = 0;
+      for (let k = 1; k < remaining.length; k++) if (minDist[k] > minDist[best]) best = k;
+      const chosen = remaining[best];
+      order.push(chosen);
+      remaining.splice(best, 1);
+      minDist.splice(best, 1);
+      for (let k = 0; k < remaining.length; k++) {
+        const dx = px(remaining[k]) - px(chosen);
+        const dy = py(remaining[k]) - py(chosen);
+        const d = dx * dx + dy * dy;
+        if (d < minDist[k]) minDist[k] = d;
+      }
+    }
+    return order;
+  }
+
+  // --------------------------------------------------------------- ratings
+
+  async rate(index: number, rating: number, pass: RatingRecord['pass'] = 'round1'): Promise<void> {
+    const v = this.voices[index];
+    if (!v) return;
+    const rec: RatingRecord = { voiceId: v.id, rating, at: Date.now(), pass };
+    this.ratings.set(v.id, rec);
+    this.emit();
+    await putRating(rec);
+  }
+
+  /** Remove a rating, so a mis-key can be undone without leaving the map. */
+  async clearRating(index: number): Promise<void> {
+    const v = this.voices[index];
+    if (!v) return;
+    this.ratings.delete(v.id);
+    this.emit();
+    await deleteRating(v.id);
+  }
+
+  async setCategoryOverride(index: number, category: Category | null): Promise<void> {
+    const v = this.voices[index];
+    if (!v) return;
+    if (category) this.categoryOverrides.set(v.id, category);
+    else this.categoryOverrides.delete(v.id);
+    this.emit();
+    await kvSet('categoryOverrides', [...this.categoryOverrides]);
+  }
+
+  async togglePin(index: number): Promise<void> {
+    const v = this.voices[index];
+    if (!v) return;
+    v.pinned = !v.pinned;
+    this.emit();
+    await setPinned(v.id, v.pinned);
+  }
+
+  async setFaceoffExtras(clusterId: number, indices: number[]): Promise<void> {
+    if (indices.length) this.faceoffExtras.set(clusterId, indices);
+    else this.faceoffExtras.delete(clusterId);
+    this.emit();
+    await kvSet('faceoffExtras', [...this.faceoffExtras]);
+  }
+
+  // ------------------------------------------------------ export and backup
+
+  /**
+   * Every unique voice, as back-to-back 32-voice bulk dumps in one file.
+   *
+   * This is the deduplicated corpus in the format everything else in the DX7
+   * world reads, so it is both a usable artefact and the thing to keep if the
+   * browser's storage is ever lost. The final bank is padded with init voices,
+   * since a bulk dump is always exactly 32.
+   */
+  exportDedupedSyx(): { bytes: Uint8Array; banks: number; voices: number } {
+    const patches = this.voices.map((v) => v.unpacked);
+    const bankCount = Math.max(1, Math.ceil(patches.length / 32));
+    const out = new Uint8Array(bankCount * BANK_FILE_SIZE);
+    for (let b = 0; b < bankCount; b++) {
+      const slice: Uint8Array[] = [];
+      for (let s = 0; s < 32; s++) {
+        const p = patches[b * 32 + s];
+        if (p) {
+          slice.push(p);
+        } else {
+          const pad = Uint8Array.from(INIT_VOICE_PARAMS);
+          setVoiceName(pad, '----------');
+          slice.push(pad);
+        }
+      }
+      out.set(buildBank(slice), b * BANK_FILE_SIZE);
+    }
+    return { bytes: out, banks: bankCount, voices: patches.length };
+  }
+
+  /**
+   * Ratings, pins, category overrides and face-off results, keyed by the
+   * packed-voice hash rather than by row id, so a backup still applies after
+   * the corpus has been rebuilt from the source files.
+   */
+  exportBackup(): string {
+    const ratings: Array<[string, number, number, string]> = [];
+    const overrides: Array<[string, string]> = [];
+    const pinned: string[] = [];
+    for (let i = 0; i < this.voices.length; i++) {
+      const v = this.voices[i];
+      const key = packedKeyOf(v.packed);
+      const r = this.ratings.get(v.id);
+      if (r) ratings.push([key, r.rating, r.at, r.pass]);
+      const o = this.categoryOverrides.get(v.id);
+      if (o) overrides.push([key, o]);
+      if (v.pinned) pinned.push(key);
+    }
+    const faceoff: Array<[string, string[]]> = [];
+    for (const [clusterId, indices] of this.faceoffExtras) {
+      const rep = this.representatives[clusterId];
+      if (rep === undefined || !this.voices[rep]) continue;
+      faceoff.push([
+        packedKeyOf(this.voices[rep].packed),
+        indices.filter((i) => this.voices[i]).map((i) => packedKeyOf(this.voices[i].packed)),
+      ]);
+    }
+    return JSON.stringify({
+      format: 'dx7curation-backup',
+      version: 1,
+      savedAt: new Date().toISOString(),
+      voiceCount: this.voices.length,
+      threshold: this.threshold,
+      mergeThreshold: this.mergeThreshold,
+      ratings,
+      overrides,
+      pinned,
+      faceoff,
+    });
+  }
+
+  async importBackup(json: string): Promise<{ ratings: number; overrides: number; pinned: number; missing: number }> {
+    const data = JSON.parse(json) as {
+      format?: string;
+      ratings?: Array<[string, number, number, string]>;
+      overrides?: Array<[string, string]>;
+      pinned?: string[];
+      faceoff?: Array<[string, string[]]>;
+      threshold?: number;
+      mergeThreshold?: number;
+    };
+    if (data.format !== 'dx7curation-backup') throw new Error('that file is not a curation backup');
+
+    const byKey = new Map<string, number>();
+    for (let i = 0; i < this.voices.length; i++) byKey.set(packedKeyOf(this.voices[i].packed), i);
+
+    let missing = 0;
+    let applied = 0;
+    for (const [key, rating, at, pass] of data.ratings ?? []) {
+      const ix = byKey.get(key);
+      if (ix === undefined) {
+        missing++;
+        continue;
+      }
+      const rec: RatingRecord = { voiceId: this.voices[ix].id, rating, at, pass: pass as RatingRecord['pass'] };
+      this.ratings.set(rec.voiceId, rec);
+      await putRating(rec);
+      applied++;
+    }
+
+    let overrides = 0;
+    for (const [key, category] of data.overrides ?? []) {
+      const ix = byKey.get(key);
+      if (ix === undefined) {
+        missing++;
+        continue;
+      }
+      this.categoryOverrides.set(this.voices[ix].id, category as Category);
+      overrides++;
+    }
+    await kvSet('categoryOverrides', [...this.categoryOverrides]);
+
+    let pinned = 0;
+    for (const key of data.pinned ?? []) {
+      const ix = byKey.get(key);
+      if (ix === undefined) {
+        missing++;
+        continue;
+      }
+      this.voices[ix].pinned = true;
+      await setPinned(this.voices[ix].id, true);
+      pinned++;
+    }
+
+    if (typeof data.threshold === 'number') {
+      this.applyThreshold(data.threshold, data.mergeThreshold ?? this.mergeThreshold);
+    }
+
+    // Face-off results are keyed by cluster, which only exists once clustering
+    // has run with the restored thresholds.
+    if (this.clusters) {
+      for (const [repKey, memberKeys] of data.faceoff ?? []) {
+        const repIx = byKey.get(repKey);
+        if (repIx === undefined) continue;
+        const clusterId = this.clusters.labels[repIx];
+        if (clusterId < 0) continue;
+        const indices = memberKeys.map((k) => byKey.get(k)).filter((i): i is number => i !== undefined);
+        if (indices.length) this.faceoffExtras.set(clusterId, indices);
+      }
+      await kvSet('faceoffExtras', [...this.faceoffExtras]);
+    }
+
+    this.emit();
+    return { ratings: applied, overrides, pinned, missing };
+  }
+
+  /** Clear every rating and face-off result, keeping the corpus and features. */
+  async resetRatings(): Promise<void> {
+    this.ratings.clear();
+    this.faceoffExtras.clear();
+    this.emit();
+    await clearRatings();
+    await kvSet('faceoffExtras', []);
+  }
+
+  async reset(): Promise<void> {
+    await clearAll();
+    this.voices = [];
+    this.indexById.clear();
+    this.analysis = [];
+    this.standardizer = null;
+    this.flat = null;
+    this.graph = null;
+    this.clusters = null;
+    this.representatives = [];
+    this.ratings.clear();
+    this.categoryOverrides.clear();
+    this.faceoffExtras.clear();
+    this.projection = null;
+    this.ldaProjection = null;
+    this.whitened = null;
+    this.whitener = null;
+    this.tasteModel = null;
+    this.mergeClusters = null;
+    this.mergeRepresentatives = [];
+    this.lastIngest = null;
+    this.emit();
+  }
+}
+
+/** Reject a stored feature row whose vector predates the current feature set. */
+function toAnalysis(f: FeatureRecord): Analysis | null {
+  if (!f.vector || f.vector.length !== FEATURE_COUNT) return null;
+  return {
+    acoustic: f.acoustic as Analysis['acoustic'],
+    structural: f.structural as StructuralFeatures,
+    vector: f.vector,
+    category: f.category as Category,
+    subcategory: f.subcategory ?? '',
+    categoryConfidence: f.categoryConfidence,
+    silent: f.silent,
+  };
+}
+
+function toLoaded(v: VoiceRecord): LoadedVoice {
+  return {
+    id: v.id,
+    name: v.name,
+    unpacked: v.unpacked,
+    packed: v.packed,
+    sources: v.sources,
+    pinned: v.pinned,
+    userSupplied: v.userSupplied,
+    clampedBytes: v.clampedBytes,
+  };
+}
+
+export const store = new Store();

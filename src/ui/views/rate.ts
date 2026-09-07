@@ -1,0 +1,284 @@
+/*
+ * Round one: one representative per near-duplicate family, rated fast.
+ *
+ * Keyboard only. 1-5 rates and advances, space replays, arrows move without
+ * rating, P pins. Every rating is written to IndexedDB the moment the key goes
+ * down, so closing the tab mid-session loses nothing.
+ *
+ * The default order is farthest-point rather than density order: each next
+ * patch is the one furthest from everything already rated, in the same space
+ * the map is drawn in. Working through the corpus in file order would mean
+ * rating four hundred electric pianos before hearing a single bell, and the
+ * ratings would end up describing the archive's biases rather than yours.
+ */
+import { clear, el, fmtInt } from '../dom.ts';
+import type { View, ViewContext } from '../app.ts';
+import { CATEGORY_LABELS, type Category } from '../../cluster/category.ts';
+import { P } from '../../sysex/voice.ts';
+import { DEMO_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
+import { keyboard } from '../../audio/keyboard.ts';
+
+type Ordering = 'coverage' | 'families' | 'given';
+
+let ctx: ViewContext;
+let root: HTMLElement;
+let queue: number[] = [];
+let position = 0;
+let keyHandler: ((e: KeyboardEvent) => void) | null = null;
+let unsubKeyboard: (() => void) | null = null;
+let skipRated = true;
+let ordering: Ordering = 'coverage';
+let usePhrase = true;
+let loopPhrase = true;
+let auditionNote = 60;
+let auditionVel = 100;
+
+function buildQueue(): void {
+  const store = ctx.store;
+  const fromLasso = sessionStorage.getItem('rateQueue');
+  let base: number[];
+  if (fromLasso) {
+    sessionStorage.removeItem('rateQueue');
+    try {
+      base = (JSON.parse(fromLasso) as number[]).filter((i) => store.voices[i]);
+      ordering = 'given';
+    } catch {
+      base = store.representatives.slice();
+    }
+  } else {
+    base = store.representatives.slice();
+  }
+
+  if (ordering === 'coverage') queue = store.coverageOrder(base);
+  else if (ordering === 'families') {
+    queue = base.slice().sort((a, b) => store.clusterMembers(b).length - store.clusterMembers(a).length);
+  } else queue = base;
+
+  position = 0;
+  if (skipRated) advanceToUnrated(0);
+}
+
+function advanceToUnrated(from: number): void {
+  const store = ctx.store;
+  for (let i = from; i < queue.length; i++) {
+    if (store.ratingOf(queue[i]) === null) {
+      position = i;
+      return;
+    }
+  }
+  position = queue.length;
+}
+
+function phrase() {
+  return usePhrase ? DEMO_PHRASE : singleNotePhrase(auditionNote, auditionVel);
+}
+
+async function play(): Promise<void> {
+  const i = queue[position];
+  if (i === undefined) return;
+  const v = ctx.store.voices[i];
+  keyboard.setPatch(v.unpacked);
+  if (keyboard.playing) return;
+  await ctx.player.audition(v.id, v.unpacked, phrase(), { loop: loopPhrase });
+}
+
+async function rate(value: number): Promise<void> {
+  const i = queue[position];
+  if (i === undefined) return;
+  await ctx.store.rate(i, value, 'round1');
+  next();
+}
+
+function next(): void {
+  if (skipRated) advanceToUnrated(position + 1);
+  else position = Math.min(queue.length, position + 1);
+  render();
+  void play();
+}
+
+function prev(): void {
+  position = Math.max(0, position - 1);
+  render();
+  void play();
+}
+
+function render(): void {
+  clear(root);
+  const store = ctx.store;
+  const wrap = el('div', { class: 'rate-wrap stack' });
+
+  const rated = queue.filter((i) => store.ratingOf(i) !== null).length;
+  wrap.appendChild(el('div', { class: 'row', style: { justifyContent: 'space-between' } },
+    el('div', {}, el('b', {}, fmtInt(rated)), ' of ', el('b', {}, fmtInt(queue.length)), ' rated'),
+    el('div', { class: 'row' },
+      el('label', { class: 'field' }, 'order',
+        el('select', {
+          onchange: (e: Event) => {
+            ordering = (e.target as HTMLSelectElement).value as Ordering;
+            buildQueue();
+            render();
+            void play();
+          },
+        },
+          el('option', { value: 'coverage', selected: ordering === 'coverage' }, 'even coverage'),
+          el('option', { value: 'families', selected: ordering === 'families' }, 'biggest families first'),
+          el('option', { value: 'given', selected: ordering === 'given' }, 'as listed'),
+        )),
+      el('label', { class: 'field' },
+        el('input', {
+          type: 'checkbox', checked: skipRated,
+          onchange: (e: Event) => {
+            skipRated = (e.target as HTMLInputElement).checked;
+            if (skipRated) advanceToUnrated(0);
+            render();
+          },
+        }), 'skip rated'),
+      el('label', { class: 'field' },
+        el('input', {
+          type: 'checkbox', checked: usePhrase,
+          onchange: (e: Event) => {
+            usePhrase = (e.target as HTMLInputElement).checked;
+            void play();
+          },
+        }), 'demo phrase'),
+      el('label', { class: 'field' },
+        el('input', {
+          type: 'checkbox', checked: loopPhrase,
+          onchange: (e: Event) => {
+            loopPhrase = (e.target as HTMLInputElement).checked;
+            void play();
+          },
+        }), 'loop'),
+    ),
+  ));
+  wrap.appendChild(el('progress', { max: Math.max(1, queue.length), value: rated, style: { width: '100%' } }));
+
+  if (position >= queue.length) {
+    wrap.appendChild(el('div', { class: 'panel', style: { textAlign: 'center', padding: '40px' } },
+      el('h2', {}, 'Round one is done'),
+      el('p', { class: 'hint', style: { margin: '8px auto 18px' } },
+        'Families whose representative scored 4 or 5 can now be opened up in the face-off. Everything rated 3 or below ',
+        'dies with its whole family, which is where the saving comes from.'),
+      el('div', { class: 'row', style: { justifyContent: 'center' } },
+        el('button', { class: 'btn primary', onclick: () => ctx.go('faceoff') }, 'Go to the face-off'),
+        el('button', {
+          class: 'btn',
+          onclick: () => {
+            skipRated = false;
+            position = 0;
+            render();
+            void play();
+          },
+        }, 'Review from the start'),
+      ),
+    ));
+    root.appendChild(wrap);
+    return;
+  }
+
+  const i = queue[position];
+  const v = store.voices[i];
+  const a = store.analysis[i];
+  const cat = store.categoryOf(i) as Category | null;
+  const family = store.clusterMembers(i);
+  const merged = store.mergedMembers(i);
+  const current = store.ratingOf(i);
+
+  const card = el('div', { class: 'rate-card' },
+    el('div', { class: 'rate-name' }, v.name || '(unnamed)'),
+    el('div', { class: 'rate-meta' },
+      cat ? CATEGORY_LABELS[cat] : 'uncategorised',
+      `  ·  algorithm ${(v.unpacked[P.algorithm] & 31) + 1}`,
+      `  ·  feedback ${v.unpacked[P.feedback] & 7}`,
+      merged.length > 1 ? `  ·  ${merged.length} identical copies merged` : '',
+      family.length > 1 ? `  ·  family of ${family.length}` : '  ·  unique',
+      v.pinned ? '  ·  PINNED' : ''),
+    el('div', { class: 'rate-meta muted', style: { fontSize: '11.5px' } },
+      v.sources.slice(0, 3).map((s) => s.file).join(', '),
+      v.sources.length > 3 ? ` and ${v.sources.length - 3} more` : ''),
+  );
+
+  if (a) {
+    card.appendChild(el('div', { class: 'rate-meta muted', style: { marginTop: '10px' } },
+      `attack ${(Math.pow(10, a.acoustic.logAttackTime) * 1000).toFixed(0)} ms`,
+      `  ·  release ${Math.pow(10, a.acoustic.logReleaseTime).toFixed(2)} s`,
+      `  ·  brightness ${a.acoustic.centroidOct.toFixed(1)} oct`,
+      `  ·  velocity ${a.acoustic.velLevelDb.toFixed(0)} dB`));
+  }
+
+  const keys = el('div', { class: 'rate-keys' });
+  for (let r = 1; r <= 5; r++) {
+    keys.appendChild(el('button', {
+      class: current === r ? 'on' : '',
+      onclick: () => void rate(r),
+    }, String(r)));
+  }
+  card.appendChild(keys);
+
+  card.appendChild(el('div', { class: 'keyhelp' },
+    el('span', {}, el('kbd', {}, '1'), '–', el('kbd', {}, '5'), ' rate and advance'),
+    el('span', {}, el('kbd', {}, 'space'), ' replay'),
+    el('span', {}, el('kbd', {}, '←'), ' ', el('kbd', {}, '→'), ' move without rating'),
+    el('span', {}, el('kbd', {}, 'p'), ' pin'),
+    keyboard.connected
+      ? el('span', { class: 'good' }, 'MIDI keyboard plays this patch')
+      : el('span', {},
+        el('button', {
+          class: 'btn',
+          style: { padding: '2px 8px' },
+          onclick: async () => {
+            await keyboard.connect(ctx.player);
+            render();
+          },
+        }, 'Connect MIDI keyboard')),
+  ));
+
+  wrap.appendChild(card);
+  root.appendChild(wrap);
+}
+
+export const view: View = {
+  mount(container, c) {
+    ctx = c;
+    root = container;
+    buildQueue();
+    render();
+
+    keyHandler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (e.key >= '1' && e.key <= '5') {
+        e.preventDefault();
+        void rate(Number(e.key));
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        void play();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        position = Math.min(queue.length, position + 1);
+        render();
+        void play();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        prev();
+      } else if (e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        const i = queue[position];
+        if (i !== undefined) {
+          void ctx.store.togglePin(i);
+          render();
+        }
+      }
+    };
+    window.addEventListener('keydown', keyHandler);
+    unsubKeyboard = keyboard.subscribe(() => render());
+    void ctx.player.unlock().then(() => play());
+  },
+  unmount() {
+    if (keyHandler) window.removeEventListener('keydown', keyHandler);
+    keyHandler = null;
+    unsubKeyboard?.();
+    unsubKeyboard = null;
+    ctx?.player.stop();
+    keyboard.engine.allNotesOff();
+  },
+};

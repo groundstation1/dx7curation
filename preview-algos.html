@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>algorithm glyphs</title>
+<link rel="stylesheet" href="/src/ui/styles.css">
+<style>
+  body { padding: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 300px); gap: 12px; }
+  .cell { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
+  .cell h4 { margin: 0 0 4px; font-size: 11px; color: var(--muted); text-align: center; }
+  .cell svg { width: 100%; height: auto; }
+</style>
+</head><body>
+<div id="out" class="grid"></div>
+<script type="module">
+  const { algorithmDiagram } = await import('/src/ui/algorithmDiagram.ts');
+  const { parseSysexFile } = await import('/src/sysex/parse.ts');
+  const { unpackVoice, voiceName, P } = await import('/src/sysex/voice.ts');
+  const bytes = new Uint8Array(await (await fetch('/test/fixtures/ROM1A.syx')).arrayBuffer());
+  const voices = parseSysexFile(bytes, 'ROM1A.syx').voices.map(v => unpackVoice(v.packed));
+  const out = document.getElementById('out');
+  const byAlg = new Map();
+  for (const v of voices) byAlg.set(v[P.algorithm] & 31, v);
+  for (const alg of [4, 15, 23, 31, 18, 21, 6, 27]) {
+    const v = byAlg.get(alg) ?? voices[alg % voices.length];
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    const h = document.createElement('h4');
+    h.textContent = `alg ${alg + 1} — ${voiceName(v).trim()}`;
+    cell.appendChild(h);
+    cell.appendChild(algorithmDiagram(alg, { voice: v }));
+    out.appendChild(cell);
+  }
+</script>
+</body></html>
