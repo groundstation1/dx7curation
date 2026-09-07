@@ -53,7 +53,10 @@ export class LiveEngine {
   }
 
   attach(ctx: AudioContext, destination: AudioNode): void {
-    if (this.node) return;
+    // Re-attach rather than bail out when the context has been replaced: the
+    // node belongs to the old one and will never make a sound again.
+    if (this.node && this.ctx === ctx && this.out === destination) return;
+    if (this.node) this.detach();
     this.ctx = ctx;
     this.out = destination;
     initEngine(ctx.sampleRate);

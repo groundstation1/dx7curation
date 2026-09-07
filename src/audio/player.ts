@@ -104,6 +104,15 @@ export class Player {
    * does is round off the handful of peaks that would otherwise clip.
    */
   async unlock(): Promise<void> {
+    // A context whose device has gone away - an audio driver crash, a USB
+    // interface unplugged - ends up closed, and every node hanging off it is
+    // dead with it. Nothing revives it, so build a fresh one; without this the
+    // only cure is a page reload, which is not obvious when the symptom is
+    // simply that the app went quiet.
+    if (this.ctx && this.ctx.state === 'closed') {
+      this.current = null;
+      this.ctx = null;
+    }
     if (!this.ctx) {
       this.ctx = new AudioContext();
       this.master = this.ctx.createGain();

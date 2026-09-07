@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>operator cards</title>
+<link rel="stylesheet" href="/src/ui/styles.css">
+<style>
+  body { padding: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(4, auto); gap: 12px; justify-content: start; }
+  .grid h4 { grid-column: 1 / -1; margin: 8px 0 0; font-size: 11px; color: var(--muted); }
+  .op-tip { position: static; }
+</style>
+</head><body>
+<div id="out" class="grid"></div>
+<script type="module">
+  const { operatorCard } = await import('/src/ui/algorithmDiagram.ts');
+  const { algorithmGraph } = await import('/src/engine/algorithmGraph.ts');
+  const { parseSysexFile } = await import('/src/sysex/parse.ts');
+  const { unpackVoice, voiceName, P } = await import('/src/sysex/voice.ts');
+  const bytes = new Uint8Array(await (await fetch('/test/fixtures/ROM1A.syx')).arrayBuffer());
+  const voices = parseSysexFile(bytes, 'ROM1A.syx').voices.map(v => unpackVoice(v.packed));
+  const out = document.getElementById('out');
+  for (const v of [voices[0], voices[10]]) {
+    const alg = v[P.algorithm] & 31;
+    const g = algorithmGraph(alg);
+    const fb = new Set(g.feedback);
+    const h = document.createElement('h4');
+    h.textContent = `${voiceName(v).trim()} — algorithm ${alg + 1}`;
+    out.appendChild(h);
+    for (const node of g.nodes) {
+      const tip = document.createElement('div');
+      tip.className = 'op-tip';
+      tip.appendChild(operatorCard(v, node.op, node.carrier, fb.has(node.op)));
+      out.appendChild(tip);
+    }
+  }
+</script>
+</body></html>

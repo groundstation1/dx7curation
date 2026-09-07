@@ -351,31 +351,193 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
  */
 const CENTS_PER_DETUNE = 1.2;
 
-function bar(value: number, max: number, colour: string): HTMLElement {
-  const track = document.createElement('div');
-  track.className = 'op-bar';
-  const fill = document.createElement('i');
-  fill.style.width = `${Math.max(0, Math.min(1, value / max)) * 100}%`;
-  fill.style.background = colour;
-  track.appendChild(fill);
-  return track;
+/**
+ * The operator's envelope, drawn large enough to read the shape off.
+ *
+ * Eight numbers in a grid is the front panel's way of describing an envelope,
+ * and it is the wrong way round for recognising one: what tells you whether an
+ * operator is a click, a swell or a drone is the shape, which the numbers only
+ * imply. The plot uses the engine's own stage timings, compressed by a square
+ * root so a slow release cannot squeeze the attack down to nothing, and the
+ * whole curve is scaled by the output level - so a modulator at level 20 is
+ * visibly a low ceiling rather than the same picture with a different caption.
+ */
+function envelopePlot(v: Uint8Array, op: number, colour: string, w = 252, h = 108): SVGSVGElement {
+  const rates = [0, 1, 2, 3].map((i) => v[P.opRate(op, i)]);
+  const levels = [0, 1, 2, 3].map((i) => v[P.opLevel(op, i)]);
+  const level = v[P.opOutputLevel(op)];
+  const times = stageTimes(rates, levels, levels[3]);
+  const widths = times.map((t) => Math.sqrt(Math.max(t, 1)));
+  const sustain = Math.max(...widths, 1) * 0.55;
+  const total = widths[0] + widths[1] + widths[2] + sustain + widths[3];
+
+  const padL = 6;
+  const padR = 15;
+  const padT = 15;
+  const padB = 18;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const squash = scaleOutLevel(level) / 127;
+  const lv = (l: number) => padT + plotH * (1 - (scaleOutLevel(l) / 127) * squash);
+  const floor = padT + plotH;
+
+  const root = svg('svg', { viewBox: `0 0 ${w} ${h}`, class: 'op-env' });
+  root.appendChild(svg('rect', {
+    x: padL, y: padT, width: plotW, height: plotH, rx: 3,
+    fill: 'var(--bg)', stroke: 'var(--line)',
+  }));
+  // The ceiling a level-99 operator would reach, so the squash reads as one.
+  root.appendChild(svg('line', {
+    x1: padL, y1: padT, x2: padL + plotW, y2: padT,
+    stroke: 'var(--muted)', 'stroke-dasharray': '2 3', opacity: 0.35,
+  }));
+
+  const xs: number[] = [padL];
+  const ys: number[] = [lv(levels[3])];
+  let cx = padL;
+  for (let i = 0; i < 3; i++) {
+    cx += (widths[i] / total) * plotW;
+    xs.push(cx);
+    ys.push(lv(levels[i]));
+  }
+  cx += (sustain / total) * plotW;
+  xs.push(cx);
+  ys.push(lv(levels[2]));
+  cx += (widths[3] / total) * plotW;
+  xs.push(cx);
+  ys.push(lv(levels[3]));
+
+  // Stage boundaries as guides: where the corners are is the rate, read off the
+  // horizontal, and dropping a line to the floor makes that spacing visible.
+  for (const i of [1, 2, 3, 5]) {
+    root.appendChild(svg('line', {
+      x1: xs[i], y1: ys[i], x2: xs[i], y2: floor,
+      stroke: 'var(--line)', 'stroke-width': 1, opacity: 0.8,
+    }));
+  }
+
+  const d = xs.map((x, i) => `${i ? 'L' : 'M'} ${x.toFixed(1)} ${ys[i].toFixed(1)}`).join(' ');
+  root.appendChild(svg('path', {
+    d: `${d} L ${xs[5].toFixed(1)} ${floor} L ${padL} ${floor} Z`,
+    fill: colour, opacity: 0.22,
+  }));
+  root.appendChild(svg('path', {
+    d, fill: 'none', stroke: colour, 'stroke-width': 2, 'stroke-linejoin': 'round',
+  }));
+
+  // Key up: everything to its left happens while the note is held.
+  root.appendChild(svg('line', {
+    x1: xs[4], y1: padT, x2: xs[4], y2: floor,
+    stroke: 'var(--accent-2)', 'stroke-dasharray': '3 3', opacity: 0.65,
+  }));
+  const keyup = svg('text', {
+    x: Math.min(Math.max(xs[4], padL + 16), padL + plotW - 16), y: h - 5,
+    'text-anchor': 'middle', class: 'op-t', fill: 'var(--accent-2)',
+  });
+  keyup.textContent = 'key up';
+  root.appendChild(keyup);
+
+  for (const i of [1, 2, 3, 5]) {
+    root.appendChild(svg('circle', {
+      cx: xs[i], cy: ys[i], r: 3, fill: colour, stroke: 'var(--panel)', 'stroke-width': 1.4,
+    }));
+  }
+
+  // Output level as a meter up the right edge, on the curve's own scale.
+  const bx = w - 7;
+  root.appendChild(svg('line', {
+    x1: bx, y1: padT, x2: bx, y2: floor,
+    stroke: 'var(--panel-2)', 'stroke-width': 5, 'stroke-linecap': 'round',
+  }));
+  if (level > 0) {
+    root.appendChild(svg('line', {
+      x1: bx, y1: padT + plotH * (1 - squash), x2: bx, y2: floor,
+      stroke: colour, 'stroke-width': 5, 'stroke-linecap': 'round',
+    }));
+  }
+  // Above the plot, not below it: at long sustains the key-up label sits hard
+  // against the right edge and the two would collide.
+  const out = svg('text', { x: w - 2, y: padT - 3, 'text-anchor': 'end', class: 'op-t' });
+  out.textContent = `out ${level}`;
+  root.appendChild(out);
+  return root;
 }
 
-function row(label: string, ...content: Array<Node | string>): HTMLElement {
-  const r = document.createElement('div');
-  r.className = 'op-row';
-  const k = document.createElement('span');
-  k.className = 'op-k';
-  k.textContent = label;
-  r.appendChild(k);
-  const val = document.createElement('span');
-  val.className = 'op-v';
-  for (const c of content) val.append(c);
-  r.appendChild(val);
-  return r;
+/**
+ * Two pitch pictures: where the operator sits in the harmonic series, and how
+ * far off it is detuned.
+ *
+ * "Ratio 3.00" is a number you have to interpret; a mark standing on the third
+ * harmonic is the thing itself, and a mark between two of them is instantly the
+ * inharmonic one. Detune is about a cent a step, invisible against a range that
+ * spans six octaves, so it gets its own gauge underneath rather than nudging
+ * the mark by a pixel nobody can see.
+ */
+function pitchRuler(ratio: number, fixed: boolean, detune: number, colour: string, w = 252, h = 80): SVGSVGElement {
+  const root = svg('svg', { viewBox: `0 0 ${w} ${h}`, class: 'op-ruler' });
+  const padL = 10;
+  const plotW = w - padL * 2;
+  const y = 32;
+  const pos = (r: number) => padL + ((Math.log2(Math.max(r, 0.05)) + 1) / 6) * plotW;
+
+  root.appendChild(svg('line', {
+    x1: padL, y1: y, x2: padL + plotW, y2: y, stroke: 'var(--line)', 'stroke-width': 2,
+  }));
+  for (const r of [3, 5, 6, 7, 10, 12, 14, 20, 24, 28]) {
+    root.appendChild(svg('line', { x1: pos(r), y1: y - 3, x2: pos(r), y2: y + 3, stroke: 'var(--line)', 'stroke-width': 1.5 }));
+  }
+  for (const [r, label] of [[0.5, '\u00bd'], [1, '1'], [2, '2'], [4, '4'], [8, '8'], [16, '16'], [32, '32']] as const) {
+    const x = pos(r);
+    root.appendChild(svg('line', { x1: x, y1: y - 5.5, x2: x, y2: y + 5.5, stroke: 'var(--muted)', 'stroke-width': 1.5, opacity: 0.7 }));
+    const t = svg('text', { x, y: y + 17, 'text-anchor': 'middle', class: 'op-t' });
+    t.textContent = label;
+    root.appendChild(t);
+  }
+
+  const x = pos(ratio);
+  root.appendChild(svg('path', {
+    d: `M ${x - 6} ${y - 14} L ${x + 6} ${y - 14} L ${x} ${y - 4} Z`,
+    fill: fixed ? 'var(--bg)' : colour, stroke: colour, 'stroke-width': 1.5, 'stroke-linejoin': 'round',
+  }));
+  const mark = svg('text', {
+    x: Math.min(Math.max(x, 20), w - 20), y: y - 20, 'text-anchor': 'middle', class: 'op-mark',
+  });
+  mark.setAttribute('fill', colour);
+  mark.textContent = fixed ? `${(ratio * 261.63).toFixed(1)} Hz fixed` : `\u00d7 ${ratio.toFixed(2)}`;
+  root.appendChild(mark);
+
+  // ---- detune ----
+  const dy = h - 13;
+  const half = 46;
+  const cxx = w / 2;
+  root.appendChild(svg('line', {
+    x1: cxx - half, y1: dy, x2: cxx + half, y2: dy, stroke: 'var(--line)', 'stroke-width': 2, 'stroke-linecap': 'round',
+  }));
+  root.appendChild(svg('line', { x1: cxx, y1: dy - 5, x2: cxx, y2: dy + 5, stroke: 'var(--muted)', 'stroke-width': 1.5 }));
+  const needle = cxx + (detune / 7) * half;
+  root.appendChild(svg('circle', {
+    cx: needle, cy: dy, r: 4, fill: detune === 0 ? 'var(--muted)' : 'var(--accent-2)',
+    stroke: 'var(--panel)', 'stroke-width': 1.4,
+  }));
+  if (detune !== 0) {
+    root.appendChild(svg('line', {
+      x1: cxx, y1: dy, x2: needle, y2: dy, stroke: 'var(--accent-2)', 'stroke-width': 2.5, 'stroke-linecap': 'round',
+    }));
+  }
+  const dl = svg('text', { x: cxx - half - 6, y: dy + 4, 'text-anchor': 'end', class: 'op-t' });
+  dl.textContent = 'detune';
+  root.appendChild(dl);
+  const dv = svg('text', { x: cxx + half + 6, y: dy + 4, class: 'op-t' });
+  if (detune !== 0) dv.setAttribute('fill', 'var(--accent-2)');
+  dv.textContent = detune === 0
+    ? 'centred'
+    : `${detune > 0 ? '+' : ''}${(detune * CENTS_PER_DETUNE).toFixed(1)}\u2009cents`;
+  root.appendChild(dv);
+  return root;
 }
 
-function operatorCard(v: Uint8Array, op: number, carrier: boolean, feedback: boolean): HTMLElement {
+/** Exported so `preview-opcard.html` can render the cards without hovering. */
+export function operatorCard(v: Uint8Array, op: number, carrier: boolean, feedback: boolean): HTMLElement {
   const card = document.createElement('div');
   card.className = 'op-card';
 
@@ -406,51 +568,8 @@ function operatorCard(v: Uint8Array, op: number, carrier: boolean, feedback: boo
   }
   card.appendChild(head);
 
-  card.appendChild(row('frequency', fixed
-    ? `fixed ${(ratio * 261.63).toFixed(1)} Hz`
-    : `ratio ${ratio.toFixed(2)}`));
-  if (!fixed) {
-    card.appendChild(row('coarse / fine', `${v[P.opCoarse(op)]} / ${v[P.opFine(op)]}`));
-  }
-  card.appendChild(row('detune',
-    `${detune >= 0 ? '+' : ''}${detune}`,
-    detune === 0 ? ' (centre)' : ` (about ${detune > 0 ? '+' : ''}${(detune * CENTS_PER_DETUNE).toFixed(1)} cents)`));
-  card.appendChild(row('output level', bar(level, 99, colour), String(level)));
-
-  const eg = document.createElement('div');
-  eg.className = 'op-eg';
-  const head2 = document.createElement('div');
-  head2.className = 'op-eg-head';
-  for (const t of ['', '1', '2', '3', '4']) {
-    const c = document.createElement('span');
-    c.textContent = t;
-    head2.appendChild(c);
-  }
-  eg.appendChild(head2);
-  for (const [label, get] of [
-    ['rate', (i: number) => v[P.opRate(op, i)]],
-    ['level', (i: number) => v[P.opLevel(op, i)]],
-  ] as const) {
-    const line = document.createElement('div');
-    line.className = 'op-eg-line';
-    const k = document.createElement('span');
-    k.className = 'op-k';
-    k.textContent = label;
-    line.appendChild(k);
-    for (let i = 0; i < 4; i++) {
-      const cellEl = document.createElement('span');
-      cellEl.className = 'op-eg-cell';
-      const b = bar(get(i), 99, label === 'rate' ? 'var(--muted)' : colour);
-      cellEl.appendChild(b);
-      const num = document.createElement('em');
-      num.textContent = String(get(i));
-      cellEl.appendChild(num);
-      line.appendChild(cellEl);
-    }
-    eg.appendChild(line);
-  }
-  card.appendChild(eg);
-
+  card.appendChild(envelopePlot(v, op, colour));
+  card.appendChild(pitchRuler(ratio, fixed, detune, colour));
   return card;
 }
 
@@ -459,7 +578,10 @@ function operatorCard(v: Uint8Array, op: number, carrier: boolean, feedback: boo
  *
  * The card appears immediately rather than after the browser's title-tooltip
  * delay, which matters when the point is to sweep across six operators and
- * compare them.
+ * compare them. It is placed outside the diagram - to the left of the panel by
+ * preference, since the panel lives on the right - and fixed to the viewport
+ * rather than the panel, so it never covers the picture it is describing and is
+ * never clipped by a scrolling sidebar.
  */
 export function algorithmPanel(algorithm: number, voice?: Uint8Array): HTMLElement {
   const wrap = document.createElement('div');
@@ -472,30 +594,50 @@ export function algorithmPanel(algorithm: number, voice?: Uint8Array): HTMLEleme
   const tip = document.createElement('div');
   tip.className = 'op-tip';
   tip.hidden = true;
-  wrap.appendChild(tip);
 
   const g = algorithmGraph(algorithm);
   const byOp = new Map(g.nodes.map((n) => [n.op, n]));
   const feedbackOps = new Set(g.feedback);
+
+  const hide = () => {
+    tip.hidden = true;
+    tip.remove();
+  };
+
+  const place = (cell: Element) => {
+    const box = cell.getBoundingClientRect();
+    const host = wrap.getBoundingClientRect();
+    const gap = 12;
+    const w = tip.offsetWidth;
+    const h = tip.offsetHeight;
+
+    let left = host.left - gap - w;
+    if (left < 6) {
+      const right = host.right + gap;
+      // No room either side: sit above the panel, still clear of the diagram.
+      left = right + w <= window.innerWidth - 6 ? right : Math.max(6, host.left);
+    }
+    let top = box.top - h / 2 + box.height / 2;
+    if (left >= host.left && left <= host.right) top = host.top - gap - h;
+    tip.style.left = `${Math.round(Math.max(6, Math.min(window.innerWidth - w - 6, left)))}px`;
+    tip.style.top = `${Math.round(Math.max(6, Math.min(window.innerHeight - h - 6, top)))}px`;
+  };
 
   for (const cell of Array.from(diagram.querySelectorAll('.op-cell'))) {
     const op = Number(cell.getAttribute('data-op'));
     const node = byOp.get(op);
     if (!node) continue;
     cell.addEventListener('pointerenter', () => {
+      if (!wrap.isConnected) return;
       tip.replaceChildren(operatorCard(voice, op, node.carrier, feedbackOps.has(op)));
+      document.body.appendChild(tip);
       tip.hidden = false;
-      const box = (cell as SVGGElement).getBoundingClientRect();
-      const host = wrap.getBoundingClientRect();
-      // Prefer the right of the operator, flipping when there is no room.
-      const left = box.right - host.left + 10;
-      tip.style.left = `${left + tip.offsetWidth > host.width ? Math.max(4, box.left - host.left - tip.offsetWidth - 10) : left}px`;
-      tip.style.top = `${Math.max(4, Math.min(host.height - tip.offsetHeight - 4, box.top - host.top))}px`;
+      place(cell);
     });
-    cell.addEventListener('pointerleave', () => {
-      tip.hidden = true;
-    });
+    cell.addEventListener('pointerleave', hide);
   }
+  // A card outside the panel outlives the panel unless it is told not to.
+  diagram.addEventListener('pointerleave', hide);
 
   return wrap;
 }

@@ -246,36 +246,20 @@ table.sweep .zone-label {
 /* Per-operator hover card. Shown immediately, because the point is to sweep
    across six operators and compare them, not to wait a second on each. */
 .op-tip {
-  position: absolute; z-index: 20; min-width: 190px; max-width: 250px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
-  padding: 9px 10px; pointer-events: none; font-size: 11.5px;
+  position: fixed; z-index: 60; width: 276px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+  padding: 9px 10px 8px; pointer-events: none; font-size: 12px;
 }
-.op-head { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
-.op-head i { width: 10px; height: 10px; border-radius: 3px; border: 1.5px solid; display: inline-block; }
-.op-head b { font-size: 13px; }
+.op-head { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+.op-head i { width: 11px; height: 11px; border-radius: 3px; border: 1.5px solid; display: inline-block; }
+.op-head b { font-size: 14px; }
 .op-fb {
-  margin-left: auto; color: var(--accent-2); font-size: 10px;
+  margin-left: auto; color: var(--accent-2); font-size: 10.5px;
   text-transform: uppercase; letter-spacing: 0.06em;
 }
-.op-row { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
-.op-k { color: var(--muted); flex: none; width: 76px; font-size: 10.5px; }
-.op-v { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
-.op-bar {
-  width: 60px; height: 5px; border-radius: 3px; background: var(--panel-2);
-  overflow: hidden; flex: none;
-}
-.op-bar i { display: block; height: 100%; border-radius: 3px; }
-.op-eg { margin-top: 9px; border-top: 1px solid var(--line); padding-top: 7px; }
-.op-eg-head, .op-eg-line { display: grid; grid-template-columns: 40px repeat(4, 1fr); gap: 5px; align-items: center; }
-.op-eg-head span { color: var(--muted); font-size: 10px; text-align: center; }
-.op-eg-line { margin-top: 4px; }
-.op-eg-line .op-k { width: auto; }
-.op-eg-cell { display: flex; flex-direction: column; gap: 2px; align-items: stretch; }
-.op-eg-cell .op-bar { width: 100%; }
-.op-eg-cell em {
-  font-style: normal; font-size: 10px; color: var(--muted); text-align: center;
-  font-variant-numeric: tabular-nums;
-}
+.op-env, .op-ruler { display: block; width: 100%; }
+.op-t { font-size: 10.5px; fill: var(--muted); }
+.op-mark { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .empty-state { color: var(--muted); text-align: center; padding: 60px 20px; }

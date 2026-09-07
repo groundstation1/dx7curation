@@ -56,6 +56,25 @@ export class Keyboard {
     return Date.now() - this.engine.lastNoteAt < PLAY_SUPPRESSION_MS;
   }
 
+  /**
+   * Keep the engine on whatever context the player is currently using.
+   *
+   * The player rebuilds its context if the browser closes it, which leaves the
+   * engine's node attached to a corpse - the keyboard would look connected and
+   * make no sound.
+   */
+  private ensureEngine(): void {
+    const player = this.player;
+    if (!player) return;
+    if (!player.ready) {
+      void player.unlock().then(() => this.ensureEngine());
+      return;
+    }
+    const ctx = player.context;
+    const out = player.output;
+    if (ctx && out) this.engine.attach(ctx, out);
+  }
+
   async connect(player: Player): Promise<void> {
     this.player = player;
     await player.unlock();
@@ -78,6 +97,7 @@ export class Keyboard {
       noteOn: (note, velocity) => {
         // Anything sounding from an audition is in the way now.
         this.player?.stop();
+        this.ensureEngine();
         this.engine.noteOn(note, velocity);
       },
       noteOff: (note) => this.engine.noteOff(note),
