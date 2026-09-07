@@ -119,6 +119,7 @@ export class App {
     this.player.setMuted(getSetting('audio.muted', false));
     this.player.autoPlay = getSetting('audio.autoPlay', true);
     keyboard.setModDeadzone(getSetting('midi.modDeadzone', keyboard.modDeadzone));
+    keyboard.setBendRange(getSetting('midi.bendRange', keyboard.bendRange));
 
     // If MIDI was granted on a previous visit, be ready without being asked.
     void keyboard.autoConnect(this.player).then((ok) => {
@@ -246,6 +247,21 @@ export class App {
           setSetting('midi.modDeadzone', v);
         },
       }), '%'));
+
+    this.transportEl.appendChild(el('label', {
+      class: 'field',
+      title: 'How far your pitch wheel bends, in semitones. The controller decides this and cannot be asked, so it has to be told.',
+    }, 'bend',
+      el('input', {
+        type: 'number', min: 1, max: 24, step: 1,
+        value: keyboard.bendRange,
+        style: { width: '46px' },
+        onchange: (e: Event) => {
+          const v = Number((e.target as HTMLInputElement).value);
+          keyboard.setBendRange(v);
+          setSetting('midi.bendRange', keyboard.bendRange);
+        },
+      }), 'st'));
 
     this.transportEl.appendChild(el('span', {
       class: keyboard.modWheel > 0 ? 'warn mono' : 'muted mono',

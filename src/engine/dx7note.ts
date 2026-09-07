@@ -173,8 +173,16 @@ export class Dx7Note {
     this.ampModCc = cc;
   }
 
-  /** Adds one block of N samples into buf (Q24-ish fixed point). */
-  compute(buf: Int32Array, lfoVal: number, lfoDelay: number): void {
+  /**
+   * Adds one block of N samples into buf (Q24-ish fixed point).
+   *
+   * `pitchBase` is a log-frequency offset in the same units as everything else
+   * here - 1 << 24 is an octave - and is where pitch bend and master tune go.
+   * It is deliberately separate from the pitch envelope and the LFO: those are
+   * per-note modulation, this is a global shift, and fixed-frequency operators
+   * follow it while ignoring the other two.
+   */
+  compute(buf: Int32Array, lfoVal: number, lfoDelay: number, pitchBase = 0): void {
     // ---- pitch ----
     const pmd = this.pitchmoddepth * lfoDelay;
     const senslfo = this.pitchmodsens * (lfoVal - (1 << 23));
@@ -185,7 +193,6 @@ export class Dx7Note {
     pmod2 = Math.abs(pmod2);
     let pitchMod = Math.max(pmod1, pmod2);
     pitchMod = this.pitchenv.getsample() + pitchMod * (senslfo < 0 ? -1 : 1);
-    const pitchBase = 0; // no pitch bend, no master tune
     pitchMod += pitchBase;
 
     // ---- amp mod ----

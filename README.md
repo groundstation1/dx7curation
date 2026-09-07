@@ -58,6 +58,7 @@ node test/algograph.ts    # all 32 algorithms against their front-panel layouts
 node test/phrase.ts       # the audition phrase
 node test/drone.ts        # voices that never stop on their own
 node test/taste.ts        # the rating model, on synthetic tastes
+node test/bend.ts         # pitch bend, measured back off the rendered audio
 node test/interpolate.ts  # blending voices
 node test/bench.ts        # render throughput
 ```
@@ -114,6 +115,12 @@ losing the volume you set, and stops what is sounding rather than letting it
 play on inaudibly. Autoplay governs only the sounds nothing asked for - hover,
 advancing the rating queue, loading a face-off pair. Buttons, the space bar and
 the MIDI keyboard always play.
+
+**Pitch bend is global, and its range is yours to state.** One value for every
+sounding voice, applied to fixed-frequency operators as well as ratio ones, as
+on the hardware. How far the wheel bends is set by the controller and cannot be
+read back over MIDI, so the transport has a semitone box; two is the default the
+DX7 itself powers up with.
 
 **A released note is not always a finished note.** A DX7 envelope's fourth
 level is where it settles after key-up, and it does not have to be zero: six of

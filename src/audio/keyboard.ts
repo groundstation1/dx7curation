@@ -37,6 +37,16 @@ export class Keyboard {
   /** The raw controller value, so the UI can show what the hardware is sending. */
   modWheelRaw = 0;
   modDeadzone = DEFAULT_MOD_DEADZONE;
+  /** Pitch bend position, -1 to 1, for the UI. */
+  bend = 0;
+  /**
+   * How far the wheel bends, in semitones.
+   *
+   * Two is the near-universal default and what the DX7 itself powers up with,
+   * but the controller decides its own range and there is no way to ask it, so
+   * this has to be settable.
+   */
+  bendRange = 2;
 
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
@@ -75,6 +85,12 @@ export class Keyboard {
     if (ctx && out) this.engine.attach(ctx, out);
   }
 
+  setBendRange(semitones: number): void {
+    this.bendRange = Math.max(1, Math.min(24, Math.round(semitones)));
+    this.engine.setPitchBend(this.bend, this.bendRange);
+    this.emit();
+  }
+
   async connect(player: Player): Promise<void> {
     this.player = player;
     await player.unlock();
@@ -109,6 +125,11 @@ export class Keyboard {
         if (Math.abs(value - this.modWheel) < 0.002) return;
         this.modWheel = value;
         this.engine.setModWheel(value);
+        this.emit();
+      },
+      pitchBend: (value) => {
+        this.bend = value;
+        this.engine.setPitchBend(value, this.bendRange);
         this.emit();
       },
       allNotesOff: () => this.engine.allNotesOff(),

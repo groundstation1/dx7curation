@@ -83,6 +83,8 @@ export interface MidiInputHandlers {
   noteOff(note: number): void;
   /** Mod wheel position, 0..1. */
   modWheel(value: number): void;
+  /** Pitch bend, -1 to 1, with 0 at the centre detent. */
+  pitchBend(value: number): void;
   allNotesOff(): void;
 }
 
@@ -108,6 +110,12 @@ export function attachInputs(handlers: MidiInputHandlers): () => void {
         else handlers.noteOff(d[1]);
       } else if (status === 0x80) {
         handlers.noteOff(d[1]);
+      } else if (status === 0xe0) {
+        // 14 bits, little end first, centred at 8192. The two halves of the
+        // range are not the same size - 8192 below, 8191 above - so they are
+        // scaled separately rather than pretending the centre is at 8191.5.
+        const raw = (d[1] & 0x7f) | ((d[2] & 0x7f) << 7);
+        handlers.pitchBend(raw < 8192 ? (raw - 8192) / 8192 : (raw - 8192) / 8191);
       } else if (status === 0xb0) {
         const cc = d[1];
         if (MOD_WHEEL_CCS.includes(cc)) handlers.modWheel(d[2] / 127);

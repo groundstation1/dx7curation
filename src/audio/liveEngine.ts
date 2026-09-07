@@ -67,6 +67,7 @@ export class LiveEngine {
   private patch: Uint8Array | null = null;
   private transpose = 0;
   private modWheel = 0;
+  private pitchBase = 0;
   private buf = new Int32Array(N);
   /** For voices being faded, which have to be scaled before they are summed. */
   private scratch = new Int32Array(N);
@@ -163,6 +164,22 @@ export class LiveEngine {
     this.voices = [];
   }
 
+  /**
+   * Pitch bend, -1 to 1, scaled by the range in semitones.
+   *
+   * Global, as it is on the hardware: one value for every sounding voice,
+   * applied to fixed-frequency operators as well as ratio ones. Stored as a
+   * log-frequency offset so the audio thread does nothing but add it.
+   */
+  setPitchBend(value: number, semitones: number): void {
+    const v = Math.max(-1, Math.min(1, value));
+    this.pitchBase = Math.round((v * semitones * (1 << 24)) / 12);
+  }
+
+  get pitchBend(): number {
+    return this.pitchBase;
+  }
+
   setModWheel(value01: number): void {
     this.modWheel = Math.max(0, Math.min(1, value01));
     for (const v of this.voices) v.note.setModWheel(this.modWheel);
@@ -185,12 +202,12 @@ export class LiveEngine {
         if (v.released) v.heldBlocks++;
         if (v.released && v.gain === 1 && (v.note.settled || v.heldBlocks > maxBlocks)) v.gain -= fadeStep;
         if (v.gain >= 1) {
-          v.note.compute(this.buf, lfoVal, lfoDelay);
+          v.note.compute(this.buf, lfoVal, lfoDelay, this.pitchBase);
           continue;
         }
         // Fading, so it has to be rendered on its own before it is summed.
         this.scratch.fill(0);
-        v.note.compute(this.scratch, lfoVal, lfoDelay);
+        v.note.compute(this.scratch, lfoVal, lfoDelay, this.pitchBase);
         const g = Math.max(0, v.gain);
         for (let j = 0; j < N; j++) this.buf[j] += Math.round(this.scratch[j] * g);
         v.gain -= fadeStep;
