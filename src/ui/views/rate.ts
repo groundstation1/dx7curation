@@ -75,12 +75,14 @@ function phrase() {
   return usePhrase ? DEMO_PHRASE : singleNotePhrase(auditionNote, auditionVel);
 }
 
-async function play(): Promise<void> {
+/** @param auto true when advancing did this rather than the user asking. */
+async function play(auto = false): Promise<void> {
   const i = queue[position];
   if (i === undefined) return;
   const v = ctx.store.voices[i];
   keyboard.setPatch(v.unpacked);
   if (keyboard.playing) return;
+  if (auto && !ctx.player.autoPlay) return;
   await ctx.player.audition(v.id, v.unpacked, phrase(), { loop: loopPhrase });
 }
 
@@ -95,13 +97,13 @@ function next(): void {
   if (skipRated) advanceToUnrated(position + 1);
   else position = Math.min(queue.length, position + 1);
   render();
-  void play();
+  void play(true);
 }
 
 function prev(): void {
   position = Math.max(0, position - 1);
   render();
-  void play();
+  void play(true);
 }
 
 function render(): void {
@@ -119,7 +121,7 @@ function render(): void {
             ordering = (e.target as HTMLSelectElement).value as Ordering; setSetting('rate.ordering', ordering);
             buildQueue();
             render();
-            void play();
+            void play(true);
           },
         },
           el('option', { value: 'coverage', selected: ordering === 'coverage' }, 'even coverage'),
@@ -140,7 +142,7 @@ function render(): void {
           type: 'checkbox', checked: usePhrase,
           onchange: (e: Event) => {
             usePhrase = (e.target as HTMLInputElement).checked; setSetting('audition.phrase', usePhrase);
-            void play();
+            void play(true);
           },
         }), 'demo phrase'),
       el('label', { class: 'field' },
@@ -148,7 +150,7 @@ function render(): void {
           type: 'checkbox', checked: loopPhrase,
           onchange: (e: Event) => {
             loopPhrase = (e.target as HTMLInputElement).checked; setSetting('audition.loop', loopPhrase);
-            void play();
+            void play(true);
           },
         }), 'loop'),
     ),
@@ -276,7 +278,7 @@ export const view: View = {
         e.preventDefault();
         position = Math.min(queue.length, position + 1);
         render();
-        void play();
+        void play(true);
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         prev();
@@ -291,7 +293,7 @@ export const view: View = {
     };
     window.addEventListener('keydown', keyHandler);
     unsubKeyboard = keyboard.subscribe(() => render());
-    void ctx.player.unlock().then(() => play());
+    void ctx.player.unlock().then(() => play(true));
   },
   unmount() {
     if (keyHandler) window.removeEventListener('keydown', keyHandler);

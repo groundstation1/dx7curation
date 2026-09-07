@@ -74,6 +74,16 @@ export class Player {
   private cacheOrder: string[] = [];
   private cacheLimit = 48;
   private volume = DEFAULT_VOLUME;
+  private muted = false;
+  /**
+   * Whether a sound may start without being asked for.
+   *
+   * Hovering the map, advancing the rating queue and loading a face-off pair
+   * all play something by themselves, which is the whole point most of the
+   * time and exactly wrong when you are reading rather than listening. Explicit
+   * play - a button, the space bar, the MIDI keyboard - ignores this.
+   */
+  autoPlay = true;
 
   constructor() {
     this.worker = new Worker(new URL('../workers/audition.worker.ts', import.meta.url), { type: 'module' });
@@ -123,7 +133,7 @@ export class Player {
       this.softClip.oversample = '2x';
 
       this.volumeNode = this.ctx.createGain();
-      this.volumeNode.gain.value = this.volume;
+      this.volumeNode.gain.value = this.muted ? 0 : this.volume;
 
       this.master.connect(this.softClip);
       this.softClip.connect(this.volumeNode);
@@ -155,9 +165,31 @@ export class Player {
 
   setVolume(v: number): void {
     this.volume = Math.max(0, Math.min(1, v));
-    if (this.volumeNode && this.ctx) {
-      this.volumeNode.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.01);
-    }
+    this.applyVolume();
+  }
+
+  private applyVolume(): void {
+    if (!this.volumeNode || !this.ctx) return;
+    const target = this.muted ? 0 : this.volume;
+    this.volumeNode.gain.setTargetAtTime(target, this.ctx.currentTime, 0.01);
+  }
+
+  /**
+   * Silence, without losing the volume you had set.
+   *
+   * Muting also stops whatever is sounding rather than letting it play out
+   * inaudibly: the point of reaching for mute is usually that something is
+   * making a noise right now, and an audition that carries on silently would
+   * come back the moment you unmuted.
+   */
+  setMuted(v: boolean): void {
+    this.muted = v;
+    if (v) this.stop();
+    this.applyVolume();
+  }
+
+  get isMuted(): boolean {
+    return this.muted;
   }
 
   private remember(key: string, buf: AudioBuffer): void {

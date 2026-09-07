@@ -100,6 +100,12 @@ envelope are donated intact from one contributor, and so is the envelope shape.
 Averaging them produces a tuning nobody had, and an envelope that sustains less
 than any of its inputs.
 
+**Mute and autoplay are separate switches.** Mute silences the output without
+losing the volume you set, and stops what is sounding rather than letting it
+play on inaudibly. Autoplay governs only the sounds nothing asked for - hover,
+advancing the rating queue, loading a face-off pair. Buttons, the space bar and
+the MIDI keyboard always play.
+
 **A released note is not always a finished note.** A DX7 envelope's fourth
 level is where it settles after key-up, and it does not have to be zero: six of
 the 128 factory voices end their release on an audible level and sound forever,

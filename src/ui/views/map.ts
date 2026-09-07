@@ -729,8 +729,13 @@ async function rateTarget(value: number): Promise<void> {
   draw();
 }
 
-async function audition(i: number, quick = false): Promise<void> {
+/**
+ * @param auto true when nothing asked for this - a hover, a cursor landing on a
+ *   point - so the autoplay switch can veto it.
+ */
+async function audition(i: number, quick = false, auto = false): Promise<void> {
   if (i < 0 || keyboard.playing) return;
+  if (auto && !ctx.player.autoPlay) return;
   const v = ctx.store.voices[i];
   if (!v) return;
   if (!usePhrase) {
@@ -827,7 +832,7 @@ function runInterpolation(mx: number, my: number): void {
     // reached the keyboard and the next key press played a stale patch - the
     // two features looked like they were fighting each other.
     keyboard.setPatch(interpResult.voice);
-    if (!keyboard.playing) {
+    if (!keyboard.playing && ctx.player.autoPlay) {
       const id = `blend-${voiceHash(interpResult.voice)}`;
       void ctx.player.audition(id, interpResult.voice, phrase(false), { loop: loopPhrase });
     }
@@ -1365,7 +1370,7 @@ function attachCanvasEvents(): void {
           const now = performance.now();
           if (hoverAudition && now - lastAuditionAt > HOVER_INTERVAL_MS) {
             lastAuditionAt = now;
-            void audition(onPoint, true);
+            void audition(onPoint, true, true);
           }
         }
         return;
@@ -1549,7 +1554,7 @@ export const view: View = {
       } else if (e.key === ' ') {
         if (i < 0) return;
         e.preventDefault();
-        void audition(i, true);
+        void audition(i, true, true);
       } else if (e.key === 'Escape') {
         if (selected < 0) return;
         e.preventDefault();

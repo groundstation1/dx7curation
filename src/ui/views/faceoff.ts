@@ -111,7 +111,7 @@ async function loadPair(): Promise<void> {
   keyboard.setPatch(store.voices[champion].unpacked);
   loading = false;
   render();
-  ab.start('a', 0);
+  if (ctx.player.autoPlay) ab.start('a', 0);
 }
 
 async function finishBout(): Promise<void> {

@@ -116,6 +116,8 @@ export class App {
     // Preferences the user set last time. Applied before anything renders, so
     // no control ever shows a default it is not actually using.
     this.player.setVolume(getSetting('audio.volume', this.player.getVolume()));
+    this.player.setMuted(getSetting('audio.muted', false));
+    this.player.autoPlay = getSetting('audio.autoPlay', true);
     keyboard.setModDeadzone(getSetting('midi.modDeadzone', keyboard.modDeadzone));
 
     // If MIDI was granted on a previous visit, be ready without being asked.
@@ -187,6 +189,31 @@ export class App {
           setSetting('audio.volume', v);
         },
       })));
+
+    this.transportEl.appendChild(el('button', {
+      class: this.player.isMuted ? 'btn on' : 'btn',
+      style: { padding: '4px 8px' },
+      title: this.player.isMuted ? 'Muted. Click to hear things again.' : 'Silence everything, including the MIDI keyboard.',
+      onclick: () => {
+        this.player.setMuted(!this.player.isMuted);
+        setSetting('audio.muted', this.player.isMuted);
+        this.renderTransport();
+      },
+    }, this.player.isMuted ? 'muted' : 'mute'));
+
+    this.transportEl.appendChild(el('button', {
+      class: this.player.autoPlay ? 'btn' : 'btn on',
+      style: { padding: '4px 8px' },
+      title: this.player.autoPlay
+        ? 'Hovering, rating and the face-off start playing by themselves. Click to stop that.'
+        : 'Nothing plays unless you ask for it. Buttons, the space bar and the keyboard still work.',
+      onclick: () => {
+        this.player.autoPlay = !this.player.autoPlay;
+        setSetting('audio.autoPlay', this.player.autoPlay);
+        if (!this.player.autoPlay) this.player.stop();
+        this.renderTransport();
+      },
+    }, this.player.autoPlay ? 'autoplay' : 'no autoplay'));
 
     if (!midiSupported()) return;
 

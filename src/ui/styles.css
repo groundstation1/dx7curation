@@ -91,6 +91,9 @@ button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 button.btn.primary { background: var(--accent); color: #10131a; border-color: var(--accent); font-weight: 600; }
 button.btn.primary:hover:not(:disabled) { background: #8ab9ff; }
 button.btn.danger { color: var(--bad); }
+/* A transport toggle that is currently engaged. */
+button.btn.on { border-color: var(--accent); color: var(--accent); }
+button.btn.off { color: var(--muted); }
 
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .stack { display: flex; flex-direction: column; gap: 14px; }
