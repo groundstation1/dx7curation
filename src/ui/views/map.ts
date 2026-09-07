@@ -16,10 +16,12 @@ import { FEATURE_DEFS, FEATURE_COUNT } from '../../features/vector.ts';
 import { CATEGORIES, CATEGORY_LABELS, SUBCATEGORIES, subcategoryLabel, type Category } from '../../cluster/category.ts';
 import { P } from '../../sysex/voice.ts';
 import { algorithmPanel } from '../algorithmDiagram.ts';
+import { voiceDetails } from '../voicePanel.ts';
 import { categoryColour, focusedSubcategoryColour, oklch, ratingColour, subcategoryColour as subColour } from '../colour.ts';
 import { DEMO_PHRASE, HOVER_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
 import { matchesQuery, parseQuery, type SearchQuery } from '../search.ts';
+import { getSetting, setSetting } from '../settings.ts';
 import { blendWeights, dominantAlgorithm, interpolateVoices, inverseDistanceWeights, voiceHash, type InterpolationResult } from '../../engine/interpolate.ts';
 
 type AxisId = string;
@@ -124,23 +126,24 @@ let lastAuditionAt = 0;
 let lassoSelection: number[] = [];
 
 // options
-let xAxisId: AxisId = 'pca1';
-let yAxisId: AxisId = 'pca2';
-let colourBy: 'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 'source' | 'algorithm' = 'category';
-let sizeByFamily = false;
-let collapseMerged = true;
-let hoverAudition = true;
-let usePhrase = true;
-let loopPhrase = true;
-let auditionNote = 60;
-let auditionVel = 100;
+let xAxisId: AxisId = getSetting('map.xAxis', 'pca1');
+let yAxisId: AxisId = getSetting('map.yAxis', 'pca2');
+let colourBy: 'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 'source' | 'algorithm' =
+  getSetting<'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 'source' | 'algorithm'>('map.colourBy', 'category');
+let sizeByFamily = getSetting('map.sizeByFamily', false);
+let collapseMerged = getSetting('map.collapseMerged', true);
+let hoverAudition = getSetting('map.hoverPlays', true);
+let usePhrase = getSetting('audition.phrase', true);
+let loopPhrase = getSetting('audition.loop', true);
+let auditionNote = getSetting('audition.note', 60);
+let auditionVel = getSetting('audition.velocity', 100);
 
 // search
 let query: SearchQuery = parseQuery('');
 let searchText = '';
-let searchScope: 'name' | 'all' = 'name';
-let searchMode: 'highlight' | 'only' = 'highlight';
-let snapToMatches = true;
+let searchScope: 'name' | 'all' = getSetting<'name' | 'all'>('map.searchScope', 'name');
+let searchMode: 'highlight' | 'only' = getSetting<'highlight' | 'only'>('map.searchMode', 'highlight');
+let snapToMatches = getSetting('map.snapToMatches', true);
 /**
  * Category and subcategory focus. Folded into the same match set as the text
  * search, so the highlight/show-only and snap-to-results controls apply to it
@@ -148,14 +151,19 @@ let snapToMatches = true;
  */
 let focusCategory: Category | '' = '';
 let focusSub = '';
+/**
+ * The other thing worth narrowing to: what you have judged, and how well.
+ * `'unrated'` is the untouched pile; a number is a floor, "this good or better".
+ */
+let focusRating: '' | 'unrated' | 1 | 2 | 3 | 4 | 5 = '';
 let matched: Set<number> | null = null;
 
 // interpolation
-let interpolateMode = false;
+let interpolateMode = getSetting('map.interpolate', false);
 /** Neighbours polled for the algorithm vote before the blend narrows down. */
 let interpVotePool = 24;
 /** Contributors to the blend once the algorithm is settled. */
-let interpNeighbours = 8;
+let interpNeighbours = getSetting('map.interpNeighbours', 8);
 let interpResult: InterpolationResult | null = null;
 let interpAt: [number, number] | null = null;
 let interpTimer: number | null = null;
@@ -177,7 +185,7 @@ let interpFrozen = false;
  * blend. Bigger than a dot, because you are aiming with a mouse at a cloud of
  * twenty thousand points and being made to hit one exactly is no fun.
  */
-let interpSnapRadius = 14;
+let interpSnapRadius = getSetting('map.snapRadius', 14);
 /**
  * How sharply the blend favours the nearest contributor. 0 mixes them equally,
  * 1 is dominated by whatever is closest.
@@ -941,167 +949,28 @@ function renderSide(): void {
     return;
   }
 
-  const v = store.voices[i];
-  const a = store.analysis[i];
-  const cat = store.categoryOf(i);
-  const rating = store.ratingOf(i);
-  const family = store.clusterMembers(i);
-  const merged = store.mergedMembers(i);
-
-  const panel = el('div', {},
-    el('div', { class: 'mono', style: { fontSize: '17px' } }, v.name || '(unnamed)'),
-    el('div', { class: 'muted', style: { marginTop: '2px' } },
-      `algorithm ${(v.unpacked[P.algorithm] & 31) + 1}`,
-      `  ·  feedback ${v.unpacked[P.feedback] & 7}`,
-      v.pinned ? '  ·  pinned' : ''),
-  );
-
-  // The algorithm, drawn. Two patches on the same algorithm are the same
-  // instrument wired differently, and that is much faster to take in as a
-  // picture than as a number between 1 and 32.
-  panel.appendChild(algorithmPanel(v.unpacked[P.algorithm] & 31, v.unpacked));
-
-  // Rating from here, so a patch found by exploring does not have to be
-  // rediscovered in the rating queue to be scored.
-  const keys = el('div', { class: 'rate-keys map-rate' });
-  for (let r = 1; r <= 5; r++) {
-    keys.appendChild(el('button', {
-      class: rating === r ? 'on' : '',
-      title: `Rate ${r}`,
-      onclick: () => void rateTarget(r),
-    }, String(r)));
-  }
-  panel.appendChild(keys);
-  panel.appendChild(el('div', { class: 'muted', style: { textAlign: 'center', fontSize: '11px', marginTop: '4px' } },
-    rating ? el('span', {}, 'rated ', el('b', {}, String(rating)), ' — press the same number again to clear')
-      : el('span', {}, 'press ', el('kbd', {}, '1'), '–', el('kbd', {}, '5'), ' to rate, ', el('kbd', {}, 'p'), ' to pin')));
-
-  panel.appendChild(el('div', { class: 'row', style: { marginTop: '12px' } },
-    el('button', { class: 'btn', onclick: () => void audition(i) }, 'Play'),
-    el('button', {
-      class: 'btn',
-      onclick: () => {
-        void ctx.store.togglePin(i);
-        draw();
-      },
-    }, v.pinned ? 'Unpin' : 'Pin'),
-  ));
-
-  const dl = el('dl', { class: 'detail' });
-  const add = (k: string, value: string) => {
-    dl.appendChild(el('dt', {}, k));
-    dl.appendChild(el('dd', {}, value));
-  };
-
-  dl.appendChild(el('dt', {}, 'category'));
-  dl.appendChild(el('dd', {}, el('select', {
-    onchange: (e: Event) => {
-      const value = (e.target as HTMLSelectElement).value;
-      void store.setCategoryOverride(i, value === 'auto' ? null : (value as Category));
+  sideEl.appendChild(voiceDetails(store, i, {
+    onPlay: (n) => void audition(n),
+    onRate: (r) => void rateTarget(r),
+    onOpen: (n) => {
+      selected = n;
+      armKeyboard();
+      void audition(n);
+      renderSide();
       draw();
     },
-  },
-    el('option', { value: 'auto', selected: !store.categoryOverrides.has(v.id) }, `auto: ${cat ?? '-'}`),
-    ...CATEGORIES.map((c) => el('option', {
-      value: c,
-      selected: store.categoryOverrides.get(v.id) === c,
-    }, CATEGORY_LABELS[c])),
-  )));
-
-  const sub = store.subcategoryOf(i);
-  if (cat && sub) add('subcategory', subcategoryLabel(cat, sub));
-  add('rating', rating ? '★'.repeat(rating) : 'not rated');
-  const predicted = store.predictedRating(i);
-  if (predicted !== null) add('predicted rating', predicted.toFixed(2));
-  if (a) {
-    add('attack', `${(Math.pow(10, a.acoustic.logAttackTime) * 1000).toFixed(0)} ms`);
-    add('release', `${Math.pow(10, a.acoustic.logReleaseTime).toFixed(2)} s${a.acoustic.releaseCensored ? ' (still ringing)' : ''}`);
-    add('sustain', a.acoustic.sustainRatio.toFixed(2));
-    add('brightness', `${a.acoustic.centroidOct.toFixed(2)} octaves above f0`);
-    add('register', `${a.acoustic.registerOct >= 0 ? '+' : ''}${a.acoustic.registerOct.toFixed(2)} octaves vs the note played`);
-    add('inharmonicity', a.acoustic.inharmonicity.toFixed(3));
-    add('velocity range', `${a.acoustic.velLevelDb.toFixed(1)} dB, ${a.acoustic.velBrightnessOct.toFixed(2)} oct brighter`);
-  }
-  panel.appendChild(dl);
-
-  // ---- duplicates, in three distinct tiers ----
-  //
-  // These are genuinely different things and conflating them was confusing:
-  //   exact   byte-identical apart from the name; collapsed on import, so this
-  //           voice IS all of them and there is nothing to compare
-  //   merged  different bytes, below the merge threshold; a separate row in the
-  //           table, but treated as the same sound and hidden behind this one
-  //   family  below the looser threshold; similar but audibly different, and
-  //           what the face-off actually compares
-  const mergedOthers = merged.filter((m) => m !== i);
-  const contenders = store.familyContenders(i).filter((m) => m !== i);
-  let copiesAcrossMerged = 0;
-  for (const m of merged) copiesAcrossMerged += store.voices[m]?.sources.length ?? 0;
-
-  panel.appendChild(el('h3', {}, 'Duplicates'));
-  const dupes = el('dl', { class: 'detail' });
-  const addDupe = (k: string, value: string, note: string) => {
-    dupes.appendChild(el('dt', {}, k));
-    dupes.appendChild(el('dd', {}, value, el('div', { class: 'muted', style: { fontSize: '11px' } }, note)));
-  };
-  addDupe('exact copies',
-    v.sources.length === 1 ? 'just this one' : `${v.sources.length} files`,
-    'byte-identical once the name is ignored, collapsed on import');
-  addDupe('merged',
-    mergedOthers.length === 0 ? 'none' : `${mergedOthers.length} other voice${mergedOthers.length === 1 ? '' : 's'}`,
-    `below the merge threshold of ${store.mergeThreshold.toFixed(2)}; treated as the same sound`);
-  addDupe('family',
-    contenders.length === 0 ? 'unique' : `${contenders.length} distinct sound${contenders.length === 1 ? '' : 's'}`,
-    `below ${store.threshold.toFixed(2)}; similar but audibly different, so these go to the face-off`);
-  if (mergedOthers.length || v.sources.length > 1) {
-    addDupe('copies in the corpus', String(copiesAcrossMerged),
-      'total source files this sound arrived in, across every merged voice');
-  }
-  panel.appendChild(dupes);
-
-  const voiceList = (title: string, indices: number[], note: string) => {
-    if (indices.length === 0) return;
-    panel.appendChild(el('h3', {}, title));
-    panel.appendChild(el('div', { class: 'muted', style: { fontSize: '11px', marginBottom: '5px' } }, note));
-    const list = el('div', { class: 'stack', style: { gap: '3px' } });
-    for (const m of indices.slice(0, 14)) {
-      list.appendChild(el('button', {
-        class: 'btn',
-        style: { textAlign: 'left', padding: '4px 8px' },
-        onclick: () => {
-          selected = m;
-          armKeyboard();
-          void audition(m);
-          renderSide();
-          draw();
-        },
-      }, store.voices[m].name || '(unnamed)'));
-    }
-    if (indices.length > 14) {
-      list.appendChild(el('div', { class: 'muted' }, `and ${indices.length - 14} more`));
-    }
-    panel.appendChild(list);
-  };
-
-  voiceList('Merged into this one', mergedOthers, 'these should be indistinguishable; if one is not, raise the merge threshold');
-  voiceList('Others in this family', contenders, 'similar but audibly different');
-
-  panel.appendChild(el('h3', {}, `Where this one came from (${v.sources.length})`));
-  const ul = el('ul', { class: 'muted mono', style: { margin: 0, paddingLeft: '16px', fontSize: '11px' } });
-  for (const s of v.sources.slice(0, 10)) {
-    ul.appendChild(el('li', {}, `${s.name.trim() || '(unnamed)'} — ${s.file} slot ${s.slot + 1}`));
-  }
-  if (v.sources.length > 10) ul.appendChild(el('li', {}, `and ${v.sources.length - 10} more`));
-  panel.appendChild(ul);
-
-  sideEl.appendChild(panel);
+    onChange: () => {
+      renderSide();
+      draw();
+    },
+  }));
 }
 
 // ---------------------------------------------------------------- controls
 
 function applyFilters(): void {
   query = parseQuery(searchText);
-  const filtering = query.terms.length > 0 || focusCategory !== '';
+  const filtering = query.terms.length > 0 || focusCategory !== '' || focusRating !== '';
   matched = filtering ? new Set<number>() : null;
   if (matched) {
     const store = ctx.store;
@@ -1109,6 +978,12 @@ function applyFilters(): void {
       const cat = store.categoryOf(i);
       if (focusCategory && cat !== focusCategory) continue;
       if (focusSub && store.subcategoryOf(i) !== focusSub) continue;
+      if (focusRating !== '') {
+        const r = store.ratingOf(i);
+        if (focusRating === 'unrated') {
+          if (r !== null) continue;
+        } else if (r === null || r < focusRating) continue;
+      }
       const tags = cat ? `${cat} ${CATEGORY_LABELS[cat]} ${subcategoryLabel(cat, store.subcategoryOf(i))}` : '';
       if (matchesQuery(store.voices[i], query, searchScope, tags)) matched.add(i);
     }
@@ -1158,11 +1033,13 @@ function renderControls(): void {
   append(controlsEl, [
     el('label', { class: 'field' }, 'x', axisSelect(xAxisId, (id) => {
       xAxisId = id;
+      setSetting('map.xAxis', id);
       computeLayout();
       draw();
     })),
     el('label', { class: 'field' }, 'y', axisSelect(yAxisId, (id) => {
       yAxisId = id;
+      setSetting('map.yAxis', id);
       computeLayout();
       draw();
     })),
@@ -1170,6 +1047,7 @@ function renderControls(): void {
       el('select', {
         onchange: (e: Event) => {
           colourBy = (e.target as HTMLSelectElement).value as typeof colourBy;
+          setSetting('map.colourBy', colourBy);
           renderLegend();
           draw();
         },
@@ -1181,7 +1059,7 @@ function renderControls(): void {
         type: 'checkbox',
         checked: collapseMerged,
         onchange: (e: Event) => {
-          collapseMerged = (e.target as HTMLInputElement).checked;
+          collapseMerged = (e.target as HTMLInputElement).checked; setSetting('map.collapseMerged', collapseMerged);
           computeLayout();
           renderControls();
           draw();
@@ -1191,7 +1069,7 @@ function renderControls(): void {
       el('input', {
         type: 'checkbox',
         checked: hoverAudition,
-        onchange: (e: Event) => { hoverAudition = (e.target as HTMLInputElement).checked; },
+        onchange: (e: Event) => { hoverAudition = (e.target as HTMLInputElement).checked; setSetting('map.hoverPlays', hoverAudition); },
       }), 'hover plays'),
     el('label', {
       class: 'field',
@@ -1201,7 +1079,7 @@ function renderControls(): void {
         type: 'checkbox',
         checked: interpolateMode,
         onchange: (e: Event) => {
-          interpolateMode = (e.target as HTMLInputElement).checked;
+          interpolateMode = (e.target as HTMLInputElement).checked; setSetting('map.interpolate', interpolateMode);
           interpResult = null;
           interpFrozen = false;
           if (!interpolateMode) interpAt = null;
@@ -1214,7 +1092,7 @@ function renderControls(): void {
       el('input', {
         type: 'number', min: 2, max: 32, value: interpNeighbours,
         style: { width: '54px' },
-        onchange: (e: Event) => { interpNeighbours = Number((e.target as HTMLInputElement).value); },
+        onchange: (e: Event) => { interpNeighbours = Number((e.target as HTMLInputElement).value); setSetting('map.interpNeighbours', interpNeighbours); },
       })) : null,
     interpolateMode ? el('label', {
       class: 'field',
@@ -1235,26 +1113,26 @@ function renderControls(): void {
       el('input', {
         type: 'number', min: 0, max: 40, value: interpSnapRadius,
         style: { width: '54px' },
-        onchange: (e: Event) => { interpSnapRadius = Number((e.target as HTMLInputElement).value); },
+        onchange: (e: Event) => { interpSnapRadius = Number((e.target as HTMLInputElement).value); setSetting('map.snapRadius', interpSnapRadius); },
       }), 'px') : null,
     el('label', { class: 'field' },
       el('input', {
         type: 'checkbox',
         checked: usePhrase,
-        onchange: (e: Event) => { usePhrase = (e.target as HTMLInputElement).checked; },
+        onchange: (e: Event) => { usePhrase = (e.target as HTMLInputElement).checked; setSetting('audition.phrase', usePhrase); },
       }), 'demo phrase'),
     el('label', { class: 'field' },
       el('input', {
         type: 'checkbox',
         checked: loopPhrase,
-        onchange: (e: Event) => { loopPhrase = (e.target as HTMLInputElement).checked; },
+        onchange: (e: Event) => { loopPhrase = (e.target as HTMLInputElement).checked; setSetting('audition.loop', loopPhrase); },
       }), 'loop'),
     el('label', { class: 'field' },
       el('input', {
         type: 'checkbox',
         checked: sizeByFamily,
         onchange: (e: Event) => {
-          sizeByFamily = (e.target as HTMLInputElement).checked;
+          sizeByFamily = (e.target as HTMLInputElement).checked; setSetting('map.sizeByFamily', sizeByFamily);
           draw();
         },
       }), 'size by family'),
@@ -1275,14 +1153,42 @@ function renderControls(): void {
     el('label', { class: 'field' }, 'show',
       el('select', {
         onchange: (e: Event) => {
-          focusCategory = (e.target as HTMLSelectElement).value as Category | '';
+          const value = (e.target as HTMLSelectElement).value;
           focusSub = '';
-          if (focusCategory) colourBy = 'subcategory';
+          if (value === 'unrated' || value.startsWith('min')) {
+            focusRating = value === 'unrated' ? 'unrated' : (Number(value.slice(3)) as 1 | 2 | 3 | 4 | 5);
+            focusCategory = '';
+            colourBy = 'rating';
+            setSetting('map.colourBy', colourBy);
+          } else {
+            focusRating = '';
+            focusCategory = value as Category | '';
+            if (focusCategory) {
+              colourBy = 'subcategory';
+              setSetting('map.colourBy', colourBy);
+            }
+          }
           applyFilters();
         },
       },
-        el('option', { value: '', selected: focusCategory === '' }, 'all categories'),
-        ...CATEGORIES.map((c) => el('option', { value: c, selected: c === focusCategory }, CATEGORY_LABELS[c])),
+        el('option', {
+          value: '',
+          selected: focusCategory === '' && focusRating === '',
+        }, 'everything'),
+        // Two ways to narrow the map, in one control because they are the same
+        // question - which of these am I looking at - and only ever one at a
+        // time. The group labels are the separator.
+        el('optgroup', { label: 'category' },
+          ...CATEGORIES.map((c) => el('option', {
+            value: c,
+            selected: c === focusCategory,
+          }, CATEGORY_LABELS[c]))),
+        el('optgroup', { label: 'rating' },
+          el('option', { value: 'unrated', selected: focusRating === 'unrated' }, 'not rated yet'),
+          ...([1, 2, 3, 4, 5] as const).map((r) => el('option', {
+            value: `min${r}`,
+            selected: focusRating === r,
+          }, r === 1 ? 'rated at all' : r === 5 ? '★'.repeat(5) : `${'★'.repeat(r)} or better`))),
       )),
     focusCategory ? el('label', { class: 'field' },
       el('select', {
@@ -1298,7 +1204,7 @@ function renderControls(): void {
     el('label', { class: 'field' },
       el('select', {
         onchange: (e: Event) => {
-          searchScope = (e.target as HTMLSelectElement).value as typeof searchScope;
+          searchScope = (e.target as HTMLSelectElement).value as typeof searchScope; setSetting('map.searchScope', searchScope);
           applyFilters();
         },
       },
@@ -1308,7 +1214,7 @@ function renderControls(): void {
     el('label', { class: 'field' },
       el('select', {
         onchange: (e: Event) => {
-          searchMode = (e.target as HTMLSelectElement).value as typeof searchMode;
+          searchMode = (e.target as HTMLSelectElement).value as typeof searchMode; setSetting('map.searchMode', searchMode);
           applyFilters();
         },
       },
@@ -1319,7 +1225,7 @@ function renderControls(): void {
       el('input', {
         type: 'checkbox',
         checked: snapToMatches,
-        onchange: (e: Event) => { snapToMatches = (e.target as HTMLInputElement).checked; },
+        onchange: (e: Event) => { snapToMatches = (e.target as HTMLInputElement).checked; setSetting('map.snapToMatches', snapToMatches); },
       }), 'snap to results') : null,
     matched ? el('span', { class: 'muted' }, `${fmtInt(matched.size)} match${matched.size === 1 ? '' : 'es'}`) : null,
     el('div', { class: 'spacer', style: { flex: '1' } }),

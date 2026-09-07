@@ -2,6 +2,7 @@
 import { clear, el, fmtInt } from './dom.ts';
 import { store } from './state.ts';
 import { Player } from '../audio/player.ts';
+import { getSetting, setSetting } from './settings.ts';
 import { keyboard } from '../audio/keyboard.ts';
 import { midiSupported } from '../midi/webmidi.ts';
 
@@ -112,6 +113,11 @@ export class App {
     const startAt: ViewId = TABS.find((t) => t.id === 'map')!.enabled() ? 'map' : 'corpus';
     await this.go(startAt);
 
+    // Preferences the user set last time. Applied before anything renders, so
+    // no control ever shows a default it is not actually using.
+    this.player.setVolume(getSetting('audio.volume', this.player.getVolume()));
+    keyboard.setModDeadzone(getSetting('midi.modDeadzone', keyboard.modDeadzone));
+
     // If MIDI was granted on a previous visit, be ready without being asked.
     void keyboard.autoConnect(this.player).then((ok) => {
       if (ok) this.renderTransport();
@@ -175,7 +181,11 @@ export class App {
       el('input', {
         type: 'range', min: 0, max: 100, value: Math.round(this.player.getVolume() * 100),
         style: { width: '90px' },
-        oninput: (e: Event) => this.player.setVolume(Number((e.target as HTMLInputElement).value) / 100),
+        oninput: (e: Event) => {
+          const v = Number((e.target as HTMLInputElement).value) / 100;
+          this.player.setVolume(v);
+          setSetting('audio.volume', v);
+        },
       })));
 
     if (!midiSupported()) return;
@@ -203,7 +213,11 @@ export class App {
         type: 'number', min: 0, max: 50, step: 1,
         value: Math.round(keyboard.modDeadzone * 100),
         style: { width: '52px' },
-        onchange: (e: Event) => keyboard.setModDeadzone(Number((e.target as HTMLInputElement).value) / 100),
+        onchange: (e: Event) => {
+          const v = Number((e.target as HTMLInputElement).value) / 100;
+          keyboard.setModDeadzone(v);
+          setSetting('midi.modDeadzone', v);
+        },
       }), '%'));
 
     this.transportEl.appendChild(el('span', {

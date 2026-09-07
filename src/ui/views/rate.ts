@@ -17,6 +17,8 @@ import { CATEGORY_LABELS, type Category } from '../../cluster/category.ts';
 import { P } from '../../sysex/voice.ts';
 import { DEMO_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
+import { voiceDetails } from '../voicePanel.ts';
+import { getSetting, setSetting } from '../settings.ts';
 
 type Ordering = 'coverage' | 'families' | 'given';
 
@@ -26,12 +28,12 @@ let queue: number[] = [];
 let position = 0;
 let keyHandler: ((e: KeyboardEvent) => void) | null = null;
 let unsubKeyboard: (() => void) | null = null;
-let skipRated = true;
-let ordering: Ordering = 'coverage';
-let usePhrase = true;
-let loopPhrase = true;
-let auditionNote = 60;
-let auditionVel = 100;
+let skipRated = getSetting('rate.skipRated', true);
+let ordering: Ordering = getSetting<Ordering>('rate.ordering', 'coverage');
+let usePhrase = getSetting('audition.phrase', true);
+let loopPhrase = getSetting('audition.loop', true);
+let auditionNote = getSetting('audition.note', 60);
+let auditionVel = getSetting('audition.velocity', 100);
 
 function buildQueue(): void {
   const store = ctx.store;
@@ -41,7 +43,7 @@ function buildQueue(): void {
     sessionStorage.removeItem('rateQueue');
     try {
       base = (JSON.parse(fromLasso) as number[]).filter((i) => store.voices[i]);
-      ordering = 'given';
+      ordering = 'given'; setSetting('rate.ordering', ordering);
     } catch {
       base = store.representatives.slice();
     }
@@ -114,7 +116,7 @@ function render(): void {
       el('label', { class: 'field' }, 'order',
         el('select', {
           onchange: (e: Event) => {
-            ordering = (e.target as HTMLSelectElement).value as Ordering;
+            ordering = (e.target as HTMLSelectElement).value as Ordering; setSetting('rate.ordering', ordering);
             buildQueue();
             render();
             void play();
@@ -128,7 +130,7 @@ function render(): void {
         el('input', {
           type: 'checkbox', checked: skipRated,
           onchange: (e: Event) => {
-            skipRated = (e.target as HTMLInputElement).checked;
+            skipRated = (e.target as HTMLInputElement).checked; setSetting('rate.skipRated', skipRated);
             if (skipRated) advanceToUnrated(0);
             render();
           },
@@ -137,7 +139,7 @@ function render(): void {
         el('input', {
           type: 'checkbox', checked: usePhrase,
           onchange: (e: Event) => {
-            usePhrase = (e.target as HTMLInputElement).checked;
+            usePhrase = (e.target as HTMLInputElement).checked; setSetting('audition.phrase', usePhrase);
             void play();
           },
         }), 'demo phrase'),
@@ -145,7 +147,7 @@ function render(): void {
         el('input', {
           type: 'checkbox', checked: loopPhrase,
           onchange: (e: Event) => {
-            loopPhrase = (e.target as HTMLInputElement).checked;
+            loopPhrase = (e.target as HTMLInputElement).checked; setSetting('audition.loop', loopPhrase);
             void play();
           },
         }), 'loop'),
@@ -164,7 +166,7 @@ function render(): void {
         el('button', {
           class: 'btn',
           onclick: () => {
-            skipRated = false;
+            skipRated = false; setSetting('rate.skipRated', skipRated);
             position = 0;
             render();
             void play();
@@ -234,7 +236,25 @@ function render(): void {
   ));
 
   wrap.appendChild(card);
-  root.appendChild(wrap);
+
+  // The same detail panel the map puts in its sidebar. Rating is the moment the
+  // information matters most - the algorithm, what the classifier decided, how
+  // many near-copies are riding on this one score - and until now it was the
+  // one view that did not show it.
+  root.appendChild(el('div', { class: 'detail-layout' },
+    wrap,
+    el('aside', { class: 'detail-side' }, voiceDetails(store, i, {
+      onPlay: () => void play(),
+      onOpen: (n) => {
+        const at = queue.indexOf(n);
+        if (at < 0) return;
+        position = at;
+        render();
+        void play();
+      },
+      onChange: () => render(),
+    })),
+  ));
 }
 
 export const view: View = {

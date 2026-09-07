@@ -19,6 +19,8 @@ import { AbPlayer } from '../../audio/player.ts';
 import { P } from '../../sysex/voice.ts';
 import { DEMO_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
+import { voiceDetails } from '../voicePanel.ts';
+import { getSetting, setSetting } from '../settings.ts';
 
 interface Bout {
   clusterId: number;
@@ -34,9 +36,9 @@ let challengerIndex = 1;
 let extras: number[] = [];
 let ab: AbPlayer | null = null;
 let keyHandler: ((e: KeyboardEvent) => void) | null = null;
-let usePhrase = true;
-let auditionNote = 60;
-let auditionVel = 100;
+let usePhrase = getSetting('audition.phrase', true);
+let auditionNote = getSetting('audition.note', 60);
+let auditionVel = getSetting('audition.velocity', 100);
 let loading = false;
 let unsubKeyboard: (() => void) | null = null;
 
@@ -164,7 +166,7 @@ function switchSides(): void {
 
 function sideCard(index: number, tag: string, live: boolean): HTMLElement {
   const v = ctx.store.voices[index];
-  return el('div', { class: `side${live ? ' live' : ''}` },
+  const card = el('div', { class: `side${live ? ' live' : ''}` },
     el('div', { class: 'tag' }, tag, live ? ' — sounding' : ''),
     el('div', { class: 'nm' }, v?.name || '(unnamed)'),
     el('div', { class: 'muted', style: { marginTop: '6px', fontSize: '11.5px' } },
@@ -172,6 +174,20 @@ function sideCard(index: number, tag: string, live: boolean): HTMLElement {
     el('div', { class: 'muted mono', style: { marginTop: '4px', fontSize: '11px' } },
       v ? v.sources.slice(0, 2).map((s) => s.file).join(', ') : ''),
   );
+  // The map's detail panel, minus the parts that would only repeat what the
+  // face-off already is: both sides are the same family, so their duplicate
+  // counts and family lists are the same list twice. What earns its space is
+  // the algorithm, side by side, and the measured character underneath it.
+  if (v) {
+    card.appendChild(voiceDetails(ctx.store, index, {
+      heading: false,
+      duplicates: false,
+      related: false,
+      sources: false,
+      onChange: () => render(),
+    }));
+  }
+  return card;
 }
 
 function render(): void {
@@ -186,12 +202,12 @@ function render(): void {
       el('label', { class: 'field' },
         el('input', {
           type: 'checkbox', checked: usePhrase,
-          onchange: (e: Event) => { usePhrase = (e.target as HTMLInputElement).checked; void loadPair(); },
+          onchange: (e: Event) => { usePhrase = (e.target as HTMLInputElement).checked; setSetting('audition.phrase', usePhrase); void loadPair(); },
         }), 'demo phrase'),
       el('label', { class: 'field' }, 'note',
         el('input', {
           type: 'number', min: 24, max: 96, value: auditionNote, disabled: usePhrase,
-          onchange: (e: Event) => { auditionNote = Number((e.target as HTMLInputElement).value); void loadPair(); },
+          onchange: (e: Event) => { auditionNote = Number((e.target as HTMLInputElement).value); setSetting('audition.note', auditionNote); void loadPair(); },
         })),
     ),
   ));

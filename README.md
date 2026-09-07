@@ -48,7 +48,7 @@ features and the ratings all live in IndexedDB.
 | `src/features/` | Rendering probes down to comparable numbers |
 | `src/cluster/` | Dedupe, near-duplicates, categories, PCA, LDA, whitening, taste |
 | `src/alloc/`, `src/order/` | Choosing the 128 and putting them in order |
-| `src/ui/` | Views, map rendering, algorithm diagrams |
+| `src/ui/` | Views, map rendering, algorithm diagrams, the shared voice panel |
 | `test/` | Node scripts; no framework, run them directly |
 
 ```bash
@@ -98,6 +98,11 @@ and where the name is allowed to win.
 envelope are donated intact from one contributor, and so is the envelope shape.
 Averaging them produces a tuning nobody had, and an envelope that sustains less
 than any of its inputs.
+
+**Auditions are cut before the next one renders.** Stopping the old sound only
+once the new buffer arrives sounds fine on a plucked patch and terrible on a
+pad: anything with a long tail, and anything looping, plays straight through the
+gap, and a render that gets superseded never cuts its predecessor at all.
 
 **Auditioning is render-then-play.** Rendering is effectively instant, so what
 you hear is bit-identical to what the feature extractor measured, and an A/B

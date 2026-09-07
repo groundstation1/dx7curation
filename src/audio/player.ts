@@ -271,6 +271,11 @@ export class Player {
     id: number | string, unpacked: Uint8Array, phrase: Phrase = DEMO_PHRASE,
     opts: { loop?: boolean } = {},
   ): Promise<boolean> {
+    // Silence first, then render. Cutting the old sound only when the new
+    // buffer arrives means a patch with a long tail - or a looping phrase -
+    // keeps sounding over the gap, and if this render is superseded it never
+    // gets cut at all. Rendering is fast enough that the gap is inaudible.
+    this.stop();
     const myToken = this.token + 1;
     const buf = await this.render(id, unpacked, phrase);
     // Another audition started while this one was rendering.
@@ -295,6 +300,7 @@ export class Player {
   ): Promise<void> {
     const quickKey = `${id}|${quick.id}`;
     const fullKey = `${id}|${full.id}`;
+    this.stop();
     const myToken = this.token + 1;
     const quickBuf = await this.render(id, unpacked, quick);
     if (this.token > myToken) return;
@@ -334,6 +340,8 @@ export class AbPlayer {
     idB: number | string, patchB: Uint8Array,
     phrase?: Phrase,
   ): Promise<void> {
+    // The pair being replaced must not play on underneath the two renders.
+    this.stop();
     this.a = await this.player.render(idA, patchA, phrase);
     this.b = await this.player.render(idB, patchB, phrase);
   }

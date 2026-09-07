@@ -166,6 +166,16 @@ progress { width: 320px; height: 8px; }
 .detail dt { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 9px; }
 .detail dd { margin: 1px 0 0; font-variant-numeric: tabular-nums; }
 
+/* A main column with the voice detail panel beside it, as the map has. */
+.detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.detail-side {
+  position: sticky; top: 0; max-height: calc(100vh - 90px); overflow: auto;
+  border-left: 1px solid var(--line); padding-left: 16px;
+}
+.detail-side .voice-panel > h3 { font-size: 12px; margin: 16px 0 4px; }
+.ab .voice-panel { margin-top: 12px; }
+.ab .voice-panel .detail dd { font-size: 12px; }
+
 /* --------------------------------------------------------------- rating */
 
 .rate-wrap { max-width: 780px; margin: 0 auto; }
