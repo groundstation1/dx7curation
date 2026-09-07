@@ -113,6 +113,28 @@ export class LiveEngine {
     }
   }
 
+  /**
+   * How detuned the armed patch is, 0 to 1.
+   *
+   * The mean distance of its operators from centre detune, over the operators
+   * that are actually making sound. This is the chorusing control, so a patch
+   * with everything at centre is dead straight and one with operators pulled
+   * both ways beats against itself - which is the thing worth drawing.
+   */
+  get patchDetune(): number {
+    const v = this.patch;
+    if (!v) return 0;
+    let sum = 0;
+    let count = 0;
+    for (let op = 0; op < 6; op++) {
+      const off = op * 21;
+      if (v[off + 16] === 0) continue;
+      sum += Math.abs(v[off + 20] - 7) / 7;
+      count++;
+    }
+    return count ? sum / count : 0;
+  }
+
   get hasPatch(): boolean {
     return this.patch !== null;
   }

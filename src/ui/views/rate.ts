@@ -20,7 +20,7 @@ import { keyboard } from '../../audio/keyboard.ts';
 import { voiceDetails } from '../voicePanel.ts';
 import { getSetting, setSetting } from '../settings.ts';
 
-type Ordering = 'coverage' | 'families' | 'given';
+type Ordering = 'coverage' | 'predicted' | 'families' | 'given';
 
 let ctx: ViewContext;
 let root: HTMLElement;
@@ -52,7 +52,13 @@ function buildQueue(): void {
   }
 
   if (ordering === 'coverage') queue = store.coverageOrder(base);
-  else if (ordering === 'families') {
+  else if (ordering === 'predicted') {
+    // Straight down the model's guesses. Coverage is the right default because
+    // it spreads the ratings over the whole corpus, but once the model has
+    // something to say, hearing its best guesses first is both the fastest way
+    // to fill a bank and the fastest way to find out it is wrong.
+    queue = base.slice().sort((a, b) => (store.predictedRating(b) ?? -Infinity) - (store.predictedRating(a) ?? -Infinity));
+  } else if (ordering === 'families') {
     queue = base.slice().sort((a, b) => store.clusterMembers(b).length - store.clusterMembers(a).length);
   } else queue = base;
 
@@ -125,6 +131,11 @@ function render(): void {
           },
         },
           el('option', { value: 'coverage', selected: ordering === 'coverage' }, 'even coverage'),
+          el('option', {
+            value: 'predicted',
+            selected: ordering === 'predicted',
+            disabled: !store.tasteModel,
+          }, store.tasteModel ? 'highest predicted rating' : 'highest predicted (needs a model)'),
           el('option', { value: 'families', selected: ordering === 'families' }, 'biggest families first'),
           el('option', { value: 'given', selected: ordering === 'given' }, 'as listed'),
         )),
