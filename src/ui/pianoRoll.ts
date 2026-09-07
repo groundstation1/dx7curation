@@ -40,8 +40,8 @@ const FADE_SEC = 1.6;
  */
 const SLOW_RATE = 9;
 const FAST_RATE = 72;
-const SLOW_AMP = 3.4;
-const FAST_AMP = 3.8;
+const SLOW_AMP = 2.1;
+const FAST_AMP = 2.4;
 /** No more than this many samples a second, however fast the display refreshes. */
 const MAX_SAMPLE_HZ = 120;
 
@@ -186,27 +186,21 @@ function draw(): void {
     ctx.lineWidth = width + 5;
     ctx.stroke(centre);
 
-    // The light lives on the edges and falls away inwards, rather than two hard
-    // lines with a flat middle between them. A gradient across the bar does it
-    // in one stroke, built around the average of the trail so a bar that is
-    // waving keeps its edges lit.
-    let mean = 0;
-    for (const v of px) mean += v;
-    mean /= px.length;
-    const g = ctx.createLinearGradient(mean - width / 2, 0, mean + width / 2, 0);
-    const rim = oklch(0.9 + 0.06 * vel, 0.07, hue, (0.62 + 0.28 * vel) * alpha);
-    const mid = oklch(0.72, 0.13, hue, 0.3 * alpha);
-    const core = oklch(0.66, 0.15, hue, 0.16 * alpha);
-    g.addColorStop(0, rim);
-    g.addColorStop(0.16, mid);
-    g.addColorStop(0.5, core);
-    g.addColorStop(0.84, mid);
-    g.addColorStop(1, rim);
-    ctx.strokeStyle = g;
-    ctx.lineWidth = width;
-    ctx.stroke(centre);
-
+    // The light lives on the edges and falls away inwards. Drawn as copies of
+    // the same path at fixed horizontal offsets rather than as a gradient
+    // across the bar: a gradient is fixed in canvas space, so a waving bar
+    // slides through it and its two edges appear to move independently. Offset
+    // copies displace with the bar, which is what a bar actually does - the
+    // whole thing moves, both sides together.
     const edge = Math.max(1, width * 0.16);
+    const half = (width - edge) / 2;
+    for (const [at, level] of [[1, 1], [0.62, 0.34], [0.3, 0.2]] as const) {
+      ctx.strokeStyle = oklch(0.88 + 0.06 * vel, 0.08, hue, (0.6 + 0.28 * vel) * level * alpha);
+      ctx.lineWidth = edge * (at === 1 ? 1 : 1.35);
+      ctx.stroke(path(-half * at));
+      if (at > 0) ctx.stroke(path(half * at));
+    }
+
 
     // A dimmer cap across the leading end, so the bar is closed rather than
     // simply stopping. Fainter than the sides: it is the end of the tube, not
