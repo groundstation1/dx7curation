@@ -28,8 +28,8 @@ const HIGH = 108;
 const HEIGHT = 92;
 /** Pixels a second of history takes. Two seconds fit in the strip. */
 const SPEED = 46;
-/** How long a released note takes to fade out once it has stopped growing. */
-const FADE_SEC = 1.6;
+/** Silence for this long after key-up and the note has stopped sounding. */
+const QUIET_SEC = 0.12;
 /**
  * Radians a second for the two wavers, and how far each swings.
  *
@@ -52,10 +52,15 @@ interface Bar {
   end: number | null;
   /** Detune of the patch it was played with, 0 to 1. */
   detune: number;
-  /** Oscillator state, advanced only while the note is held. */
+  /** Set once the note has actually stopped sounding, not merely been let go. */
+  done: boolean;
+  quietSince: number | null;
+  /** Oscillator state, advanced while the note is still sounding. */
   slowPhase: number;
   fastPhase: number;
   lastSample: number;
+  /** The loudest this note got, so its decay can be read against itself. */
+  peak: number;
   /** The trail: an offset, a moment, and how loud it was then. Oldest first. */
   dx: number[];
   at: number[];
@@ -92,6 +97,7 @@ function sample(bar: Bar, now: number, mod: number, bendPx: number, level: numbe
   );
   bar.at.push(now);
   bar.lv.push(level);
+  if (level > bar.peak) bar.peak = level;
   // Anything that has scrolled off the top is gone for good.
   const cutoff = now - (HEIGHT + 8) / SPEED;
   let drop = 0;
@@ -149,9 +155,24 @@ function draw(): void {
   let live = false;
   let held = false;
   for (const bar of bars) {
-    if (bar.end === null) {
-      held = true;
+    if (bar.end === null) held = true;
+    // Recording continues past key-up: a released note is still sounding, and
+    // the release is most of what a DX7 patch is. Aliveness comes from the
+    // engine, brightness from what actually reaches the speakers, so muting
+    // dims the trail without cutting it short.
+    const newer = bar.end !== null
+      && bars.some((b) => b !== bar && b.pitch === bar.pitch && b.end === null);
+    if (!bar.done && !newer) {
+      const alive = keyboard.engine.levelOf(bar.pitch);
       sample(bar, now, mod, bendPx, keyboard.levelOf(bar.pitch));
+      if (bar.end !== null && alive <= 0.0005) {
+        bar.quietSince ??= now;
+        if (now - bar.quietSince > QUIET_SEC) bar.done = true;
+      } else {
+        bar.quietSince = null;
+      }
+    } else if (newer) {
+      bar.done = true;
     }
 
     const x = ((bar.pitch - LOW) / span) * (w - keyW) + keyW / 2;
@@ -160,8 +181,9 @@ function draw(): void {
     // Pitch is already the horizontal position, so colour carries velocity -
     // the thing there is nowhere else to see.
     const hue = velocityHue(vel);
-    const alpha = bar.end === null ? 1 : Math.max(0, 1 - (now - bar.end) / (FADE_SEC + 0.6));
-    if (alpha <= 0) continue;
+    // No cross-fade: the trail dims because the note got quieter, and leaves
+    // because it scrolled off the top. Both of those are things that happened.
+    const alpha = 1;
 
     // The trail in screen space, dropping whatever has scrolled off the top.
     const px: number[] = [];
@@ -214,8 +236,15 @@ function draw(): void {
         loud += plv[i];
         n++;
       }
-      // A floor, so a note that is sounding quietly is dim rather than absent.
-      const bright = 0.28 + 0.72 * Math.sqrt(n ? Math.min(1, (loud / n) * 2.2) : 0);
+      // Read against the note's own peak rather than full scale. Absolute
+      // level barely moves across a decay in a way the eye can see - one
+      // voice rarely gets near full scale to begin with - whereas a note
+      // measured against its own loudest moment spans the whole range, which
+      // is what makes the shape of the envelope legible. How loud the note was
+      // in absolute terms is still there, as an overall dimming.
+      const rel = n ? Math.min(1, (loud / n) / Math.max(bar.peak, 1e-4)) : 0;
+      const absolute = 0.5 + 0.5 * Math.min(1, bar.peak * 5);
+      const bright = (0.1 + 0.9 * Math.pow(rel, 0.55)) * absolute;
       const a = alpha * bright;
 
       const centre = path(c, to, 0);
@@ -233,23 +262,11 @@ function draw(): void {
       // Offset copies displace with the bar - the whole thing moves, both sides
       // together, as a bar does.
       for (const [at, level] of [[1, 1], [0.62, 0.34], [0.3, 0.2]] as const) {
-        ctx.strokeStyle = oklch(0.88 + 0.06 * vel, 0.08, hue, (0.6 + 0.28 * vel) * level * a);
+        ctx.strokeStyle = oklch(0.62 + 0.3 * bright, 0.08 + 0.05 * (1 - bright), hue, (0.6 + 0.28 * vel) * level * a);
         ctx.lineWidth = edge * (at === 1 ? 1 : 1.35);
         ctx.stroke(path(c, to, -half * at));
         ctx.stroke(path(c, to, half * at));
       }
-    }
-
-    // A dimmer cap across the leading end, so the bar is closed rather than
-    // simply stopping. Fainter than the sides: it is the end of the tube, not
-    // another edge of it.
-    if (py[0] > 0.5) {
-      ctx.strokeStyle = oklch(0.9, 0.07, hue, (0.28 + 0.14 * vel) * alpha);
-      ctx.lineWidth = Math.max(1, edge * 0.8);
-      ctx.beginPath();
-      ctx.moveTo(px[0] - width / 2, py[0]);
-      ctx.lineTo(px[0] + width / 2, py[0]);
-      ctx.stroke();
     }
 
     // While the key is down, a bloom sits where the bar meets the edge and
@@ -286,7 +303,8 @@ function draw(): void {
   }
   ctx.globalCompositeOperation = 'source-over';
 
-  bars = bars.filter((b) => b.end === null || now - b.end < FADE_SEC + HEIGHT / SPEED + 1);
+  // A bar lives until its newest sample has scrolled off the top.
+  bars = bars.filter((b) => b.end === null || now - b.lastSample < (HEIGHT + 8) / SPEED);
   if (live || held) frame = requestAnimationFrame(draw);
   else canvas.style.opacity = '0';
 }
@@ -316,6 +334,9 @@ export function mountPianoRoll(): void {
         velocity,
         start: now,
         end: null,
+        done: false,
+        quietSince: null,
+        peak: 0,
         detune: keyboard.engine.patchDetune,
         // A phase per note, so a chord does not waver in lockstep.
         slowPhase: note * 1.7,
