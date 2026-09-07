@@ -38,8 +38,8 @@ const FADE_SEC = 1.6;
  * wheel, which on a DX7 is vibrato - properly quick, and worth the wider swing
  * because it is something you are doing rather than something the patch is.
  */
-const SLOW_RATE = 3.6;
-const FAST_RATE = 27;
+const SLOW_RATE = 2;
+const FAST_RATE = 15;
 const SLOW_AMP = 3.4;
 const FAST_AMP = 3.8;
 /** No more than this many samples a second, however fast the display refreshes. */
