@@ -1,15 +1,33 @@
 :root {
-  --bg: #14161a;
-  --panel: #1c1f25;
-  --panel-2: #23272f;
-  --line: #2f343d;
-  --text: #e6e8ec;
-  --muted: #939aa6;
+  /*
+   * A dark ramp with a little warmth in it rather than a neutral grey.
+   *
+   * The whole app is a dark field with a few thousand coloured dots on it, and
+   * a perfectly neutral background makes those dots look like they are floating
+   * rather than sitting on a surface. Every step of the ramp is the same hue,
+   * so panels read as elevation rather than as different materials.
+   */
+  --bg: #101216;
+  --bg-2: #0b0d10;
+  --panel: #171a20;
+  --panel-2: #1e222a;
+  --panel-3: #262b34;
+  --line: #2b313b;
+  --line-2: #3a4250;
+  --text: #e7e9ee;
+  --muted: #8c94a3;
   --accent: #6ea8fe;
   --accent-2: #ffca6a;
   --good: #7bd88f;
   --bad: #f2777a;
-  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --radius: 8px;
+  --radius-sm: 5px;
+  /* One hairline of light along the top of a raised surface, one soft shadow
+     under it. Two lines of CSS, and the difference between "a div with a
+     border" and something that looks made. */
+  --lift: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.22);
   color-scheme: dark;
 }
 
@@ -20,8 +38,21 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 13px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
 }
+
+::selection { background: rgba(110, 168, 254, 0.28); }
+
+/* Thin scrollbars, in the app's own colours rather than the platform's. */
+* { scrollbar-width: thin; scrollbar-color: var(--panel-3) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--panel-3); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--line-2); background-clip: content-box; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
 
 #app { display: flex; flex-direction: column; height: 100%; }
 
@@ -31,68 +62,118 @@ header.topbar {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 12px;
-  height: 44px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
+  padding: 0 14px;
+  height: 46px;
+  background: linear-gradient(180deg, #1b1f26 0%, #15181e 100%);
+  border-bottom: 1px solid #05070a;
+  box-shadow: var(--lift), 0 1px 0 rgba(255, 255, 255, 0.02);
   flex: none;
+  position: relative;
+  z-index: 10;
 }
 
 .topbar .brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  margin-right: 14px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-right: 16px;
   white-space: nowrap;
 }
+/* The power lamp. Every piece of eighties hardware has one. */
+.topbar .brand::before {
+  content: '';
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent-2);
+  box-shadow: 0 0 6px rgba(255, 202, 106, 0.7);
+  align-self: center;
+}
+.topbar .brand small {
+  color: var(--muted); font-weight: 400; font-size: 10.5px;
+  letter-spacing: 0.06em; text-transform: none;
+}
 
-.topbar .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
-
-nav.tabs { display: flex; gap: 2px; }
+nav.tabs { display: flex; gap: 2px; flex: none; }
 
 nav.tabs button {
+  position: relative;
+  white-space: nowrap;
   background: none;
   border: none;
-  border-bottom: 2px solid transparent;
   color: var(--muted);
-  padding: 12px 12px 10px;
+  padding: 14px 13px 12px;
   font: inherit;
+  font-size: 12.5px;
   cursor: pointer;
+  transition: color 0.12s;
+}
+nav.tabs button::after {
+  content: '';
+  position: absolute; left: 9px; right: 9px; bottom: 8px; height: 2px;
+  border-radius: 2px; background: transparent;
+  transition: background 0.12s;
 }
 nav.tabs button:hover:not(:disabled) { color: var(--text); }
-nav.tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
-nav.tabs button:disabled { opacity: 0.35; cursor: not-allowed; }
+nav.tabs button.active { color: var(--text); }
+nav.tabs button.active::after { background: var(--accent); box-shadow: 0 0 10px rgba(110, 168, 254, 0.5); }
+nav.tabs button:disabled { opacity: 0.32; cursor: not-allowed; }
 
 .topbar .spacer { flex: 1; }
-.topbar .status { color: var(--muted); font-size: 12px; }
-.topbar .transport { display: flex; align-items: center; gap: 10px; margin-left: 18px; padding-left: 18px; border-left: 1px solid var(--line); }
-.topbar .transport .field { gap: 5px; font-size: 12px; }
+.topbar .status {
+  color: var(--muted); font-size: 11.5px; letter-spacing: 0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.topbar .transport {
+  display: flex; align-items: center; gap: 8px; flex: none;
+  margin-left: 16px; padding-left: 16px;
+  border-left: 1px solid var(--line);
+  white-space: nowrap;
+}
+.topbar .transport .field { gap: 5px; font-size: 11.5px; }
 .topbar .status b { color: var(--text); font-weight: 600; }
 
-main.view { flex: 1; overflow: auto; padding: 18px 20px 40px; }
+main.view { flex: 1; overflow: auto; padding: 20px 22px 44px; }
 main.view.flush { padding: 0; overflow: hidden; }
 
 /* ---------------------------------------------------------------- basics */
 
-h2 { font-size: 15px; margin: 0 0 4px; font-weight: 600; }
-h3 { font-size: 13px; margin: 20px 0 8px; font-weight: 600; color: var(--text); }
+h2 { font-size: 15px; margin: 0 0 4px; font-weight: 600; letter-spacing: -0.01em; }
+h3 {
+  font-size: 11px; margin: 22px 0 8px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
 p.hint { color: var(--muted); margin: 0 0 16px; max-width: 68ch; }
 
 button.btn {
-  background: var(--panel-2);
+  background: linear-gradient(180deg, var(--panel-2) 0%, #1a1e25 100%);
   color: var(--text);
   border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 7px 13px;
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
   font: inherit;
+  font-size: 12.5px;
   cursor: pointer;
+  box-shadow: var(--lift);
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
-button.btn:hover:not(:disabled) { border-color: #4a515e; background: #2a2f38; }
+button.btn:hover:not(:disabled) { border-color: var(--line-2); background: var(--panel-3); }
+button.btn:active:not(:disabled) { background: #15181e; box-shadow: none; }
 button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
-button.btn.primary { background: var(--accent); color: #10131a; border-color: var(--accent); font-weight: 600; }
-button.btn.primary:hover:not(:disabled) { background: #8ab9ff; }
+button.btn.primary {
+  background: linear-gradient(180deg, #7cb1ff 0%, var(--accent) 100%);
+  color: #0b1017; border-color: #4d86dd; font-weight: 600;
+}
+button.btn.primary:hover:not(:disabled) { background: #8ab9ff; border-color: #6ea8fe; }
 button.btn.danger { color: var(--bad); }
 /* A transport toggle that is currently engaged. */
-button.btn.on { border-color: var(--accent); color: var(--accent); }
+button.btn.on {
+  border-color: rgba(110, 168, 254, 0.6); color: var(--accent);
+  background: rgba(110, 168, 254, 0.09);
+}
 button.btn.off { color: var(--muted); }
 
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -100,31 +181,40 @@ button.btn.off { color: var(--muted); }
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 14px 16px;
+  border-radius: var(--radius);
+  padding: 15px 17px;
+  box-shadow: var(--lift), var(--shadow);
 }
 
 label.field { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 label.field input[type="number"], label.field select, input.text {
-  background: var(--panel-2);
+  background: var(--bg-2);
   color: var(--text);
   border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 5px 7px;
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
   font: inherit;
+  font-size: 12.5px;
+  transition: border-color 0.12s;
 }
+label.field input[type="number"]:hover, label.field select:hover, input.text:hover { border-color: var(--line-2); }
 label.field input[type="number"] { width: 66px; }
+label.field input[type="checkbox"] { accent-color: var(--accent); }
+input[type="range"] { accent-color: var(--accent); }
 select.axis-select { max-width: 260px; }
-select optgroup { color: var(--muted); font-style: normal; font-weight: 600; }
-select option { color: var(--text); font-weight: 400; }
+select optgroup { color: var(--muted); font-style: normal; font-weight: 600; background: var(--panel); }
+select option { color: var(--text); font-weight: 400; background: var(--panel); }
 
 table.data { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
-table.data th, table.data td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line); }
-table.data th { color: var(--muted); font-weight: 500; }
+table.data th, table.data td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); }
+table.data th {
+  color: var(--muted); font-weight: 600; font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
 table.data td.num, table.data th.num { text-align: right; font-family: var(--mono); }
 table.data tr.clickable { cursor: pointer; }
 table.data tr.clickable:hover td { background: var(--panel-2); }
-table.data tr.chosen td { background: #26303f; }
+table.data tr.chosen td { background: rgba(110, 168, 254, 0.12); }
 
 .mono { font-family: var(--mono); }
 .muted { color: var(--muted); }
@@ -133,10 +223,35 @@ table.data tr.chosen td { background: #26303f; }
 .good { color: var(--good); }
 
 .stats { display: flex; gap: 26px; flex-wrap: wrap; }
-.stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
-.stat .v { font-size: 20px; font-variant-numeric: tabular-nums; }
+.stat .k { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
+.stat .v { font-size: 21px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 
-progress { width: 320px; height: 8px; }
+progress {
+  width: 320px; height: 6px; border: none; border-radius: 3px;
+  background: var(--panel-2); overflow: hidden;
+}
+progress::-webkit-progress-bar { background: var(--panel-2); border-radius: 3px; }
+progress::-webkit-progress-value { background: linear-gradient(90deg, var(--accent) 0%, #9ec5ff 100%); border-radius: 3px; }
+
+kbd {
+  font-family: var(--mono); font-size: 10.5px;
+  background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: 4px; padding: 1px 5px; color: var(--text);
+}
+
+/*
+ * The MIDI-in strip: fixed to the bottom edge, never in the way.
+ *
+ * Masked so it dissolves upward rather than ending on a line, which is what
+ * keeps it out of the way of whatever it is sitting on top of.
+ */
+.piano-roll {
+  position: fixed; left: 0; right: 0; bottom: 0; height: 92px;
+  width: 100%; pointer-events: none; z-index: 40;
+  opacity: 0; transition: opacity 0.5s ease-out;
+  -webkit-mask-image: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 100%);
+}
 
 /* ------------------------------------------------------------ drop zone */
 

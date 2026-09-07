@@ -116,6 +116,13 @@ play on inaudibly. Autoplay governs only the sounds nothing asked for - hover,
 advancing the rating queue, loading a face-off pair. Buttons, the space bar and
 the MIDI keyboard always play.
 
+**What you play shows up along the bottom edge.** A strip of piano roll
+scrolling out of the bottom of the window: horizontal position is pitch, colour
+is velocity, held notes bloom where they meet the edge. Only MIDI input draws
+there - auditions and the demo phrase do not - so it answers the question that
+used to need the transport's note counter: was anything sent, or did something
+get sent and make no sound?
+
 **Pitch bend is global, and its range is yours to state.** One value for every
 sounding voice, applied to fixed-frequency operators as well as ratio ones, as
 on the hardware. How far the wheel bends is set by the controller and cannot be

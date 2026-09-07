@@ -3,6 +3,7 @@ import { clear, el, fmtInt } from './dom.ts';
 import { store } from './state.ts';
 import { Player } from '../audio/player.ts';
 import { getSetting, setSetting } from './settings.ts';
+import { mountPianoRoll } from './pianoRoll.ts';
 import { keyboard } from '../audio/keyboard.ts';
 import { midiSupported } from '../midi/webmidi.ts';
 
@@ -120,6 +121,8 @@ export class App {
     this.player.autoPlay = getSetting('audio.autoPlay', true);
     keyboard.setModDeadzone(getSetting('midi.modDeadzone', keyboard.modDeadzone));
     keyboard.setBendRange(getSetting('midi.bendRange', keyboard.bendRange));
+
+    mountPianoRoll();
 
     // If MIDI was granted on a previous visit, be ready without being asked.
     void keyboard.autoConnect(this.player).then((ok) => {

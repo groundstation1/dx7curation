@@ -29,6 +29,7 @@ export class Keyboard {
   private detach: (() => void) | null = null;
   private player: Player | null = null;
   private listeners = new Set<() => void>();
+  private noteListeners = new Set<(note: number, velocity: number, on: boolean) => void>();
   inputs: MidiPort[] = [];
   connected = false;
   error = '';
@@ -47,6 +48,22 @@ export class Keyboard {
    * this has to be settable.
    */
   bendRange = 2;
+
+  /**
+   * Every note the hardware sends, for anything that wants to show it.
+   *
+   * Separate from `subscribe`, which is a "something changed, re-render"
+   * signal: notes arrive far too fast to re-render a view for, and the only
+   * listener is a canvas that draws them itself.
+   */
+  onNote(fn: (note: number, velocity: number, on: boolean) => void): () => void {
+    this.noteListeners.add(fn);
+    return () => this.noteListeners.delete(fn);
+  }
+
+  private emitNote(note: number, velocity: number, on: boolean): void {
+    for (const fn of this.noteListeners) fn(note, velocity, on);
+  }
 
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
@@ -115,8 +132,12 @@ export class Keyboard {
         this.player?.stop();
         this.ensureEngine();
         this.engine.noteOn(note, velocity);
+        this.emitNote(note, velocity, true);
       },
-      noteOff: (note) => this.engine.noteOff(note),
+      noteOff: (note) => {
+        this.engine.noteOff(note);
+        this.emitNote(note, 0, false);
+      },
       modWheel: (raw) => {
         this.modWheelRaw = raw;
         const value = raw <= this.modDeadzone
@@ -132,7 +153,10 @@ export class Keyboard {
         this.engine.setPitchBend(value, this.bendRange);
         this.emit();
       },
-      allNotesOff: () => this.engine.allNotesOff(),
+      allNotesOff: () => {
+        this.engine.allNotesOff();
+        for (let n = 0; n < 128; n++) this.emitNote(n, 0, false);
+      },
     });
     this.connected = true;
     // Keyboards get plugged in after the page loads more often than not.
