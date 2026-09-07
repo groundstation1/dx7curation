@@ -67,6 +67,9 @@ function subcategoryColour(category: Category, sub: string, focused = false): st
 const BASE_ALPHA = 0.28;
 const DIMMED_ALPHA = 0.06;
 const BASE_RADIUS = 3.4;
+/** The range a size axis spans, in radius. */
+const MIN_RADIUS = 1.8;
+const MAX_RADIUS = 9;
 
 /**
  * Dots are blitted from a pre-rendered sprite rather than drawn as arcs.
@@ -130,7 +133,9 @@ let xAxisId: AxisId = getSetting('map.xAxis', 'pca1');
 let yAxisId: AxisId = getSetting('map.yAxis', 'pca2');
 let colourBy: 'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 'source' | 'algorithm' =
   getSetting<'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 'source' | 'algorithm'>('map.colourBy', 'category');
-let sizeByFamily = getSetting('map.sizeByFamily', false);
+/** Any axis can drive dot size as well; '' is a uniform dot. */
+let sizeAxisId: AxisId | '' = getSetting<AxisId | ''>('map.sizeAxis', '');
+let sizes = new Float32Array(0);
 let collapseMerged = getSetting('map.collapseMerged', true);
 let hoverAudition = getSetting('map.hoverPlays', true);
 let usePhrase = getSetting('audition.phrase', true);
@@ -378,6 +383,7 @@ function computeLayout(): void {
     xs[i] = (rawX[i] - x0) / (x1 - x0);
     ys[i] = 1 - (rawY[i] - y0) / (y1 - y0);
   }
+  computeSizes();
 }
 
 function toScreen(i: number, w: number, h: number): [number, number] {
@@ -425,9 +431,47 @@ function colourOf(i: number): string {
 }
 
 function radiusOf(i: number): number {
-  if (!sizeByFamily) return BASE_RADIUS;
-  const n = ctx.store.clusterMembers(i).length;
-  return BASE_RADIUS + Math.min(7, Math.sqrt(n - 1) * 2);
+  return sizes[i] || BASE_RADIUS;
+}
+
+/**
+ * Dot radius from the size axis, if there is one.
+ *
+ * Area carries the value, not radius: a dot with twice the number in it looks
+ * twice as big only if it covers twice the ink, and sizing by radius makes the
+ * top of any range shout. The same robust bounds as the position axes, for the
+ * same reason - one sound-effect patch at the far end must not flatten
+ * everything else onto the minimum.
+ */
+function computeSizes(): void {
+  const n = ctx.store.voices.length;
+  sizes = new Float32Array(n).fill(BASE_RADIUS);
+  if (!sizeAxisId) return;
+
+  const axis = axisById(sizeAxisId);
+  const raw = new Float32Array(n);
+  const vals: number[] = [];
+  for (const i of visible) {
+    const v = axis.value(i);
+    raw[i] = v;
+    if (Number.isFinite(v)) vals.push(v);
+  }
+  if (vals.length === 0) return;
+  vals.sort((a, b) => a - b);
+  const lo = vals[Math.floor(vals.length * 0.005)];
+  const hi = vals[Math.min(vals.length - 1, Math.ceil(vals.length * 0.995))];
+  const span = hi - lo;
+
+  const minArea = Math.PI * MIN_RADIUS * MIN_RADIUS;
+  const maxArea = Math.PI * MAX_RADIUS * MAX_RADIUS;
+  // Quantised, because every distinct radius is a separate cached sprite per
+  // colour. A quarter of a pixel is finer than the eye can read off a dot and
+  // keeps the cache to a few dozen entries instead of one per voice.
+  for (const i of visible) {
+    const t = span > 0 ? Math.max(0, Math.min(1, (raw[i] - lo) / span)) : 0.5;
+    const r = Math.sqrt((minArea + t * (maxArea - minArea)) / Math.PI);
+    sizes[i] = Math.round(r * 4) / 4;
+  }
 }
 
 // ----------------------------------------------------------------- draw
@@ -998,11 +1042,12 @@ function renderControls(): void {
   clear(controlsEl);
   const groups = groupedAxes();
   const important = importantAxisIds();
-  const axisSelect = (current: AxisId, onChange: (id: AxisId) => void) =>
+  const axisSelect = (current: AxisId | '', onChange: (id: AxisId) => void, first?: { value: string; label: string }) =>
     el('select', {
       class: 'axis-select',
       onchange: (e: Event) => onChange((e.target as HTMLSelectElement).value),
-    }, ...groups.map((g) => {
+    }, ...(first ? [el('option', { value: first.value, selected: current === first.value }, first.label)] : []),
+    ...groups.map((g) => {
       const optgroup = el('optgroup', { label: g.label });
       for (const a of g.axes) {
         optgroup.appendChild(el('option', {
@@ -1127,15 +1172,12 @@ function renderControls(): void {
         checked: loopPhrase,
         onchange: (e: Event) => { loopPhrase = (e.target as HTMLInputElement).checked; setSetting('audition.loop', loopPhrase); },
       }), 'loop'),
-    el('label', { class: 'field' },
-      el('input', {
-        type: 'checkbox',
-        checked: sizeByFamily,
-        onchange: (e: Event) => {
-          sizeByFamily = (e.target as HTMLInputElement).checked; setSetting('map.sizeByFamily', sizeByFamily);
-          draw();
-        },
-      }), 'size by family'),
+    el('label', { class: 'field' }, 'size', axisSelect(sizeAxisId, (id) => {
+      sizeAxisId = id;
+      setSetting('map.sizeAxis', id);
+      computeSizes();
+      draw();
+    }, { value: '', label: 'uniform' })),
     el('button', {
       class: 'btn',
       onclick: () => {

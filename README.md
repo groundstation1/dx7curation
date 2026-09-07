@@ -31,7 +31,7 @@ features and the ratings all live in IndexedDB.
    as the same patch; below the looser *family* threshold they are similar but
    audibly different, and go to the face-off.
 4. **Map** — a scatter of the whole corpus where hovering plays what is under
-   the cursor. Also the diagnostic for the clustering and the categoriser.
+   the cursor. Any of the sixty-odd axes can drive x, y or dot size. Also the diagnostic for the clustering and the categoriser.
 5. **Rate** — one representative per family, keyboard-driven, ordered so that
    each next patch is the furthest from everything already covered.
 6. **Face-off** — A/B between the distinct sounds inside a surviving family,
