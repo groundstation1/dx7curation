@@ -68,18 +68,27 @@ let frame = 0;
 /**
  * Extend a held note's trail with one sample at the bottom edge.
  *
- * The amplitudes are read now and apply to this sample alone: turning the mod
+ * Everything here is read now and applies to this sample alone: turning the mod
  * wheel up makes the note wiggle from here on and leaves what it already drew
  * exactly as it was. `keyboard.modWheel` is the value after the dead zone, so a
  * wheel that does not quite rest at zero still draws a straight line.
+ *
+ * Pitch bend moves the note sideways by however many keys it is worth, which is
+ * the honest picture: bend is a pitch change, pitch is the horizontal axis, and
+ * every sounding note moves together because the DX7's bend is global. A bent
+ * note leans off its own key and comes back, and the lean stays in the trail.
  */
-function sample(bar: Bar, now: number, mod: number): void {
+function sample(bar: Bar, now: number, mod: number, bendPx: number): void {
   const dt = now - bar.lastSample;
   if (dt < 1 / MAX_SAMPLE_HZ) return;
   bar.lastSample = now;
   bar.slowPhase += dt * SLOW_RATE;
   bar.fastPhase += dt * FAST_RATE;
-  bar.dx.push(SLOW_AMP * bar.detune * Math.sin(bar.slowPhase) + FAST_AMP * mod * Math.sin(bar.fastPhase));
+  bar.dx.push(
+    bendPx
+    + SLOW_AMP * bar.detune * Math.sin(bar.slowPhase)
+    + FAST_AMP * mod * Math.sin(bar.fastPhase),
+  );
   bar.at.push(now);
   // Anything that has scrolled off the top is gone for good.
   const cutoff = now - (HEIGHT + 8) / SPEED;
@@ -126,6 +135,8 @@ function draw(): void {
   // light rather than a row of separate sticks.
   const keyW = w / (span + 1);
   const mod = keyboard.modWheel;
+  // A semitone of bend is one key across.
+  const bendPx = keyboard.bend * keyboard.bendRange * keyW;
 
   // Additive, so overlapping notes brighten each other the way light does.
   ctx.globalCompositeOperation = 'lighter';
@@ -137,7 +148,7 @@ function draw(): void {
   for (const bar of bars) {
     if (bar.end === null) {
       held = true;
-      sample(bar, now, mod);
+      sample(bar, now, mod, bendPx);
     }
 
     const x = ((bar.pitch - LOW) / span) * (w - keyW) + keyW / 2;
