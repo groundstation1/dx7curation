@@ -10,6 +10,8 @@ import { clear, downloadBytes, el, fmtDuration, fmtInt } from '../dom.ts';
 import type { View, ViewContext } from '../app.ts';
 import { SIZE_BUCKETS } from '../../cluster/nearDupe.ts';
 import { topTerms } from '../../cluster/taste.ts';
+import { CATEGORY_LABELS, type Category } from '../../cluster/category.ts';
+import { categoryColour } from '../colour.ts';
 import { FEATURE_DEFS } from '../../features/vector.ts';
 
 const SWEEP_POINTS = [0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.16, 0.22, 0.3];
@@ -189,10 +191,10 @@ function tastePanel(): HTMLElement {
   const store = ctx.store;
   const panel = el('div', { class: 'panel' }, el('h3', { style: { marginTop: 0 } }, 'What your ratings have in common'));
   panel.appendChild(el('p', { class: 'hint' },
-    'A linear model fitted from your ratings to the measured features. It is not trying to replace your ears - it is ',
-    'answering two things a scatter plot cannot: which measurable properties your high ratings share, and where else ',
-    'in the corpus those properties turn up. Features the model finds irrelevant are also down-weighted when deciding ',
-    'which patches count as similar.'));
+    'Three models fitted together from your ratings: a line through the measured features, an offset per category, ',
+    'and an average of the ratings of nearby patches. Cross-validation decides how much of each is used, so liking ',
+    'two unrelated kinds of sound - which no straight line can express - still produces something useful. Features ',
+    'the model finds irrelevant are also down-weighted when deciding which patches count as similar.'));
 
   const model = store.tasteModel;
   if (!model) {
@@ -216,6 +218,44 @@ function tastePanel(): HTMLElement {
     el('div', { class: 'stat' }, el('div', { class: 'k' }, 'mean rating'), el('div', { class: 'v' }, model.meanRating.toFixed(2))),
   ));
   panel.appendChild(el('p', { class: quality, style: { marginTop: 0 } }, verdict));
+
+  // Where the predictive power actually comes from. Three numbers rather than
+  // one, because "the line explains nothing but the neighbours explain a lot"
+  // is a completely different situation from "nothing works yet".
+  const share = (label: string, value: number, note: string) => el('tr', {},
+    el('td', {}, label),
+    el('td', { class: `num ${value > 0.15 ? 'good' : value > 0.05 ? 'warn' : 'muted'}` }, value.toFixed(2)),
+    el('td', { class: 'muted', style: { fontSize: '11.5px' } }, note),
+  );
+  const parts = el('table', { class: 'data', style: { maxWidth: '560px', marginBottom: '14px' } },
+    el('tbody', {},
+      share('the line alone', model.linearR2, 'ridge regression on the features'),
+      share('plus category offsets', model.categoryR2, 'whole families running above or below the line'),
+      share('the neighbours alone', model.neighbourR2, `average of the ${model.neighbours?.k ?? 8} nearest rated patches`),
+      share('as used', model.r2,
+        model.neighbourWeight === 0
+          ? 'neighbours did not help, so they are switched off'
+          : `${Math.round(model.neighbourWeight * 100)}% neighbours, ${Math.round((1 - model.neighbourWeight) * 100)}% line and offsets`),
+    ),
+  );
+  panel.appendChild(parts);
+
+  if (model.categories.length) {
+    const cats = el('div', { class: 'taste-cats' });
+    for (const c of model.categories.slice(0, 6)) {
+      const strong = Math.abs(c.offset) > 0.15;
+      cats.appendChild(el('div', { class: 'taste-cat' },
+        el('i', { style: { background: categoryColour(c.category) } }),
+        el('b', {}, CATEGORY_LABELS[c.category as Category] ?? c.category),
+        el('span', { class: c.offset >= 0 ? 'good' : 'bad' },
+          `${c.offset >= 0 ? '+' : ''}${c.offset.toFixed(2)}`),
+        el('span', { class: 'muted' }, `${c.count} rated, mean ${c.mean.toFixed(1)}`),
+        strong ? null : el('span', { class: 'muted' }, '(barely)'),
+      ));
+    }
+    panel.appendChild(el('h3', {}, 'Categories you like more than their features explain'));
+    panel.appendChild(cats);
+  }
 
   const { up, down } = topTerms(model, 6);
   const list = (title: string, terms: Array<{ index: number; coefficient: number }>, cls: string) => {

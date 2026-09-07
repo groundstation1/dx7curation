@@ -222,6 +222,17 @@ kbd {
 .slot-cat { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 
 
+/* Category offsets in the taste panel. */
+.taste-cats { display: flex; flex-direction: column; gap: 4px; max-width: 560px; }
+.taste-cat {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 8px; border-radius: 6px; background: var(--panel-2);
+  font-variant-numeric: tabular-nums;
+}
+.taste-cat i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.taste-cat b { min-width: 150px; }
+.taste-cat span:nth-of-type(1) { min-width: 46px; font-weight: 600; }
+
 /* ------------------------------------------------- threshold sweep table */
 
 /* Both thresholds are cut-offs: the shading runs from the top of the table

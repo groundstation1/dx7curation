@@ -81,6 +81,8 @@ export class Store {
   whitened: Float32Array | null = null;
   whitener: Whitener | null = null;
   tasteModel: TasteModel | null = null;
+  /** Predictions for the whole corpus, rebuilt whenever the model changes. */
+  private predicted: Float32Array | null = null;
   /** How much redundancy the whitening removed; 1 means none. */
   redundancy = 1;
   /** 0 disables taste weighting of distances, 1 applies it fully. */
@@ -465,7 +467,12 @@ export class Store {
         ratings.push(r.rating);
       }
     }
-    this.tasteModel = fitTaste(this.flat, FEATURE_COUNT, { rows, ratings });
+    this.tasteModel = fitTaste(this.flat, FEATURE_COUNT, {
+      rows,
+      ratings,
+      categoryOf: (row) => this.categoryOf(row),
+    });
+    this.predicted = null;
     return this.tasteModel;
   }
 
@@ -487,10 +494,28 @@ export class Store {
     this.emit();
   }
 
-  /** The model's guess at how this voice would be rated, or null. */
+  /**
+   * The model's guess at how this voice would be rated, or null.
+   *
+   * Computed for the whole corpus at once and cached. The neighbour term is a
+   * scan over every rated voice, which is nothing for one patch and half a
+   * second for twenty-six thousand of them - and the map asks for all of them
+   * every time it lays itself out.
+   */
   predictedRating(index: number): number | null {
-    if (!this.tasteModel || !this.flat || !this.analysis[index]) return null;
-    return predictRating(this.tasteModel, this.flat, FEATURE_COUNT, index);
+    const model = this.tasteModel;
+    if (!model || !this.flat || !this.analysis[index]) return null;
+    if (!this.predicted) {
+      const flat = this.flat;
+      const out = new Float32Array(this.voices.length).fill(NaN);
+      for (let i = 0; i < this.voices.length; i++) {
+        if (!this.analysis[i]) continue;
+        out[i] = predictRating(model, flat, FEATURE_COUNT, i, this.categoryOf(i));
+      }
+      this.predicted = out;
+    }
+    const v = this.predicted[index];
+    return Number.isFinite(v) ? v : null;
   }
 
   /** The matrix distances should be measured in. */
@@ -709,6 +734,7 @@ export class Store {
   }
 
   async setCategoryOverride(index: number, category: Category | null): Promise<void> {
+    this.predicted = null;
     const v = this.voices[index];
     if (!v) return;
     if (category) this.categoryOverrides.set(v.id, category);
@@ -906,6 +932,7 @@ export class Store {
     this.whitened = null;
     this.whitener = null;
     this.tasteModel = null;
+    this.predicted = null;
     this.mergeClusters = null;
     this.mergeRepresentatives = [];
     this.lastIngest = null;

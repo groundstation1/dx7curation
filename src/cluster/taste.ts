@@ -1,24 +1,64 @@
 /*
  * Learning what the user's ratings have in common.
  *
- * Ridge regression from the standardised feature vector to the rating. It is
- * not trying to replace the user's ears - it is trying to answer two questions
- * they cannot answer by staring at a scatter plot: which measurable properties
- * their high ratings share, and where else in the corpus those properties turn
- * up.
+ * Three things, fitted together, because taste is not one shape:
  *
- * Deliberately a linear model. The coefficients are the whole point: a number
- * per feature saying "brighter is better, longer releases are worse", which can
- * be read, argued with, and turned into map axes and distance weights. A model
- * that predicted better but explained nothing would be worse for this job.
+ *   the line       ridge regression from the standardised feature vector to the
+ *                  rating. The coefficients are the point - a number per feature
+ *                  saying "brighter is better, longer releases are worse" - which
+ *                  can be read, argued with, and turned into map axes and
+ *                  distance weights.
+ *
+ *   the categories a per-category offset on top of the line. "I am a sucker for
+ *                  organs" is not a statement about brightness or attack time; it
+ *                  is a whole family scoring above whatever the features predict,
+ *                  and no amount of linear coefficients will say it.
+ *
+ *   the neighbours a kernel-weighted average of the ratings of nearby patches.
+ *                  Someone who likes glassy electric pianos AND filthy basses has
+ *                  a taste no straight line can express: the two groups pull the
+ *                  line in opposite directions and it settles on nothing, which is
+ *                  exactly the "no better than guessing the average" case. Local
+ *                  averages have no such problem - they simply say "this corner of
+ *                  the space scored well and that one did not".
+ *
+ * How much of each is used is decided by cross-validation, so a component that
+ * does not pay for itself contributes nothing, and the R-squared reported is
+ * still the honest out-of-sample one.
  */
+
+export interface CategoryOffset {
+  category: string;
+  /** How far this category sits above or below what the features predict. */
+  offset: number;
+  /** Ratings behind it, and their plain average. */
+  count: number;
+  mean: number;
+}
+
+export interface NeighbourSet {
+  /** Rows of the rated voices, and what they were rated. */
+  rows: number[];
+  ratings: number[];
+  /** How many neighbours the kernel looks at. */
+  k: number;
+}
 
 export interface TasteModel {
   /** One coefficient per feature, on standardised inputs. */
   coefficients: Float32Array;
   intercept: number;
-  /** Cross-validated R-squared. Below ~0.1 means it has learned nothing. */
+  /** Cross-validated R-squared of the model as it is actually used. */
   r2: number;
+  /** What each component manages on its own, for honest reporting. */
+  linearR2: number;
+  categoryR2: number;
+  neighbourR2: number;
+  /** How much of the prediction comes from neighbours rather than the line. */
+  neighbourWeight: number;
+  /** Per-category offsets, biggest first. */
+  categories: CategoryOffset[];
+  neighbours: NeighbourSet | null;
   /** Ratings the fit was built from. */
   samples: number;
   /** Mean rating, the baseline the R-squared is measured against. */
@@ -110,12 +150,107 @@ export interface TasteInput {
   /** Row index into `data` for each rated voice. */
   rows: number[];
   ratings: number[];
+  /** The category of any row, for the per-category offsets. */
+  categoryOf?: (row: number) => string | null;
 }
 
 /**
- * Fit with five-fold cross-validation over a few ridge values, keeping the one
- * that generalises best. With a few hundred ratings and fifty features, the
- * ridge is doing most of the work of not overfitting.
+ * How many ratings a category needs before its offset is taken at face value.
+ *
+ * A shrunken mean: the offset is the sum of the category's residuals over
+ * `count + PRIOR`, so two ratings of organs move the organ offset barely at
+ * all and twenty move it most of the way. Without this, any category with a
+ * single lucky rating would claim a full point of preference.
+ */
+const CATEGORY_PRIOR = 6;
+
+function categoryOffsets(
+  rows: number[], ratings: number[], residuals: number[], categoryOf: (row: number) => string | null,
+): Map<string, number> {
+  const sum = new Map<string, number>();
+  const count = new Map<string, number>();
+  for (let i = 0; i < rows.length; i++) {
+    const c = categoryOf(rows[i]);
+    if (!c) continue;
+    sum.set(c, (sum.get(c) ?? 0) + residuals[i]);
+    count.set(c, (count.get(c) ?? 0) + 1);
+  }
+  const out = new Map<string, number>();
+  for (const [c, total] of sum) out.set(c, total / ((count.get(c) ?? 0) + CATEGORY_PRIOR));
+  return out;
+}
+
+/**
+ * A kernel-weighted average of the nearest rated voices.
+ *
+ * The bandwidth is the distance to the k-th neighbour rather than a fixed
+ * number, because the corpus is wildly uneven: a patch in the middle of the
+ * electric piano mass has fifty rated voices within the radius that leaves a
+ * sound effect with none. `skip` excludes a row from its own estimate, which
+ * is what makes the cross-validation honest.
+ */
+function neighbourEstimate(
+  data: Float32Array, dim: number, row: number,
+  rows: number[], ratings: number[], k: number, skip = -1,
+): number | null {
+  if (rows.length === 0) return null;
+  const base = row * dim;
+  // The k nearest are picked by insertion rather than by sorting everything:
+  // this runs once per voice in the corpus, and an array of objects per call
+  // would be twenty-six thousand short-lived arrays of a hundred-odd entries.
+  const bestD = new Float64Array(k).fill(Infinity);
+  const bestY = new Float64Array(k);
+  let found = 0;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i] === skip || rows[i] === row) continue;
+    const other = rows[i] * dim;
+    let sum = 0;
+    for (let d = 0; d < dim; d++) {
+      const diff = data[base + d] - data[other + d];
+      sum += diff * diff;
+    }
+    if (sum >= bestD[k - 1]) {
+      found++;
+      continue;
+    }
+    let at = k - 1;
+    while (at > 0 && bestD[at - 1] > sum) {
+      bestD[at] = bestD[at - 1];
+      bestY[at] = bestY[at - 1];
+      at--;
+    }
+    bestD[at] = sum;
+    bestY[at] = ratings[i];
+    found++;
+  }
+  if (found === 0) return null;
+
+  const use = Math.min(k, found);
+  // Bandwidth is the distance to the furthest of the k, not a fixed radius: the
+  // corpus is wildly uneven, and a patch in the middle of the electric piano
+  // mass has fifty rated voices inside a radius that leaves a sound effect
+  // with none.
+  const sigma = Math.max(Math.sqrt(bestD[use - 1]), 1e-6);
+  let wsum = 0;
+  let acc = 0;
+  for (let i = 0; i < use; i++) {
+    if (!Number.isFinite(bestD[i])) break;
+    const t = Math.sqrt(bestD[i]) / sigma;
+    const w = Math.exp(-t * t);
+    wsum += w;
+    acc += w * bestY[i];
+  }
+  return wsum > 1e-9 ? acc / wsum : null;
+}
+
+const NEIGHBOUR_K = 8;
+const BLENDS = [0, 0.25, 0.5, 0.75, 1];
+
+/**
+ * Fit with five-fold cross-validation over a few ridge values and a few blends
+ * of line against neighbours, keeping the combination that generalises best.
+ * With a few hundred ratings and sixty features, the ridge and the blend are
+ * doing most of the work of not overfitting.
  */
 export function fitTaste(
   data: Float32Array, dim: number, input: TasteInput,
@@ -123,6 +258,7 @@ export function fitTaste(
 ): TasteModel | null {
   const n = input.rows.length;
   if (n < 12) return null;
+  const categoryOf = input.categoryOf ?? (() => null);
 
   let meanRating = 0;
   for (const r of input.ratings) meanRating += r;
@@ -133,64 +269,137 @@ export function fitTaste(
   if (totalVar <= 0) return null;
 
   const folds = Math.min(5, n);
-  let bestRidge = ridges[0];
-  let bestR2 = -Infinity;
+  const foldOf = (i: number) => i % folds;
 
-  for (const ridge of ridges) {
-    let sse = 0;
-    let ok = true;
+  /** Out-of-fold predictions for one ridge: the line, and the line plus offsets. */
+  const outOfFold = (ridge: number): { linear: number[]; withCats: number[] } | null => {
+    const linear = new Array<number>(n).fill(meanRating);
+    const withCats = new Array<number>(n).fill(meanRating);
     for (let f = 0; f < folds; f++) {
       const trainRows: number[] = [];
       const trainY: number[] = [];
-      const testRows: number[] = [];
-      const testY: number[] = [];
       for (let i = 0; i < n; i++) {
-        if (i % folds === f) {
-          testRows.push(input.rows[i]);
-          testY.push(input.ratings[i]);
-        } else {
-          trainRows.push(input.rows[i]);
-          trainY.push(input.ratings[i]);
-        }
+        if (foldOf(i) === f) continue;
+        trainRows.push(input.rows[i]);
+        trainY.push(input.ratings[i]);
       }
-      if (trainRows.length < 4 || testRows.length === 0) continue;
+      if (trainRows.length < 4) continue;
       const fit = fitRidge(trainRows, data, dim, trainY, ridge);
-      if (!fit) {
-        ok = false;
-        break;
-      }
-      for (let i = 0; i < testRows.length; i++) {
-        const p = predict(fit.coefficients, fit.intercept, data, dim, testRows[i]);
-        const e = testY[i] - p;
-        sse += e * e;
+      if (!fit) return null;
+      const residuals = trainY.map((y, i) => y - predict(fit.coefficients, fit.intercept, data, dim, trainRows[i]));
+      const offsets = categoryOffsets(trainRows, trainY, residuals, categoryOf);
+      for (let i = 0; i < n; i++) {
+        if (foldOf(i) !== f) continue;
+        const p = predict(fit.coefficients, fit.intercept, data, dim, input.rows[i]);
+        linear[i] = p;
+        withCats[i] = p + (offsets.get(categoryOf(input.rows[i]) ?? '') ?? 0);
       }
     }
-    if (!ok) continue;
-    const r2 = 1 - sse / totalVar;
-    if (r2 > bestR2) {
-      bestR2 = r2;
-      bestRidge = ridge;
+    return { linear, withCats };
+  };
+
+  // Neighbours do not depend on the ridge, so they are computed once. Each
+  // rated voice is predicted from the other folds only.
+  const neighbourPred = new Array<number>(n).fill(meanRating);
+  for (let f = 0; f < folds; f++) {
+    const trainRows: number[] = [];
+    const trainY: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (foldOf(i) === f) continue;
+      trainRows.push(input.rows[i]);
+      trainY.push(input.ratings[i]);
+    }
+    for (let i = 0; i < n; i++) {
+      if (foldOf(i) !== f) continue;
+      const est = neighbourEstimate(data, dim, input.rows[i], trainRows, trainY, NEIGHBOUR_K);
+      if (est !== null) neighbourPred[i] = est;
     }
   }
 
-  const full = fitRidge(input.rows, data, dim, input.ratings, bestRidge);
+  const r2Of = (pred: number[]): number => {
+    let sse = 0;
+    for (let i = 0; i < n; i++) {
+      const e = input.ratings[i] - pred[i];
+      sse += e * e;
+    }
+    return 1 - sse / totalVar;
+  };
+
+  const neighbourR2 = r2Of(neighbourPred);
+  let best: { ridge: number; blend: number; r2: number; linearR2: number; categoryR2: number } | null = null;
+  for (const ridge of ridges) {
+    const oof = outOfFold(ridge);
+    if (!oof) continue;
+    const linearR2 = r2Of(oof.linear);
+    const categoryR2 = r2Of(oof.withCats);
+    for (const blend of BLENDS) {
+      const mixed = oof.withCats.map((p, i) => (1 - blend) * p + blend * neighbourPred[i]);
+      const r2 = r2Of(mixed);
+      if (!best || r2 > best.r2) best = { ridge, blend, r2, linearR2, categoryR2 };
+    }
+  }
+  if (!best) return null;
+
+  // The final fit uses everything, with the settings the folds chose.
+  const full = fitRidge(input.rows, data, dim, input.ratings, best.ridge);
   if (!full) return null;
+  const residuals = input.ratings.map((y, i) => y - predict(full.coefficients, full.intercept, data, dim, input.rows[i]));
+  const offsets = categoryOffsets(input.rows, input.ratings, residuals, categoryOf);
+
+  const counts = new Map<string, { n: number; sum: number }>();
+  for (let i = 0; i < n; i++) {
+    const c = categoryOf(input.rows[i]);
+    if (!c) continue;
+    const entry = counts.get(c) ?? { n: 0, sum: 0 };
+    entry.n++;
+    entry.sum += input.ratings[i];
+    counts.set(c, entry);
+  }
+  const categories: CategoryOffset[] = [...offsets].map(([category, offset]) => ({
+    category,
+    offset,
+    count: counts.get(category)?.n ?? 0,
+    mean: (counts.get(category)?.sum ?? 0) / Math.max(1, counts.get(category)?.n ?? 1),
+  })).sort((a, b) => Math.abs(b.offset) - Math.abs(a.offset));
 
   return {
     coefficients: Float32Array.from(full.coefficients),
     intercept: full.intercept,
-    r2: Number.isFinite(bestR2) ? bestR2 : 0,
+    r2: Number.isFinite(best.r2) ? best.r2 : 0,
+    linearR2: Number.isFinite(best.linearR2) ? best.linearR2 : 0,
+    categoryR2: Number.isFinite(best.categoryR2) ? best.categoryR2 : 0,
+    neighbourR2: Number.isFinite(neighbourR2) ? neighbourR2 : 0,
+    neighbourWeight: best.blend,
+    categories,
+    neighbours: best.blend > 0 ? { rows: [...input.rows], ratings: [...input.ratings], k: NEIGHBOUR_K } : null,
     samples: n,
     meanRating,
-    ridge: bestRidge,
+    ridge: best.ridge,
   };
 }
 
-/** Predicted rating for one row of the standardised matrix. */
-export function predictRating(model: TasteModel, data: Float32Array, dim: number, i: number): number {
+/**
+ * Predicted rating for one row of the standardised matrix.
+ *
+ * `category` is optional: without it the per-category offsets are skipped,
+ * which is the right answer for a voice whose category is unknown.
+ */
+export function predictRating(
+  model: TasteModel, data: Float32Array, dim: number, i: number, category?: string | null,
+): number {
   let sum = model.intercept;
   const base = i * dim;
   for (let d = 0; d < dim; d++) sum += model.coefficients[d] * data[base + d];
+  if (category) {
+    const found = model.categories.find((c) => c.category === category);
+    if (found) sum += found.offset;
+  }
+  if (model.neighbourWeight > 0 && model.neighbours) {
+    const est = neighbourEstimate(
+      data, dim, i, model.neighbours.rows, model.neighbours.ratings, model.neighbours.k, i,
+    );
+    if (est !== null) sum = (1 - model.neighbourWeight) * sum + model.neighbourWeight * est;
+  }
   return sum;
 }
 

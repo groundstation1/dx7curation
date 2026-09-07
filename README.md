@@ -57,6 +57,7 @@ node test/pipeline.ts     # the whole pipeline end to end on four cartridges
 node test/algograph.ts    # all 32 algorithms against their front-panel layouts
 node test/phrase.ts       # the audition phrase
 node test/drone.ts        # voices that never stop on their own
+node test/taste.ts        # the rating model, on synthetic tastes
 node test/interpolate.ts  # blending voices
 node test/bench.ts        # render throughput
 ```
@@ -81,6 +82,14 @@ brightness and register.
 transpose and its lowest carrier's ratio, which is what makes inharmonicity
 reliable on bells, where pitch trackers fail. Many bass patches sound two
 octaves below the note you play.
+
+**Taste is not one shape.** The rating model is three fitted together: a ridge
+regression on the features, an offset per category, and a kernel average of the
+ratings of nearby patches. Liking glassy electric pianos *and* filthy basses is
+a taste no straight line can express - the two groups pull the line in opposite
+directions and it settles on nothing, which is what a cross-validated R² near
+zero usually means. Cross-validation picks the blend, so a component that does
+not pay for itself contributes nothing and the reported R² stays honest.
 
 **Distances are whitened.** The feature vector is redundant by construction —
 several columns measure roughly the same thing — so a plain Euclidean distance
