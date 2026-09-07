@@ -25,8 +25,8 @@ import { oklch } from './colour.ts';
 /** Piano range, A0 to C8, which is what the strip maps across its width. */
 const LOW = 21;
 const HIGH = 108;
-const HEIGHT = 92;
-/** Pixels a second of history takes. Two seconds fit in the strip. */
+const HEIGHT = 184;
+/** Pixels a second of history takes. Four seconds fit in the strip. */
 const SPEED = 46;
 /** Silence for this long after key-up and the note has stopped sounding. */
 const QUIET_SEC = 0.12;

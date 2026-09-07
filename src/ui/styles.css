@@ -246,11 +246,11 @@ kbd {
  * keeps it out of the way of whatever it is sitting on top of.
  */
 .piano-roll {
-  position: fixed; left: 0; right: 0; bottom: 0; height: 92px;
+  position: fixed; left: 0; right: 0; bottom: 0; height: 184px;
   width: 100%; pointer-events: none; z-index: 40;
   opacity: 0; transition: opacity 0.5s ease-out;
-  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 30%, rgba(0, 0, 0, 0.62) 62%, transparent 100%);
-  mask-image: linear-gradient(to top, #000 0%, #000 30%, rgba(0, 0, 0, 0.62) 62%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 35%, rgba(0, 0, 0, 0.6) 68%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 0%, #000 35%, rgba(0, 0, 0, 0.6) 68%, transparent 100%);
 }
 
 /* ------------------------------------------------------------ drop zone */
