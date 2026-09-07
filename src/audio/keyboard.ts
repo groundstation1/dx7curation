@@ -102,6 +102,20 @@ export class Keyboard {
     if (ctx && out) this.engine.attach(ctx, out);
   }
 
+  /**
+   * How loud a sounding note actually is, 0 to 1, after the volume knob.
+   *
+   * The engine's own measurement of the note scaled by what the output is
+   * doing with it, so turning the volume down or hitting mute dims what is
+   * drawn as well as what is heard. Anything watching this is showing the
+   * sound, not the intention.
+   */
+  levelOf(midi: number): number {
+    const player = this.player;
+    if (!player || player.isMuted) return 0;
+    return this.engine.levelOf(midi) * player.getVolume();
+  }
+
   setBendRange(semitones: number): void {
     this.bendRange = Math.max(1, Math.min(24, Math.round(semitones)));
     this.engine.setPitchBend(this.bend, this.bendRange);

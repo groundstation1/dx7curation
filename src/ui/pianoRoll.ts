@@ -56,9 +56,10 @@ interface Bar {
   slowPhase: number;
   fastPhase: number;
   lastSample: number;
-  /** The trail: an offset, and the moment it was emitted. Oldest first. */
+  /** The trail: an offset, a moment, and how loud it was then. Oldest first. */
   dx: number[];
   at: number[];
+  lv: number[];
 }
 
 let canvas: HTMLCanvasElement | null = null;
@@ -78,7 +79,7 @@ let frame = 0;
  * every sounding note moves together because the DX7's bend is global. A bent
  * note leans off its own key and comes back, and the lean stays in the trail.
  */
-function sample(bar: Bar, now: number, mod: number, bendPx: number): void {
+function sample(bar: Bar, now: number, mod: number, bendPx: number, level: number): void {
   const dt = now - bar.lastSample;
   if (dt < 1 / MAX_SAMPLE_HZ) return;
   bar.lastSample = now;
@@ -90,6 +91,7 @@ function sample(bar: Bar, now: number, mod: number, bendPx: number): void {
     + FAST_AMP * mod * Math.sin(bar.fastPhase),
   );
   bar.at.push(now);
+  bar.lv.push(level);
   // Anything that has scrolled off the top is gone for good.
   const cutoff = now - (HEIGHT + 8) / SPEED;
   let drop = 0;
@@ -97,6 +99,7 @@ function sample(bar: Bar, now: number, mod: number, bendPx: number): void {
   if (drop > 0) {
     bar.dx.splice(0, drop);
     bar.at.splice(0, drop);
+    bar.lv.splice(0, drop);
   }
 }
 
@@ -148,7 +151,7 @@ function draw(): void {
   for (const bar of bars) {
     if (bar.end === null) {
       held = true;
-      sample(bar, now, mod, bendPx);
+      sample(bar, now, mod, bendPx, keyboard.levelOf(bar.pitch));
     }
 
     const x = ((bar.pitch - LOW) / span) * (w - keyW) + keyW / 2;
@@ -163,55 +166,79 @@ function draw(): void {
     // The trail in screen space, dropping whatever has scrolled off the top.
     const px: number[] = [];
     const py: number[] = [];
+    const plv: number[] = [];
     for (let i = 0; i < bar.at.length; i++) {
       const yy = h - (now - bar.at[i]) * SPEED;
       if (yy < -2) continue;
       px.push(x + bar.dx[i]);
       py.push(Math.min(h, yy));
+      plv.push(bar.lv[i] ?? 0);
     }
     if (px.length === 0) continue;
     // A note still held keeps its bottom end pinned to the edge.
     if (bar.end === null && py[py.length - 1] < h) {
       px.push(px[px.length - 1]);
       py.push(h);
+      plv.push(plv[plv.length - 1] ?? 0);
     }
     if (px.length < 2) {
       px.push(px[0]);
       py.push(Math.min(h, py[0] + 1.5));
+      plv.push(plv[0] ?? 0);
     }
     live = true;
 
-    const path = (offset: number) => {
+    // Brightness is loudness. Velocity is already the hue, and the two are not
+    // the same thing: a hard strike on a patch that decays in 200 ms is a hot
+    // colour that goes dark immediately, and a soft one on an organ is a cool
+    // colour that stays lit for as long as the key is down. The trail is drawn
+    // in chunks so the decay is visible along its length rather than the whole
+    // bar dimming at once - a record of how loud it was, moment by moment.
+    const path = (from: number, to: number, offset: number) => {
       const p = new Path2D();
-      p.moveTo(px[0] + offset, py[0]);
-      for (let i = 1; i < px.length; i++) p.lineTo(px[i] + offset, py[i]);
+      p.moveTo(px[from] + offset, py[from]);
+      for (let i = from + 1; i <= to; i++) p.lineTo(px[i] + offset, py[i]);
       return p;
     };
-    const centre = path(0);
-
-    // The halo, then the body.
-    ctx.strokeStyle = oklch(0.5, 0.17, hue, 0.12 * alpha * (0.4 + 0.6 * vel));
-    ctx.lineWidth = width + 12;
-    ctx.stroke(centre);
-    ctx.strokeStyle = oklch(0.6, 0.17, hue, 0.15 * alpha);
-    ctx.lineWidth = width + 5;
-    ctx.stroke(centre);
-
-    // The light lives on the edges and falls away inwards. Drawn as copies of
-    // the same path at fixed horizontal offsets rather than as a gradient
-    // across the bar: a gradient is fixed in canvas space, so a waving bar
-    // slides through it and its two edges appear to move independently. Offset
-    // copies displace with the bar, which is what a bar actually does - the
-    // whole thing moves, both sides together.
     const edge = Math.max(1, width * 0.16);
     const half = (width - edge) / 2;
-    for (const [at, level] of [[1, 1], [0.62, 0.34], [0.3, 0.2]] as const) {
-      ctx.strokeStyle = oklch(0.88 + 0.06 * vel, 0.08, hue, (0.6 + 0.28 * vel) * level * alpha);
-      ctx.lineWidth = edge * (at === 1 ? 1 : 1.35);
-      ctx.stroke(path(-half * at));
-      if (at > 0) ctx.stroke(path(half * at));
-    }
+    const budget = bars.length > 24 ? 4 : 10;
+    const chunks = Math.max(1, Math.min(budget, Math.floor(px.length / 6)));
+    const step = Math.ceil((px.length - 1) / chunks);
 
+    for (let c = 0; c < px.length - 1; c += step) {
+      const to = Math.min(px.length - 1, c + step);
+      let loud = 0;
+      let n = 0;
+      for (let i = c; i <= to && i < plv.length; i++) {
+        loud += plv[i];
+        n++;
+      }
+      // A floor, so a note that is sounding quietly is dim rather than absent.
+      const bright = 0.28 + 0.72 * Math.sqrt(n ? Math.min(1, (loud / n) * 2.2) : 0);
+      const a = alpha * bright;
+
+      const centre = path(c, to, 0);
+      ctx.strokeStyle = oklch(0.5, 0.17, hue, 0.12 * a * (0.4 + 0.6 * vel));
+      ctx.lineWidth = width + 12;
+      ctx.stroke(centre);
+      ctx.strokeStyle = oklch(0.6, 0.17, hue, 0.15 * a);
+      ctx.lineWidth = width + 5;
+      ctx.stroke(centre);
+
+      // The light lives on the edges and falls away inwards. Drawn as copies of
+      // the same path at fixed horizontal offsets rather than as a gradient
+      // across the bar: a gradient is fixed in canvas space, so a waving bar
+      // slides through it and its two edges appear to move independently.
+      // Offset copies displace with the bar - the whole thing moves, both sides
+      // together, as a bar does.
+      for (const [at, level] of [[1, 1], [0.62, 0.34], [0.3, 0.2]] as const) {
+        ctx.strokeStyle = oklch(0.88 + 0.06 * vel, 0.08, hue, (0.6 + 0.28 * vel) * level * a);
+        ctx.lineWidth = edge * (at === 1 ? 1 : 1.35);
+        ctx.stroke(path(c, to, -half * at));
+        ctx.stroke(path(c, to, half * at));
+      }
+    }
 
     // A dimmer cap across the leading end, so the bar is closed rather than
     // simply stopping. Fainter than the sides: it is the end of the tube, not
@@ -296,6 +323,7 @@ export function mountPianoRoll(): void {
         lastSample: now - 1 / MAX_SAMPLE_HZ,
         dx: [],
         at: [],
+        lv: [],
       });
       if (bars.length > 96) bars.splice(0, bars.length - 96);
     } else {

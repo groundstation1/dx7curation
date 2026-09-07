@@ -32,6 +32,8 @@ interface LiveVoice {
   gain: number;
   /** Blocks rendered since key-up, for the hard ceiling on a release. */
   heldBlocks: number;
+  /** Peak of the last block this voice rendered, 0 to 1. Read by the UI. */
+  level: number;
 }
 
 /**
@@ -160,7 +162,9 @@ export class LiveEngine {
     const note = new Dx7Note();
     note.init(this.patch, Math.max(0, Math.min(127, midi + this.transpose)), velocity);
     note.setModWheel(this.modWheel);
-    this.voices.push({ note, midi, released: false, age: ++this.ageCounter, gain: 1, heldBlocks: 0 });
+    this.voices.push({
+      note, midi, released: false, age: ++this.ageCounter, gain: 1, heldBlocks: 0, level: 0,
+    });
     this.lfo.keydown();
   }
 
@@ -202,6 +206,20 @@ export class LiveEngine {
     return this.pitchBase;
   }
 
+  /**
+   * How loud the newest voice on this note is right now, 0 to 1.
+   *
+   * The level the engine measured on its last block, which is the envelope and
+   * the algorithm and the velocity all together - what you are actually
+   * hearing, rather than what the note was struck at.
+   */
+  levelOf(midi: number): number {
+    for (let i = this.voices.length - 1; i >= 0; i--) {
+      if (this.voices[i].midi === midi) return this.voices[i].level;
+    }
+    return 0;
+  }
+
   setModWheel(value01: number): void {
     this.modWheel = Math.max(0, Math.min(1, value01));
     for (const v of this.voices) v.note.setModWheel(this.modWheel);
@@ -223,16 +241,24 @@ export class LiveEngine {
       for (const v of this.voices) {
         if (v.released) v.heldBlocks++;
         if (v.released && v.gain === 1 && (v.note.settled || v.heldBlocks > maxBlocks)) v.gain -= fadeStep;
-        if (v.gain >= 1) {
-          v.note.compute(this.buf, lfoVal, lfoDelay, this.pitchBase);
-          continue;
-        }
-        // Fading, so it has to be rendered on its own before it is summed.
+        // Every voice renders on its own and is then summed. It costs one more
+        // pass over sixty-four samples and buys two things: the fade a droning
+        // voice needs, and a per-voice level for the UI to draw. Knowing how
+        // loud each note is right now is not something the mixed buffer can
+        // say.
         this.scratch.fill(0);
         v.note.compute(this.scratch, lfoVal, lfoDelay, this.pitchBase);
-        const g = Math.max(0, v.gain);
-        for (let j = 0; j < N; j++) this.buf[j] += Math.round(this.scratch[j] * g);
-        v.gain -= fadeStep;
+        const g = Math.min(1, Math.max(0, v.gain));
+        let peak = 0;
+        for (let j = 0; j < N; j++) {
+          const x = this.scratch[j];
+          if (x > peak) peak = x;
+          else if (-x > peak) peak = -x;
+          this.buf[j] += g === 1 ? x : Math.round(x * g);
+        }
+        // The mixdown below is buf >> 4 >> 9 over 32768, so full scale is 2^28.
+        v.level = Math.min(1, (peak / 268435456) * g);
+        if (v.gain < 1) v.gain -= fadeStep;
       }
       for (let j = 0; j < N && start + j < out.length; j++) {
         const val = this.buf[j] >> 4;
