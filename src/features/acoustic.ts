@@ -30,9 +30,12 @@ export interface SegmentFeatures {
   decayTime: number;
   /** Sustain level over held peak, 0..1. */
   sustainRatio: number;
-  /** Seconds from key-up to 60 dB down. Censored at the tail length. */
+  /**
+   * Seconds from key-up to 60 dB down, extrapolated from the decay rate when
+   * the probe ends before the tail does.
+   */
   releaseTime: number;
-  /** True when the tail was still audible when the probe ended. */
+  /** True when the tail outlasted the probe, so the figure is an estimate. */
   releaseCensored: boolean;
   /** Spectral centroid in octaves above f0, averaged over the note. */
   centroidOct: number;
@@ -154,6 +157,19 @@ export function analyseSegment(seg: ProbeSegment): SegmentFeatures {
   const decayTime = Math.max(0, (decayFrame - attackFrame) * hopSec);
 
   // ---- release tail ----
+  //
+  // Measured to 60 dB down where the probe is long enough to see it, and
+  // extrapolated where it is not. Simply saturating at the probe length made
+  // the feature useless exactly where releases get interesting: every long
+  // tail came out as the same number, so a bell that rings for three seconds
+  // and a pad that rings for twenty were identical, and the value moved when
+  // the probe length changed rather than when the patch did.
+  //
+  // A DX7 release is close to exponential - the envelope steps down in even
+  // decibel increments - so a straight line through the tail in dB gives the
+  // decay rate directly, and 60 divided by that rate is the release time. It
+  // is still an estimate, but it is an estimate of the patch rather than a
+  // statement about the probe.
   const atRelease = Math.max(env[releaseFrame], SILENCE);
   const target = atRelease / 1000; // -60 dB
   let releaseEnd = env.length - 1;
@@ -165,7 +181,33 @@ export function analyseSegment(seg: ProbeSegment): SegmentFeatures {
       break;
     }
   }
-  const releaseTime = (releaseEnd - releaseFrame) * hopSec;
+  let releaseTime = (releaseEnd - releaseFrame) * hopSec;
+
+  if (censored) {
+    // Least squares on dB against time, skipping the first few frames: the
+    // moment of key-up is a corner, not part of the decay.
+    const from = Math.min(env.length - 1, releaseFrame + 3);
+    let n = 0;
+    let sumT = 0;
+    let sumD = 0;
+    let sumTT = 0;
+    let sumTD = 0;
+    for (let f = from; f < env.length; f++) {
+      if (env[f] <= SILENCE) break;
+      const t = (f - releaseFrame) * hopSec;
+      const db = 20 * Math.log10(env[f] / atRelease);
+      n++;
+      sumT += t;
+      sumD += db;
+      sumTT += t * t;
+      sumTD += t * db;
+    }
+    const denom = n * sumTT - sumT * sumT;
+    const slope = n >= 4 && Math.abs(denom) > 1e-12 ? (n * sumTD - sumT * sumD) / denom : 0;
+    // A slope that is flat or rising is a drone, not a decay: nothing to
+    // extrapolate, so it keeps the probe length as a floor and stays flagged.
+    if (slope < -0.5) releaseTime = Math.min(60, 60 / -slope);
+  }
 
   // ---- spectrum ----
   // Analyse a little after the onset, where a percussive patch still has body.

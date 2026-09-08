@@ -15,7 +15,7 @@ import { buildBank, BANK_FILE_SIZE } from '../sysex/write.ts';
 import { parseSysexFile, type ParseReport } from '../sysex/parse.ts';
 import { isCarrier } from '../engine/fmcore.ts';
 import { isInitVoice, isSilentByParams } from '../sysex/voice.ts';
-import { fitStandardizer, standardize, FEATURE_COUNT, type Standardizer } from '../features/vector.ts';
+import { ANALYSIS_VERSION, fitStandardizer, standardize, FEATURE_COUNT, type Standardizer } from '../features/vector.ts';
 import { buildNearDupeGraph, clusterAtThreshold, chooseRepresentatives, thresholdSweep, type NearDupeGraph, type NearDupeClusters, type SweepRow } from '../cluster/nearDupe.ts';
 import { pca } from '../cluster/pca.ts';
 import { fitWhitener, whitenAll, redundancyRatio, redundancyWeights, type Whitener } from '../cluster/whiten.ts';
@@ -217,6 +217,7 @@ export class Store {
       a.categoryConfidence = c.confidence;
       records.push({
         voiceId: this.voices[i].id,
+        analysisVersion: ANALYSIS_VERSION,
         acoustic: a.acoustic,
         structural: a.structural,
         vector: a.vector,
@@ -384,6 +385,7 @@ export class Store {
             };
             records.push({
               voiceId: item.id,
+              analysisVersion: ANALYSIS_VERSION,
               acoustic: item.acoustic,
               structural: item.structural,
               vector: item.vector,
@@ -943,6 +945,10 @@ export class Store {
 /** Reject a stored feature row whose vector predates the current feature set. */
 function toAnalysis(f: FeatureRecord): Analysis | null {
   if (!f.vector || f.vector.length !== FEATURE_COUNT) return null;
+  // Measured by a version of the analysis that no longer exists: the numbers
+  // are not comparable with anything measured since, so they count as stale
+  // and the app offers to run the pass again.
+  if ((f.analysisVersion ?? 1) !== ANALYSIS_VERSION) return null;
   return {
     acoustic: f.acoustic as Analysis['acoustic'],
     structural: f.structural as StructuralFeatures,

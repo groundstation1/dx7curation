@@ -59,6 +59,7 @@ node test/phrase.ts       # the audition phrase
 node test/drone.ts        # voices that never stop on their own
 node test/taste.ts        # the rating model, on synthetic tastes
 node test/bend.ts         # pitch bend, measured back off the rendered audio
+node test/release.ts      # release times, and whether extrapolating them is honest
 node test/interpolate.ts  # blending voices
 node test/bench.ts        # render throughput
 ```
@@ -78,6 +79,15 @@ carriers on eleven of the thirty-two. In Dexed that is harmless — the function
 only decides when a note has finished sounding — but here the lowest carrier
 sets each voice's perceived fundamental, and therefore its inharmonicity,
 brightness and register.
+
+**Release time is extrapolated, not truncated.** A probe that stops before the
+tail does used to report its own length, so every slow patch came out the same
+and the number moved when the probe changed rather than when the patch did. The
+tail now runs four seconds - segments that fall silent exit early, so it costs
+nothing on the two thirds that stop inside a second - and where it still
+outlasts the probe the decay rate is fitted in dB and extrapolated to 60 dB
+down. Against an eight-second probe that estimate is within 10% for the median
+long-tailed voice.
 
 **Pitch is derived, not tracked.** A voice's fundamental comes from its
 transpose and its lowest carrier's ratio, which is what makes inharmonicity

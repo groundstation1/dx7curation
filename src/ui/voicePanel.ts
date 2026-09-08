@@ -114,7 +114,7 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
   if (predicted !== null) add('predicted rating', predicted.toFixed(2));
   if (a) {
     add('attack', `${(Math.pow(10, a.acoustic.logAttackTime) * 1000).toFixed(0)} ms`);
-    add('release', `${Math.pow(10, a.acoustic.logReleaseTime).toFixed(2)} s${a.acoustic.releaseCensored ? ' (still ringing)' : ''}`);
+    add('release', `${Math.pow(10, a.acoustic.logReleaseTime).toFixed(2)} s${a.acoustic.releaseCensored ? ' (extrapolated)' : ''}`);
     add('sustain', a.acoustic.sustainRatio.toFixed(2));
     add('brightness', `${a.acoustic.centroidOct.toFixed(2)} octaves above f0`);
     add('register', `${a.acoustic.registerOct >= 0 ? '+' : ''}${a.acoustic.registerOct.toFixed(2)} octaves vs the note played`);

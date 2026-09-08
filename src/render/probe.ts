@@ -40,6 +40,14 @@ export interface ProbeSpec {
   pitches: number[];
   velocities: number[];
   holdSec: number;
+  /**
+   * How long to keep rendering after key-up.
+   *
+   * Long, because releases are where near-duplicates diverge and a short tail
+   * makes every slow patch look identical. Segments that fall silent early exit
+   * early, so this costs nothing on the two thirds of the corpus that stop
+   * inside a second.
+   */
   releaseSec: number;
   sampleRate: number;
   /** Stop a segment early once the carriers are done and the block is silent. */
@@ -56,7 +64,7 @@ export const DEFAULT_PROBE: ProbeSpec = {
   pitches: [36, 60, 84],
   velocities: [120, 40],
   holdSec: 1.0,
-  releaseSec: 1.0,
+  releaseSec: 4.0,
   sampleRate: 44100,
   earlyExit: true,
   modWheelProbe: true,

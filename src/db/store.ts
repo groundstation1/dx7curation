@@ -38,6 +38,8 @@ export interface VoiceRecord {
 
 export interface FeatureRecord {
   voiceId: number;
+  /** ANALYSIS_VERSION at the time these were measured. Absent means version 1. */
+  analysisVersion?: number;
   acoustic: unknown;
   structural: unknown;
   vector: Float32Array;

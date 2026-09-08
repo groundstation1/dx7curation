@@ -85,6 +85,20 @@ export const FEATURE_DEFS: FeatureDef[] = [
 export const FEATURE_NAMES = FEATURE_DEFS.map((d) => d.name);
 export const FEATURE_COUNT = FEATURE_DEFS.length;
 
+/**
+ * Bumped whenever a stored feature would come out differently today.
+ *
+ * The vector's length already catches features being added or removed, but not
+ * a measurement changing meaning underneath the same name - a longer probe, a
+ * different definition of release time - which leaves a corpus holding numbers
+ * that are no longer comparable with anything measured since. Since analysis
+ * runs at about twenty voices a second per worker, telling the user their
+ * features are out of date is cheap and being quietly wrong is not.
+ *
+ *   2  release time extrapolated past the end of the probe; probe tail 4 s
+ */
+export const ANALYSIS_VERSION = 2;
+
 export function buildVector(a: AcousticFeatures, s: StructuralFeatures): Float32Array {
   const v = new Float32Array(FEATURE_COUNT);
   for (let i = 0; i < FEATURE_COUNT; i++) {
