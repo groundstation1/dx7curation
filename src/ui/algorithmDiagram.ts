@@ -109,7 +109,9 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
   const box = opts.box ?? (v ? 42 : 26);
   const gapX = v ? 13 : 12;
   const gapY = v ? 14 : 16;
-  const pad = 10;
+  // Room at the edges for the feedback badge, which sits outside the top-right
+  // corner of whichever operator carries the loop.
+  const pad = v ? 15 : 10;
 
   const stepX = box + gapX;
   const stepY = box + gapY;
@@ -196,9 +198,22 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
         opacity: loopOpacity,
       }));
       if (v) {
+        // A badge rather than loose text: the curl passes through wherever the
+        // number would naturally sit, and a digit lying across a stroke of the
+        // same colour is unreadable. A filled disc occludes the arc instead,
+        // which reads as a label attached to the loop.
+        const br = Math.max(5, box * 0.14);
+        const bx = cx + br + 2.5;
+        const by = cy - br - 2.5;
+        root.appendChild(svg('circle', {
+          cx: bx, cy: by, r: br,
+          fill: 'var(--panel)', stroke: 'var(--accent-2)',
+          'stroke-width': 0.9, opacity: amount === 0 ? 0.45 : 0.95,
+        }));
         const label = svg('text', {
-          x: cx + 4, y: cy - 2, 'font-size': Math.max(7, box * 0.2),
-          fill: 'var(--accent-2)', opacity: amount === 0 ? 0.4 : 0.9,
+          x: bx, y: by + br * 0.36, 'text-anchor': 'middle',
+          'font-size': br * 1.35,
+          fill: 'var(--accent-2)', opacity: amount === 0 ? 0.5 : 1,
         });
         label.textContent = String(amount);
         root.appendChild(label);
