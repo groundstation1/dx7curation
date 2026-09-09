@@ -150,6 +150,14 @@ engine fades a voice out once its envelope has settled, and in any case six
 seconds after key-up, so a key you let go of cannot keep sounding under
 everything you audition next.
 
+**The long passes run in workers and say so.** Analysis always did; the
+near-duplicate pass did not, and on a corpus of tens of thousands it is minutes
+of solid arithmetic. Run on the main thread it froze the tab for the whole run -
+its progress callbacks fired, but nothing repainted between them, so the report
+of what it was doing arrived once it had finished. It now runs in a worker with
+a bar, the stage it is in, elapsed time and an estimate, and a Stop button that
+terminates the worker.
+
 **Auditions are cut before the next one renders.** Stopping the old sound only
 once the new buffer arrives sounds fine on a plucked patch and terrible on a
 pad: anything with a long tail, and anything looping, plays straight through the

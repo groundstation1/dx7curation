@@ -20,6 +20,9 @@ let ctx: ViewContext;
 let container: HTMLElement;
 let unsubscribe: (() => void) | null = null;
 let analysisAbort: AbortController | null = null;
+let dupeAbort: AbortController | null = null;
+let dupeLine: HTMLElement | null = null;
+let dupeStartedAt = 0;
 let progressLine: HTMLElement | null = null;
 
 function statBlock(k: string, v: string): HTMLElement {
@@ -106,6 +109,51 @@ async function runAnalysis(): Promise<void> {
     });
   } finally {
     analysisAbort = null;
+    render();
+  }
+}
+
+/**
+ * Run the near-duplicate pass, reporting as it goes.
+ *
+ * The same treatment the analysis pass gets: a bar, what it is doing, how long
+ * it has taken and how long is left. This one used to be a button that froze
+ * the tab for minutes with nothing on screen, which is the difference between
+ * "working" and "broken" from the outside.
+ */
+async function runDupes(): Promise<void> {
+  if (dupeAbort) return;
+  dupeAbort = new AbortController();
+  dupeStartedAt = performance.now();
+  render();
+  try {
+    await ctx.store.buildClusters({
+      signal: dupeAbort.signal,
+      onProgress: (done, total, stage) => {
+        if (!dupeLine) return;
+        const fraction = total > 0 ? Math.min(1, done / total) : 0;
+        const elapsed = performance.now() - dupeStartedAt;
+        // Stages do not take equal time, so an ETA from the overall fraction
+        // would be a lie. It is honest about the stage it is in.
+        const eta = fraction > 0.02 ? (elapsed / fraction) * (1 - fraction) : NaN;
+        clear(dupeLine);
+        dupeLine.append(
+          el('progress', { max: 1000, value: Math.round(fraction * 1000) }),
+          el('span', { class: 'muted' },
+            `${stage} — ${Math.round(fraction * 100)}%`,
+            `  ·  ${fmtDuration(elapsed)} so far`,
+            Number.isFinite(eta) ? `  ·  about ${fmtDuration(eta)} left in this stage` : ''),
+        );
+      },
+    });
+  } catch (err) {
+    if ((err as Error).name !== 'AbortError') {
+      ctx.store.setBusy(null);
+      window.alert(`Near-duplicate pass failed: ${(err as Error).message}`);
+    }
+  } finally {
+    dupeAbort = null;
+    dupeLine = null;
     render();
   }
 }
@@ -460,27 +508,25 @@ function render(): void {
         'is rated; if it scores well, the rest of the family goes to the face-off.'),
     ));
 
-    if (!store.graph) {
+    dupeLine = el('div', { class: 'row' });
+    if (dupeAbort) {
+      clusterPanel.appendChild(dupeLine);
+      clusterPanel.appendChild(el('div', { class: 'row', style: { marginTop: '10px' } },
+        el('button', { class: 'btn danger', onclick: () => dupeAbort?.abort() }, 'Stop')));
+    } else if (!store.graph) {
       clusterPanel.appendChild(el('button', {
         class: 'btn primary',
-        onclick: async () => {
-          await ctx.store.buildClusters({
-            onProgress: (done, total, stage) => ctx.store.setBusy(`${stage} ${total ? Math.round((done / total) * 100) : 0}%`),
-          });
-          render();
-        },
+        onclick: () => void runDupes(),
       }, 'Find near-duplicates'));
+      clusterPanel.appendChild(el('p', { class: 'hint', style: { marginTop: '8px', marginBottom: 0 } },
+        `Compares every voice against its neighbours in feature space: ${fmtInt(store.voices.length)} voices is `,
+        'a few tens of millions of comparisons, so this one takes minutes rather than seconds on a large corpus. ',
+        'It runs in a worker, so the rest of the app keeps working while it does, and it can be stopped.'));
     } else {
       clusterPanel.appendChild(el('div', { class: 'row', style: { marginBottom: '12px' } },
         el('span', {}, `${fmtInt(store.graph.a.length)} candidate pairs in ${fmtInt(store.graph.blocks)} blocks`),
         store.graph.truncated ? el('span', { class: 'warn' }, 'edge list was truncated; raise the limit or lower the max distance') : null,
-        el('button', {
-          class: 'btn',
-          onclick: async () => {
-            await ctx.store.buildClusters({});
-            render();
-          },
-        }, 'Recompute'),
+        el('button', { class: 'btn', onclick: () => void runDupes() }, 'Recompute'),
       ));
       clusterPanel.appendChild(sweepTable());
       if (store.clusters && store.mergeClusters) {

@@ -16,7 +16,8 @@ import { parseSysexFile, type ParseReport } from '../sysex/parse.ts';
 import { isCarrier } from '../engine/fmcore.ts';
 import { isInitVoice, isSilentByParams } from '../sysex/voice.ts';
 import { ANALYSIS_VERSION, fitStandardizer, standardize, FEATURE_COUNT, type Standardizer } from '../features/vector.ts';
-import { buildNearDupeGraph, clusterAtThreshold, chooseRepresentatives, thresholdSweep, type NearDupeGraph, type NearDupeClusters, type SweepRow } from '../cluster/nearDupe.ts';
+import type { DupeRequest, DupeResponse } from '../workers/nearDupe.worker.ts';
+import { clusterAtThreshold, chooseRepresentatives, thresholdSweep, type NearDupeGraph, type NearDupeClusters, type SweepRow } from '../cluster/nearDupe.ts';
 import { pca } from '../cluster/pca.ts';
 import { fitWhitener, whitenAll, redundancyRatio, redundancyWeights, type Whitener } from '../cluster/whiten.ts';
 import { fitTaste, predictRating, tasteWeights, type TasteModel } from '../cluster/taste.ts';
@@ -527,20 +528,60 @@ export class Store {
 
   // ------------------------------------------------------------ clustering
 
-  async buildClusters(opts: { maxDistance?: number; blockSize?: number; onProgress?: (done: number, total: number, stage: string) => void } = {}): Promise<void> {
+  /**
+   * Find the near-duplicate pairs, in a worker.
+   *
+   * Tens of millions of distance computations, which on a large corpus is
+   * minutes. On the main thread that froze the tab: the progress callbacks
+   * fired but nothing repainted between them, so the app looked hung for the
+   * entire run and there was no way to stop it. Aborting terminates the worker,
+   * which is the only way to stop a synchronous loop that is already going.
+   */
+  async buildClusters(opts: {
+    maxDistance?: number;
+    blockSize?: number;
+    onProgress?: (done: number, total: number, stage: string) => void;
+    signal?: AbortSignal;
+  } = {}): Promise<void> {
     if (!this.flat) throw new Error('run the analysis pass first');
+    const space = this.distanceSpace;
+    if (!space) throw new Error('run the analysis pass first');
     this.setBusy('finding near-duplicates');
+
+    const worker = new Worker(new URL('../workers/nearDupe.worker.ts', import.meta.url), { type: 'module' });
     try {
-      const space = this.distanceSpace;
-      if (!space) throw new Error('run the analysis pass first');
-      const graph = buildNearDupeGraph(
-        space, this.voices.length, FEATURE_COUNT, this.voices.map((v) => v.unpacked),
-        { maxDistance: opts.maxDistance ?? 0.4, blockSize: opts.blockSize ?? 400, onProgress: opts.onProgress },
-      );
+      const graph = await new Promise<NearDupeGraph>((resolve, reject) => {
+        const stop = () => {
+          worker.terminate();
+          reject(new DOMException('cancelled', 'AbortError'));
+        };
+        if (opts.signal?.aborted) return stop();
+        opts.signal?.addEventListener('abort', stop, { once: true });
+
+        worker.onmessage = (ev: MessageEvent<DupeResponse>) => {
+          const msg = ev.data;
+          if (msg.type === 'progress') opts.onProgress?.(msg.done, msg.total, msg.stage);
+          else if (msg.type === 'done') resolve(msg.graph);
+          else reject(new Error(msg.message));
+        };
+        worker.onerror = (e) => reject(new Error(e.message || 'the near-duplicate worker failed'));
+
+        const request: DupeRequest = {
+          type: 'dupe',
+          // A copy: the main thread still needs its own distance space.
+          data: Float32Array.from(space),
+          n: this.voices.length,
+          dim: FEATURE_COUNT,
+          unpacked: this.voices.map((v) => v.unpacked),
+          opts: { maxDistance: opts.maxDistance ?? 0.4, blockSize: opts.blockSize ?? 400 },
+        };
+        worker.postMessage(request, [request.data.buffer]);
+      });
       this.graph = graph;
       await kvSet('nearDupeGraph', graph);
       this.applyThreshold(this.threshold, this.mergeThreshold, true);
     } finally {
+      worker.terminate();
       this.setBusy(null);
     }
   }
