@@ -112,10 +112,15 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
   // Room at the edges for the feedback badge, which sits outside the top-right
   // corner of whichever operator carries the loop.
   const pad = v ? 15 : 10;
+  // A loop spanning two operators is routed outside the column and carries its
+  // number further out still, so that side needs more room than the badge does.
+  // Without it the number simply fell off the edge of the viewBox.
+  const routed = g.feedback.length > 1 && g.feedback[0] !== g.feedback[g.feedback.length - 1];
+  const padX = pad + (routed ? gapX + 12 : 0);
 
   const stepX = box + gapX;
   const stepY = box + gapY;
-  const width = pad * 2 + Math.max(stepX, g.width * stepX - gapX);
+  const width = padX * 2 + Math.max(stepX, g.width * stepX - gapX);
   const height = pad * 2 + g.height * stepY - gapY;
 
   // No fixed width or height: the CSS scales it to whatever space it is given,
@@ -127,7 +132,7 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
     'aria-label': `DX7 algorithm ${g.algorithm + 1}`,
   });
 
-  const xOf = (column: number) => pad + column * stepX + box / 2;
+  const xOf = (column: number) => padX + column * stepX + box / 2;
   const yOf = (depth: number) => pad + (g.height - 1 - depth) * stepY + box / 2;
   const byOp = new Map(g.nodes.map((n) => [n.op, n]));
 
