@@ -159,6 +159,18 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
   // anything. Only the two algorithms whose loop genuinely spans two operators
   // need a routed path, and that one is pushed clear of the column.
   if (g.feedback.length) {
+    // How hard, not just whether. Feedback is 0 to 7 and the difference between
+    // 0 and 7 is the difference between a sine and a sawtooth-ish scream, so
+    // drawing every algorithm's loop identically hid the single parameter that
+    // decides what the patch sounds like. At 0 the loop is a ghost - the
+    // routing exists, nothing is going through it - and it thickens and
+    // brightens from there.
+    const amount = v ? v[P.feedback] & 7 : 7;
+    const strength = amount / 7;
+    const loopWidth = 1.2 + 2 * strength;
+    const loopOpacity = v ? 0.2 + 0.8 * strength : 1;
+    const dash = v && amount === 0 ? '2 2' : '';
+
     const top = byOp.get(g.feedback[0]);
     const bottom = byOp.get(g.feedback[g.feedback.length - 1]);
     if (top && bottom && top.op === bottom.op) {
@@ -169,17 +181,28 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
         d: `M ${cx - r} ${cy} A ${r} ${r} 0 1 1 ${cx} ${cy + r}`,
         fill: 'none',
         stroke: 'var(--accent-2)',
-        'stroke-width': 1.9,
+        'stroke-width': loopWidth,
         'stroke-linecap': 'round',
+        'stroke-dasharray': dash,
+        opacity: loopOpacity,
       }));
       root.appendChild(svg('path', {
         d: `M ${cx - 4.2} ${cy + r - 3.4} L ${cx} ${cy + r} L ${cx - 4.2} ${cy + r + 3.4}`,
         fill: 'none',
         stroke: 'var(--accent-2)',
-        'stroke-width': 1.9,
+        'stroke-width': loopWidth,
         'stroke-linecap': 'round',
         'stroke-linejoin': 'round',
+        opacity: loopOpacity,
       }));
+      if (v) {
+        const label = svg('text', {
+          x: cx + 4, y: cy - 2, 'font-size': Math.max(7, box * 0.2),
+          fill: 'var(--accent-2)', opacity: amount === 0 ? 0.4 : 0.9,
+        });
+        label.textContent = String(amount);
+        root.appendChild(label);
+      }
     } else if (top && bottom) {
       // Two-operator loop: route it down the side with room, well clear of the
       // boxes rather than through the gap between columns.
@@ -194,17 +217,30 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
         d: `M ${edge} ${yBottom - 5} L ${out} ${yBottom - 5} L ${out} ${yTop + 5} L ${edge} ${yTop + 5}`,
         fill: 'none',
         stroke: 'var(--accent-2)',
-        'stroke-width': 1.5,
+        'stroke-width': loopWidth * 0.85,
         'stroke-linejoin': 'round',
+        'stroke-dasharray': dash,
+        opacity: loopOpacity,
       }));
       root.appendChild(svg('path', {
         d: `M ${edge + tip} ${yTop + 2} L ${edge} ${yTop + 5} L ${edge + tip} ${yTop + 8}`,
         fill: 'none',
         stroke: 'var(--accent-2)',
-        'stroke-width': 1.5,
+        'stroke-width': loopWidth * 0.85,
         'stroke-linecap': 'round',
         'stroke-linejoin': 'round',
+        opacity: loopOpacity,
       }));
+      if (v) {
+        const label = svg('text', {
+          x: out + (goRight ? 2 : -2), y: (yTop + yBottom) / 2,
+          'text-anchor': goRight ? 'start' : 'end',
+          'font-size': Math.max(7, box * 0.2),
+          fill: 'var(--accent-2)', opacity: amount === 0 ? 0.4 : 0.9,
+        });
+        label.textContent = String(amount);
+        root.appendChild(label);
+      }
     }
   }
 
@@ -563,7 +599,7 @@ export function operatorCard(v: Uint8Array, op: number, carrier: boolean, feedba
   if (feedback) {
     const fb = document.createElement('span');
     fb.className = 'op-fb';
-    fb.textContent = 'feedback';
+    fb.textContent = `feedback ${v[P.feedback] & 7}`;
     head.appendChild(fb);
   }
   card.appendChild(head);
