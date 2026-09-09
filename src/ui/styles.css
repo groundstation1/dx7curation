@@ -335,6 +335,15 @@ kbd {
 .bank ol { margin: 0; padding-left: 26px; font-family: var(--mono); font-size: 11.5px; line-height: 1.65; }
 .bank li::marker { color: var(--muted); }
 .slot-cat { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+/* A slot the cursor is on, and one clicked to keep. */
+.bank li.slot { cursor: pointer; border-radius: 4px; padding: 0 4px; margin-left: -4px; }
+.bank li.slot:hover { background: var(--panel-2); }
+.bank li.slot.on { background: rgba(110, 168, 254, 0.14); color: var(--text); }
+.bank li.slot.held { background: rgba(110, 168, 254, 0.22); box-shadow: inset 0 0 0 1px rgba(110, 168, 254, 0.45); }
+
+/* The build's own header: current, or out of date and why. */
+.build-state { border-left: 3px solid var(--good); }
+.build-state.stale { border-left-color: var(--accent-2); }
 
 
 /* Category offsets in the taste panel. */
