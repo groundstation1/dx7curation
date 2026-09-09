@@ -1006,7 +1006,7 @@ function renderSide(): void {
     onOpen: (n) => {
       selected = n;
       armKeyboard();
-      void audition(n);
+      void audition(n, false, 'click');
       renderSide();
       draw();
     },
@@ -1393,7 +1393,7 @@ function attachCanvasEvents(): void {
       const now = performance.now();
       if (hoverAudition && hit >= 0 && now - lastAuditionAt > HOVER_INTERVAL_MS) {
         lastAuditionAt = now;
-        void audition(hit, false);
+        void audition(hit, false, 'hover');
       }
     }
   });
@@ -1481,7 +1481,7 @@ function attachCanvasEvents(): void {
     armKeyboard();
     renderSide();
     draw();
-    if (hit >= 0) void audition(hit);
+    if (hit >= 0) void audition(hit, false, 'click');
   });
 
   wrap.addEventListener('wheel', (e) => {
@@ -1550,7 +1550,7 @@ export const view: View = {
       } else if (e.key === ' ') {
         if (i < 0) return;
         e.preventDefault();
-        void audition(i, true, 'hover');
+        void audition(i, true);
       } else if (e.key === 'Escape') {
         if (selected < 0) return;
         e.preventDefault();

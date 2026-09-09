@@ -364,7 +364,7 @@ function banksPanel(): HTMLElement {
           selected = selected === i ? -1 : i;
           hovered = i;
           armKeyboard();
-          void ctx.player.audition(v.id, v.unpacked, DEMO_PHRASE);
+          if (ctx.player.mayPlay('click')) void ctx.player.audition(v.id, v.unpacked, DEMO_PHRASE);
           renderSide();
           highlight();
         },
