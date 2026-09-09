@@ -12,7 +12,7 @@ import { CATEGORIES, CATEGORY_LABELS, type Category } from '../../cluster/catego
 import { allocate, DEFAULT_CEILINGS, DEFAULT_FLOORS, type Candidate, type AllocationResult } from '../../alloc/allocate.ts';
 import { chooseEndpoints, seriate, withCategoryAxis } from '../../order/seriate.ts';
 import { buildBanksPadded, verifyBank, BANK_NAMES } from '../../sysex/write.ts';
-import { listOutputs, midiSupported, requestMidi, sendBanks, sendProgramChange, sendTestNote, type MidiPort } from '../../midi/webmidi.ts';
+import { listOutputs, midiSupported, requestMidi, sendBanks, sendProgramChange, sendRaw, sendTestNote, type MidiPort } from '../../midi/webmidi.ts';
 import { P } from '../../sysex/voice.ts';
 import { FEATURE_COUNT } from '../../features/vector.ts';
 import { DEMO_PHRASE } from '../../engine/phrase.ts';
@@ -59,6 +59,8 @@ let verification: string[] = [];
 let midiPorts: MidiPort[] = [];
 let midiOutputId = '';
 let midiMessage = '';
+/** Bank letter to when it was last sent, so a four-step manual job is trackable. */
+const sentBanks = new Map<string, number>();
 
 /**
  * One candidate per surviving near-duplicate family, plus every pinned voice.
@@ -479,24 +481,58 @@ function midiPanel(): HTMLElement {
         render();
       },
     }, 'Test note'),
-    el('button', {
-      class: 'btn primary',
-      disabled: !midiOutputId || banks.length === 0,
-      onclick: async () => {
+  ));
+
+  // One bank at a time, because the receiving end decides where a dump lands:
+  // the unit has to be put into receive for the right bank between sends, and
+  // that is a manual step on its front panel. Sending all four back to back
+  // only works if it advances by itself, which is not something to assume - so
+  // the per-bank buttons are the main path and "all four" is the shortcut.
+  panel.appendChild(el('h3', {}, 'Send'));
+  const row = el('div', { class: 'row' });
+  for (let b = 0; b < banks.length; b++) {
+    const label = bankNames[b] ?? BANK_NAMES[b] ?? String(b + 1);
+    const filled = Math.min(32, Math.max(0, ordered.length - b * 32));
+    const sent = sentBanks.get(label);
+    row.appendChild(el('button', {
+      class: sent ? 'btn on' : 'btn primary',
+      disabled: !midiOutputId,
+      title: `${filled} voices, ${fmtInt(banks[b].length)} bytes${sent ? `. Sent ${ago(sent)}.` : ''}`,
+      onclick: () => {
         try {
-          await sendBanks(midiOutputId, banks, bankNames.map((n) => `bank ${n}`), {
-            onProgress: (sent, all, label) => {
-              midiMessage = sent >= all ? 'all four banks sent' : `sending ${label} (${sent + 1} of ${all})`;
-              render();
-            },
-          });
+          sendRaw(midiOutputId, banks[b]);
+          sentBanks.set(label, Date.now());
+          midiMessage = `sent bank ${label} — ${filled} voices, ${fmtInt(banks[b].length)} bytes. Arm the unit for the next bank before sending it.`;
         } catch (err) {
           midiMessage = (err as Error).message;
-          render();
         }
+        render();
       },
-    }, `Send ${banks.length || 'all'} bank${banks.length === 1 ? '' : 's'}`),
-  ));
+    }, `Bank ${label}`, sent ? el('span', { class: 'muted' }, ' ✓') : null));
+  }
+  row.appendChild(el('button', {
+    class: 'btn',
+    disabled: !midiOutputId || banks.length === 0,
+    title: 'Only useful if the unit advances to the next bank by itself.',
+    onclick: async () => {
+      try {
+        await sendBanks(midiOutputId, banks, bankNames.map((n) => `bank ${n}`), {
+          onProgress: (sentCount, all, label) => {
+            midiMessage = sentCount >= all ? 'all banks sent' : `sending ${label} (${sentCount + 1} of ${all})`;
+            if (sentCount < all) sentBanks.set(bankNames[sentCount] ?? String(sentCount + 1), Date.now());
+            render();
+          },
+        });
+      } catch (err) {
+        midiMessage = (err as Error).message;
+        render();
+      }
+    },
+  }, `All ${banks.length} back to back`));
+  panel.appendChild(row);
+  panel.appendChild(el('p', { class: 'hint', style: { marginTop: '8px', marginBottom: 0 } },
+    'A tick marks a bank sent in this session. It says nothing about where the unit put it - there is no slot address ',
+    'in a bulk dump, so that is between you and its front panel.'));
 
   panel.appendChild(el('h3', {}, 'Check the far end'));
   panel.appendChild(el('p', { class: 'hint' },
