@@ -9,6 +9,8 @@
 import { clear, downloadBytes, el, fmtDuration, fmtInt } from '../dom.ts';
 import type { View, ViewContext } from '../app.ts';
 import { SIZE_BUCKETS } from '../../cluster/nearDupe.ts';
+import { listenForSysex, listInputs, midiSupported, requestBulkDump, requestMidi, type MidiPort } from '../../midi/webmidi.ts';
+import { parseSysexFile } from '../../sysex/parse.ts';
 import { topTerms } from '../../cluster/taste.ts';
 import { CATEGORY_LABELS, type Category } from '../../cluster/category.ts';
 import { categoryColour } from '../colour.ts';
@@ -23,6 +25,13 @@ let analysisAbort: AbortController | null = null;
 let dupeAbort: AbortController | null = null;
 let dupeLine: HTMLElement | null = null;
 let dupeStartedAt = 0;
+/** Device read-back: which output to ask, and what has arrived so far. */
+let deviceOutputs: MidiPort[] = [];
+let deviceOutputId = '';
+let deviceChannel = 1;
+let listening: (() => void) | null = null;
+let deviceLog: string[] = [];
+let deviceBanks: Array<{ bytes: Uint8Array; from: string; voices: number; at: number }> = [];
 let progressLine: HTMLElement | null = null;
 
 function statBlock(k: string, v: string): HTMLElement {
@@ -75,6 +84,154 @@ function dropZone(): HTMLElement {
     if (files.length) void ingest(files, pinToggle.checked);
   });
   return zone;
+}
+
+/**
+ * Read what is already on the device, before overwriting it.
+ *
+ * Sending four banks replaces whatever the unit shipped with, and on a clone
+ * whose factory content is not published anywhere that is not recoverable. The
+ * dump request is the polite way to ask; whether anything answers is up to the
+ * device, so the listener runs regardless - on a unit that ignores requests,
+ * starting the transmit from its own front panel produces the same bytes and
+ * lands here just the same.
+ */
+function startListening(): void {
+  if (listening) return;
+  deviceLog = ['listening for a bank…'];
+  listening = listenForSysex(({ bytes, from }) => {
+    // Anything that is not a voice dump is worth reporting rather than
+    // swallowing: it is how you find out the device answered with something
+    // else, which is the interesting failure.
+    const parsed = parseSysexFile(bytes, `device (${from})`);
+    if (parsed.voices.length > 0) {
+      deviceBanks.push({ bytes, from, voices: parsed.voices.length, at: Date.now() });
+      deviceLog.push(`${fmtInt(parsed.voices.length)} voices from ${from} (${fmtInt(bytes.length)} bytes)`);
+    } else {
+      const head = [...bytes.slice(0, 5)].map((b) => b.toString(16).padStart(2, '0')).join(' ');
+      deviceLog.push(`${fmtInt(bytes.length)} bytes from ${from}, no voices in it (starts ${head})`);
+    }
+    render();
+  });
+  render();
+}
+
+function stopListening(): void {
+  listening?.();
+  listening = null;
+  render();
+}
+
+/** Everything received so far, as one file the normal import path can read. */
+async function keepDeviceBanks(pinned: boolean): Promise<void> {
+  if (deviceBanks.length === 0) return;
+  const total = deviceBanks.reduce((n, b) => n + b.bytes.length, 0);
+  const all = new Uint8Array(total);
+  let at = 0;
+  for (const b of deviceBanks) {
+    all.set(b.bytes, at);
+    at += b.bytes.length;
+  }
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  const file = new File([all as BlobPart], `device-readback-${stamp}.syx`, { type: 'application/octet-stream' });
+  await ingest([file], pinned);
+  deviceLog.push(`added ${fmtInt(deviceBanks.length)} dump${deviceBanks.length === 1 ? '' : 's'} to the corpus`);
+  deviceBanks = [];
+  render();
+}
+
+function devicePanel(): HTMLElement {
+  const panel = el('div', { class: 'panel' }, el('h3', { style: { marginTop: 0 } }, 'Read from the device'));
+  if (!midiSupported()) {
+    panel.appendChild(el('p', { class: 'warn' }, 'This browser has no WebMIDI, so nothing can be read back here.'));
+    return panel;
+  }
+  panel.appendChild(el('p', { class: 'hint' },
+    'Back up what is on the FM-1 before you send four banks over it. Ask for a dump, or start the transmit from the ',
+    'unit itself - either way the bytes arrive here, go through the same parser as a file, and deduplicate against ',
+    'the corpus you already have.'));
+
+  panel.appendChild(el('div', { class: 'row' },
+    el('button', {
+      class: 'btn',
+      onclick: async () => {
+        const state = await requestMidi();
+        deviceOutputs = state.outputs;
+        deviceOutputId = deviceOutputs[0]?.id ?? '';
+        deviceLog.push(state.error ?? `${deviceOutputs.length} output${deviceOutputs.length === 1 ? '' : 's'}, ${listInputs().length} input${listInputs().length === 1 ? '' : 's'}`);
+        render();
+      },
+    }, deviceOutputs.length ? 'Rescan MIDI' : 'Connect MIDI'),
+    deviceOutputs.length
+      ? el('select', {
+        onchange: (e: Event) => { deviceOutputId = (e.target as HTMLSelectElement).value; },
+      }, ...deviceOutputs.map((o) => el('option', { value: o.id, selected: o.id === deviceOutputId }, `${o.name} ${o.manufacturer}`.trim())))
+      : null,
+    el('label', { class: 'field', title: 'The MIDI channel the device transmits on, 1 to 16.' }, 'channel',
+      el('input', {
+        type: 'number', min: 1, max: 16, value: deviceChannel,
+        style: { width: '58px' },
+        onchange: (e: Event) => { deviceChannel = Number((e.target as HTMLInputElement).value); },
+      })),
+    el('button', {
+      class: listening ? 'btn on' : 'btn',
+      onclick: () => (listening ? stopListening() : startListening()),
+    }, listening ? 'Stop listening' : 'Listen'),
+    el('button', {
+      class: 'btn primary',
+      disabled: !deviceOutputId,
+      onclick: () => {
+        startListening();
+        try {
+          requestBulkDump(deviceOutputId, Math.max(0, Math.min(15, deviceChannel - 1)));
+          deviceLog.push(`asked for a 32-voice dump on channel ${deviceChannel}`);
+        } catch (err) {
+          deviceLog.push((err as Error).message);
+        }
+        render();
+      },
+    }, 'Request a dump'),
+  ));
+
+  if (deviceBanks.length) {
+    const voices = deviceBanks.reduce((n, b) => n + b.voices, 0);
+    panel.appendChild(el('div', { class: 'row', style: { marginTop: '12px' } },
+      el('b', {}, `${fmtInt(voices)} voices in ${fmtInt(deviceBanks.length)} dump${deviceBanks.length === 1 ? '' : 's'}`),
+      el('button', {
+        class: 'btn primary',
+        onclick: () => void keepDeviceBanks(false),
+      }, 'Add to corpus'),
+      el('button', {
+        class: 'btn',
+        onclick: () => {
+          const total = deviceBanks.reduce((n, b) => n + b.bytes.length, 0);
+          const all = new Uint8Array(total);
+          let at = 0;
+          for (const b of deviceBanks) {
+            all.set(b.bytes, at);
+            at += b.bytes.length;
+          }
+          downloadBytes(all, `dx7-device-readback-${new Date().toISOString().slice(0, 10)}.syx`);
+        },
+      }, 'Download as .syx'),
+      el('button', {
+        class: 'btn danger',
+        onclick: () => {
+          deviceBanks = [];
+          render();
+        },
+      }, 'Discard'),
+    ));
+  }
+
+  if (deviceLog.length) {
+    panel.appendChild(el('div', { class: 'muted mono', style: { fontSize: '11.5px', marginTop: '10px' } },
+      ...deviceLog.slice(-6).map((line) => el('div', {}, line))));
+  }
+  panel.appendChild(el('p', { class: 'hint', style: { marginBottom: 0, marginTop: '10px' } },
+    'Nothing is added until you press Add to corpus. If a request goes unanswered, the unit probably ignores dump ',
+    'requests: leave this listening and send the bank from its own menu.'));
+  return panel;
 }
 
 async function ingest(files: File[], pinned: boolean): Promise<void> {
@@ -416,6 +573,8 @@ function render(): void {
   const page = el('div', { class: 'stack' });
 
   // ---- ingest ----
+  page.appendChild(devicePanel());
+
   page.appendChild(el('div', { class: 'panel' },
     el('h2', {}, 'Corpus'),
     el('p', { class: 'hint' },
@@ -595,5 +754,8 @@ export const view: View = {
     unsubscribe?.();
     unsubscribe = null;
     analysisAbort?.abort();
+    // Leaving the screen releases the inputs back to the keyboard handler.
+    listening?.();
+    listening = null;
   },
 };

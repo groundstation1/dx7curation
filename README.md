@@ -39,6 +39,11 @@ features and the ratings all live in IndexedDB.
 7. **Build** — allocate the 128 with per-category floors and ceilings, order
    them as one continuum, write four verified bank files, send over WebMIDI.
 
+The corpus screen can also read the device: ask for a bulk dump, or start the
+transmit from the unit's own front panel, and whatever arrives goes through the
+same parser as a file. Worth doing before sending four banks over whatever the
+unit shipped with.
+
 ## Layout
 
 | | |

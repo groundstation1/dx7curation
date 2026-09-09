@@ -180,3 +180,63 @@ export function sendTestNote(outputId: string, note = 60, velocity = 100, channe
   out.send([0x90 | (channel & 0x0f), note & 0x7f, velocity & 0x7f]);
   setTimeout(() => out.send([0x80 | (channel & 0x0f), note & 0x7f, 0]), ms);
 }
+
+/**
+ * Ask the device to send its 32-voice bank.
+ *
+ * F0 43 2n 09 F7: dump request, channel n, format 9 (the 32-voice bulk dump).
+ * Whether anything answers is entirely up to the device - the original DX7
+ * does, and clones vary - which is why the listening side works on its own too:
+ * on a unit that ignores requests, starting the transmit from its front panel
+ * produces exactly the same bytes.
+ */
+export function requestBulkDump(outputId: string, channel = 0): void {
+  outputById(outputId).send([0xf0, 0x43, 0x20 | (channel & 0x0f), 0x09, 0xf7]);
+}
+
+/** A complete sysex message, and which input it arrived on. */
+export interface SysexArrival {
+  bytes: Uint8Array;
+  from: string;
+}
+
+/**
+ * Listen on every input for complete sysex messages.
+ *
+ * Chrome normally delivers a sysex message in one event, but the spec permits
+ * it to arrive in pieces and a 4104-byte dump is exactly the size that gets
+ * split. Bytes are accumulated from F0 to F7 per port, so both cases produce
+ * one arrival.
+ */
+export function listenForSysex(onArrival: (arrival: SysexArrival) => void): () => void {
+  if (!access) return () => {};
+  const inputs = [...access.inputs.values()];
+  const partial = new Map<string, number[]>();
+  const previous = new Map<string, ((e: { data: Uint8Array }) => void) | null>();
+
+  for (const input of inputs) {
+    previous.set(input.id, input.onmidimessage);
+    input.onmidimessage = (e) => {
+      // Whatever was listening for notes still needs to hear them.
+      previous.get(input.id)?.(e);
+      const d = e.data;
+      if (!d || d.length === 0) return;
+      const name = input.name ?? 'MIDI in';
+      let buffer = partial.get(input.id);
+      if (d[0] === 0xf0) {
+        buffer = [];
+        partial.set(input.id, buffer);
+      }
+      if (!buffer) return;
+      for (const byte of d) buffer.push(byte);
+      if (d[d.length - 1] === 0xf7) {
+        partial.delete(input.id);
+        onArrival({ bytes: Uint8Array.from(buffer), from: name });
+      }
+    };
+  }
+
+  return () => {
+    for (const input of inputs) input.onmidimessage = previous.get(input.id) ?? null;
+  };
+}
