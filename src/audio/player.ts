@@ -41,6 +41,14 @@ const CUT_FADE_SEC = 0.012;
 
 export const DEFAULT_VOLUME = 0.7;
 
+/** What may start playing without being asked for. */
+export type AutoPlay = 'never' | 'click' | 'hover';
+export const AUTO_PLAY_LABELS: Record<AutoPlay, string> = {
+  never: 'never',
+  click: 'on click',
+  hover: 'on hover',
+};
+
 /**
  * Linear up to 0.9, then asymptotic. Everything that is not actually about to
  * clip passes through unchanged, so dynamics are untouched.
@@ -76,14 +84,28 @@ export class Player {
   private volume = DEFAULT_VOLUME;
   private muted = false;
   /**
-   * Whether a sound may start without being asked for.
+   * How far the app is allowed to go in playing things you did not ask for.
    *
-   * Hovering the map, advancing the rating queue and loading a face-off pair
-   * all play something by themselves, which is the whole point most of the
-   * time and exactly wrong when you are reading rather than listening. Explicit
-   * play - a button, the space bar, the MIDI keyboard - ignores this.
+   *   hover  sweeping the map plays what is under the cursor
+   *   click  only a deliberate act - landing on a patch, advancing the rating
+   *          queue, loading a face-off pair - starts a sound
+   *   never  nothing plays by itself
+   *
+   * Three settings rather than a switch because the middle one is the one most
+   * people actually want and it did not exist: hover auditions are wonderful
+   * for exploring and maddening while reading, but turning them off used to
+   * take the rating queue's own playback with them.
+   *
+   * Explicit play - a Play button, the space bar, the MIDI keyboard - ignores
+   * this entirely.
    */
-  autoPlay = true;
+  autoPlay: AutoPlay = 'hover';
+
+  /** Whether a sound of this kind may start right now. */
+  mayPlay(kind: 'click' | 'hover'): boolean {
+    if (this.autoPlay === 'never') return false;
+    return this.autoPlay === 'hover' || kind === 'click';
+  }
 
   constructor() {
     this.worker = new Worker(new URL('../workers/audition.worker.ts', import.meta.url), { type: 'module' });

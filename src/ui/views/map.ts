@@ -137,7 +137,8 @@ let colourBy: 'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 
 let sizeAxisId: AxisId | '' = getSetting<AxisId | ''>('map.sizeAxis', '');
 let sizes = new Float32Array(0);
 let collapseMerged = getSetting('map.collapseMerged', true);
-let hoverAudition = getSetting('map.hoverPlays', true);
+/** Kept as a constant: the transport's play setting is the switch now. */
+const hoverAudition = true;
 let usePhrase = getSetting('audition.phrase', true);
 let loopPhrase = getSetting('audition.loop', true);
 let auditionNote = getSetting('audition.note', 60);
@@ -730,12 +731,13 @@ async function rateTarget(value: number): Promise<void> {
 }
 
 /**
- * @param auto true when nothing asked for this - a hover, a cursor landing on a
- *   point - so the autoplay switch can veto it.
+ * @param auto how this playback came about, so the autoplay setting can veto
+ *   it: 'hover' for a sweep, 'click' for landing on a patch deliberately, and
+ *   omitted for an explicit Play.
  */
-async function audition(i: number, quick = false, auto = false): Promise<void> {
+async function audition(i: number, quick = false, auto?: 'click' | 'hover'): Promise<void> {
   if (i < 0 || keyboard.playing) return;
-  if (auto && !ctx.player.autoPlay) return;
+  if (auto && !ctx.player.mayPlay(auto)) return;
   const v = ctx.store.voices[i];
   if (!v) return;
   if (!usePhrase) {
@@ -832,7 +834,7 @@ function runInterpolation(mx: number, my: number): void {
     // reached the keyboard and the next key press played a stale patch - the
     // two features looked like they were fighting each other.
     keyboard.setPatch(interpResult.voice);
-    if (!keyboard.playing && ctx.player.autoPlay) {
+    if (!keyboard.playing && ctx.player.mayPlay('hover')) {
       const id = `blend-${voiceHash(interpResult.voice)}`;
       void ctx.player.audition(id, interpResult.voice, phrase(false), { loop: loopPhrase });
     }
@@ -1115,12 +1117,6 @@ function renderControls(): void {
           draw();
         },
       }), 'collapse near-identical'),
-    el('label', { class: 'field' },
-      el('input', {
-        type: 'checkbox',
-        checked: hoverAudition,
-        onchange: (e: Event) => { hoverAudition = (e.target as HTMLInputElement).checked; setSetting('map.hoverPlays', hoverAudition); },
-      }), 'hover plays'),
     el('label', {
       class: 'field',
       title: 'Play a patch blended from the voices nearest the cursor, rather than the nearest single patch. Only ever uses what is currently shown.',
@@ -1370,7 +1366,7 @@ function attachCanvasEvents(): void {
           const now = performance.now();
           if (hoverAudition && now - lastAuditionAt > HOVER_INTERVAL_MS) {
             lastAuditionAt = now;
-            void audition(onPoint, true, true);
+            void audition(onPoint, true, 'hover');
           }
         }
         return;
@@ -1454,7 +1450,7 @@ function attachCanvasEvents(): void {
         armKeyboard();
         renderSide();
         draw();
-        void audition(onPoint, true);
+        void audition(onPoint, true, 'click');
         return;
       }
       if (interpFrozen) {
@@ -1554,7 +1550,7 @@ export const view: View = {
       } else if (e.key === ' ') {
         if (i < 0) return;
         e.preventDefault();
-        void audition(i, true, true);
+        void audition(i, true, 'hover');
       } else if (e.key === 'Escape') {
         if (selected < 0) return;
         e.preventDefault();

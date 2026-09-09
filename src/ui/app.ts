@@ -4,6 +4,7 @@ import { store } from './state.ts';
 import { Player } from '../audio/player.ts';
 import { getSetting, setSetting } from './settings.ts';
 import { mountPianoRoll } from './pianoRoll.ts';
+import { AUTO_PLAY_LABELS, type AutoPlay } from '../audio/player.ts';
 import { keyboard } from '../audio/keyboard.ts';
 import { midiSupported } from '../midi/webmidi.ts';
 
@@ -118,7 +119,7 @@ export class App {
     // no control ever shows a default it is not actually using.
     this.player.setVolume(getSetting('audio.volume', this.player.getVolume()));
     this.player.setMuted(getSetting('audio.muted', false));
-    this.player.autoPlay = getSetting('audio.autoPlay', true);
+    this.player.autoPlay = getSetting<AutoPlay>('audio.autoPlay', 'hover');
     keyboard.setModDeadzone(getSetting('midi.modDeadzone', keyboard.modDeadzone));
     keyboard.setBendRange(getSetting('midi.bendRange', keyboard.bendRange));
 
@@ -205,19 +206,20 @@ export class App {
       },
     }, this.player.isMuted ? 'muted' : 'mute'));
 
-    this.transportEl.appendChild(el('button', {
-      class: this.player.autoPlay ? 'btn' : 'btn on',
-      style: { padding: '4px 8px' },
-      title: this.player.autoPlay
-        ? 'Hovering, rating and the face-off start playing by themselves. Click to stop that.'
-        : 'Nothing plays unless you ask for it. Buttons, the space bar and the keyboard still work.',
-      onclick: () => {
-        this.player.autoPlay = !this.player.autoPlay;
-        setSetting('audio.autoPlay', this.player.autoPlay);
-        if (!this.player.autoPlay) this.player.stop();
-        this.renderTransport();
-      },
-    }, this.player.autoPlay ? 'autoplay' : 'no autoplay'));
+    this.transportEl.appendChild(el('label', {
+      class: 'field',
+      title: 'What is allowed to start playing without being asked. Buttons, the space bar and the MIDI keyboard always play.',
+    }, 'play',
+      el('select', {
+        onchange: (e: Event) => {
+          this.player.autoPlay = (e.target as HTMLSelectElement).value as AutoPlay;
+          setSetting('audio.autoPlay', this.player.autoPlay);
+          if (this.player.autoPlay === 'never') this.player.stop();
+        },
+      }, ...(['hover', 'click', 'never'] as const).map((mode) => el('option', {
+        value: mode,
+        selected: this.player.autoPlay === mode,
+      }, AUTO_PLAY_LABELS[mode])))));
 
     if (!midiSupported()) return;
 

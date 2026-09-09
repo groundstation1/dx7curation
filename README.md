@@ -122,9 +122,12 @@ than any of its inputs.
 
 **Mute and autoplay are separate switches.** Mute silences the output without
 losing the volume you set, and stops what is sounding rather than letting it
-play on inaudibly. Autoplay governs only the sounds nothing asked for - hover,
-advancing the rating queue, loading a face-off pair. Buttons, the space bar and
-the MIDI keyboard always play.
+play on inaudibly. Autoplay has three settings rather than two, because the
+middle one is what most sessions actually want: *on hover* sweeps the map
+audibly, *on click* only plays when you land on something deliberately - which
+still includes advancing the rating queue and loading a face-off pair - and
+*never* plays nothing by itself. Buttons, the space bar and the MIDI keyboard
+always play.
 
 **What you play shows up along the bottom edge.** A strip of piano roll
 scrolling out of the bottom of the window: horizontal position is pitch, colour
