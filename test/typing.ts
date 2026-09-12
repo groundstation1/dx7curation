@@ -59,5 +59,12 @@ for (const layout of LAYOUTS) {
     `${drawn.length} keys drawn`);
 }
 
+// Two keys, one note: the soft row mirrors the home row, so holding both has
+// to add up to something rather than fighting over the same note.
+const wrap = (a: number, b: number) => ((a + b) % 128) || 1;
+check('soft plus normal wraps to a third velocity', wrap(48, 96) === 16, String(wrap(48, 96)));
+check('the wrap never lands on zero, which is note-off', wrap(64, 64) === 1, String(wrap(64, 64)));
+check('two soft presses still make a real velocity', wrap(48, 48) === 96, String(wrap(48, 48)));
+
 console.log(fail === 0 ? '\nall typing checks passed\n' : `\n${fail} check(s) failed\n`);
 process.exit(fail === 0 ? 0 : 1);

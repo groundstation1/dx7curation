@@ -244,6 +244,15 @@ export class TypingKeys {
   layoutId = getSetting('typing.layout', 'qwerty');
 
   private held = new Map<string, number>();
+  /**
+   * Notes currently sounding, and which keys are holding each one.
+   *
+   * Two keys can mean one note - the soft row plays what the home row plays -
+   * and without this the second press retriggered it and the first release
+   * stopped it while the other key was still down. A note sounds while at
+   * least one key holds it.
+   */
+  private voices = new Map<number, { keys: Set<string>; velocity: number }>();
   private handler: ((e: KeyboardEvent) => void) | null = null;
   private upHandler: ((e: KeyboardEvent) => void) | null = null;
   private blurHandler: (() => void) | null = null;
@@ -338,7 +347,30 @@ export class TypingKeys {
       const velocity = action.soft
         ? Math.max(1, Math.round(this.velocity * SOFT_SCALE))
         : e.shiftKey ? Math.min(127, this.velocity + ACCENT_ADD) : this.velocity;
-      keyboard.noteOn(note, velocity);
+
+      const voice = this.voices.get(note);
+      if (!voice) {
+        this.voices.set(note, { keys: new Set([char]), velocity });
+        keyboard.noteOn(note, velocity);
+      } else if (!voice.keys.has(char)) {
+        /*
+         * A second key on a note that is already sounding adds to it, and the
+         * sum wraps.
+         *
+         * Two keys play the same note - the soft row mirrors the home row - so
+         * holding both has to mean something or it means nothing. Adding
+         *  modulo the velocity range gives a third value that is neither of the
+         * two: soft and normal together come out at 16 rather than at 144,
+         * which is quieter than either of them. That is a quirk rather than a
+         * simulation of anything, and it is playable - two keys, one hand, a
+         * velocity you cannot otherwise reach.
+         *
+         * Zero is note-off in MIDI, so the wrap floors at one.
+         */
+        voice.keys.add(char);
+        voice.velocity = ((voice.velocity + velocity) % 128) || 1;
+        keyboard.noteOn(note, voice.velocity);
+      }
       this.emit();
     };
 
@@ -347,14 +379,22 @@ export class TypingKeys {
       const note = this.held.get(char);
       if (note === undefined) return;
       this.held.delete(char);
-      keyboard.noteOff(note);
+      const voice = this.voices.get(note);
+      if (!voice) return;
+      voice.keys.delete(char);
+      // Only the last key off the note stops it.
+      if (voice.keys.size === 0) {
+        this.voices.delete(note);
+        keyboard.noteOff(note);
+      }
       this.emit();
     };
 
     // A key held while the window loses focus never sends its keyup, which
     // leaves a note on forever - and these patches can sustain forever.
     this.blurHandler = () => {
-      for (const note of this.held.values()) keyboard.noteOff(note);
+      for (const note of this.voices.keys()) keyboard.noteOff(note);
+      this.voices.clear();
       this.held.clear();
       this.emit();
     };
@@ -373,7 +413,8 @@ export class TypingKeys {
     this.handler = null;
     this.upHandler = null;
     this.blurHandler = null;
-    for (const note of this.held.values()) keyboard.noteOff(note);
+    for (const note of this.voices.keys()) keyboard.noteOff(note);
+    this.voices.clear();
     this.held.clear();
     this.enabled = false;
     this.emit();
