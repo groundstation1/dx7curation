@@ -1018,6 +1018,38 @@ kbd {
 .taste-cat b { min-width: 150px; }
 .taste-cat span:nth-of-type(1) { min-width: 46px; font-weight: 600; }
 
+/*
+ * A list of related voices, in the sidebar.
+ *
+ * Same shape as the ranking standings and the source list: a dot, a name, and
+ * whatever number matters, dense enough that forty of them can be read rather
+ * than scrolled past.
+ */
+/* Each grouping list on its own raised square: these are other patches, inside
+   a panel that is otherwise entirely about one. */
+.voice-group {
+  background: var(--raise); border-radius: var(--radius);
+  padding: 12px 14px; margin-top: 12px;
+}
+.voice-group h3 { margin-top: 0; }
+.voice-list { display: flex; flex-direction: column; margin: 0 -6px; }
+/* One step further up, since the ground under them is no longer the panel. */
+.voice-group .vl-row:hover { background: var(--raise-2); }
+.vl-row {
+  display: flex; align-items: center; gap: 8px;
+  background: none; border: none; cursor: pointer;
+  padding: 4px 6px; border-radius: var(--radius-sm);
+  font: inherit; font-size: 11.5px; color: var(--text); text-align: left;
+  transition: background 0.1s;
+}
+.vl-row:hover { background: var(--raise); }
+.vl-name {
+  font-family: var(--mono); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vl-rating { margin-left: auto; flex: none; color: var(--raise-2); letter-spacing: -1px; }
+.vl-rating.on { color: var(--accent-2); }
+
 /* ------------------------------------------------- threshold sweep table */
 
 /* Both thresholds are cut-offs: the shading runs from the top of the table

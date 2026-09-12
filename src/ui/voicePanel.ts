@@ -16,6 +16,7 @@
 import { downloadBytes, el, patchFile } from './dom.ts';
 import { algorithmPanel } from './algorithmDiagram.ts';
 import { CATEGORIES, CATEGORY_LABELS, subcategoryLabel, type Category } from '../cluster/category.ts';
+import { categoryColour } from './colour.ts';
 import { P } from '../sysex/voice.ts';
 import { buildSingleVoice } from '../sysex/write.ts';
 import type { Store } from './state.ts';
@@ -34,6 +35,13 @@ export interface VoicePanelOptions {
   onRate?: (value: number) => void;
   /** Jump to a related voice. Omitted, the lists are shown but not clickable. */
   onOpen?: (index: number) => void;
+  /**
+   * Brushing a related voice, so it can be auditioned the way a row in the
+   * table is, and so the keyboard follows what you are hearing. Called with -1
+   * when the cursor leaves the list. Whether anything actually sounds is the
+   * play setting's business, not this panel's.
+   */
+  onHover?: (index: number) => void;
   /** Something was changed through the panel and the caller should redraw. */
   onChange?: () => void;
   /** The name and algorithm line. On by default. */
@@ -311,22 +319,51 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
   }
 
   if (opts.related !== false) {
+    /*
+     * A family list, in the same shape as every other list in the app.
+     *
+     * These were full-width buttons stacked three pixels apart, which is
+     * tolerable for the two or three merged copies and absurd for a family of
+     * forty-three: half a screen of grey slabs you have to click one at a time
+     * to find out what any of them sound like. As dense rows with the category
+     * dot and the rating on them, forty-three is a list you can read - and
+     * brushing one plays it, exactly like brushing a row in the table.
+     */
     const voiceList = (title: string, indices: number[], note: string) => {
       if (indices.length === 0) return;
-      panel.appendChild(el('h3', {}, `${title} (${indices.length})`));
-      panel.appendChild(el('div', { class: 'muted', style: { fontSize: '11px', marginBottom: '5px' } }, note));
-      const list = el('div', { class: 'stack', style: { gap: '3px' } });
+      // Raised onto its own surface, because this is a group of other patches
+      // sitting inside a panel about one patch, and without a boundary it
+      // reads as more facts about the one at the top.
+      const group = el('div', { class: 'voice-group' });
+      group.appendChild(el('h3', { style: { margin: '0 0 2px' } }, `${title} (${indices.length})`));
+      group.appendChild(el('div', { class: 'muted', style: { fontSize: '10.5px', marginBottom: '8px' } }, note));
+      const list = el('div', {
+        class: 'voice-list',
+        // -1 means "the cursor has left": the caller re-arms whatever was
+        // selected, so the keyboard does not stay pointed at the last family
+        // member you happened to brush past.
+        onpointerleave: () => opts.onHover?.(-1),
+      });
       for (const m of indices) {
-        const name = store.voices[m].name || '(unnamed)';
-        list.appendChild(opts.onOpen
-          ? el('button', {
-            class: 'btn',
-            style: { textAlign: 'left', padding: '4px 8px' },
-            onclick: () => opts.onOpen?.(m),
-          }, name)
-          : el('div', { class: 'muted mono', style: { fontSize: '11px' } }, name));
+        const mCat = store.categoryOf(m);
+        const mRating = store.ratingOf(m);
+        list.appendChild(el('button', {
+          class: 'vl-row',
+          onpointerenter: () => opts.onHover?.(m),
+          onclick: () => opts.onOpen?.(m),
+        },
+          el('span', {
+            class: 'dot',
+            style: { background: mCat ? categoryColour(mCat) : 'var(--raise-2)' },
+          }),
+          el('span', { class: 'vl-name' }, store.voices[m].name || '(unnamed)'),
+          store.voices[m].pinned ? el('span', { class: 'slot-pin' }, '●') : null,
+          el('span', { class: mRating ? 'vl-rating on' : 'vl-rating' },
+            mRating ? '★'.repeat(mRating) : ''),
+        ));
       }
-      panel.appendChild(list);
+      group.appendChild(list);
+      panel.appendChild(group);
     };
 
     voiceList('Merged into this one', mergedOthers, 'these should be indistinguishable; if one is not, raise the merge threshold');

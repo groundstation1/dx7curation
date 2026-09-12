@@ -1255,6 +1255,25 @@ function renderSide(): void {
   sideEl.appendChild(voiceDetails(store, i, {
     onPlay: (n) => void audition(n),
     autoPlay: ctx.player.autoPlay,
+    onHover: (n) => {
+      // Leaving the list puts the keyboard back on whatever is selected.
+      if (n < 0) {
+        armKeyboard();
+        return;
+      }
+      // Overrides the pinned selection, deliberately: the whole point of this
+      // list is to compare the family against the patch you have pinned, so
+      // hovering one has to sound, and the keyboard has to follow what you are
+      // hearing rather than stay on the pin.
+      keyboard.setPatch(ctx.store.voices[n]?.unpacked ?? null);
+      // The same rate limit a sweep across the map or down the table uses:
+      // without it, running the cursor down a family of forty queues forty
+      // renders and the sound arrives long after the cursor has gone.
+      const now = performance.now();
+      if (now - lastAuditionAt <= HOVER_INTERVAL_MS) return;
+      lastAuditionAt = now;
+      void audition(n, true, 'hover');
+    },
     onRate: (r) => void rateTarget(r),
     onOpen: (n) => {
       selected = n;

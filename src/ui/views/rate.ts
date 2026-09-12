@@ -15,7 +15,7 @@ import { clear, el, fmtInt } from '../dom.ts';
 import type { View, ViewContext } from '../app.ts';
 import { CATEGORY_LABELS, type Category } from '../../cluster/category.ts';
 import { P } from '../../sysex/voice.ts';
-import { DEMO_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
+import { DEMO_PHRASE, HOVER_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
 import { voiceDetails } from '../voicePanel.ts';
 import { sidebarSplitter } from '../splitter.ts';
@@ -456,6 +456,19 @@ function render(): void {
     el('aside', { class: 'detail-side' }, voiceDetails(store, i, {
       onPlay: () => void play(),
       autoPlay: ctx.player.autoPlay,
+      onHover: (n) => {
+        if (n < 0) {
+          keyboard.setPatch(store.voices[queue[position]]?.unpacked ?? null);
+          return;
+        }
+        const other = store.voices[n];
+        if (!other) return;
+        // Sounds and arms the keyboard even though a patch is up for rating:
+        // comparing this one against its family is exactly what the list is
+        // for, so it has to override what is on screen.
+        keyboard.setPatch(other.unpacked);
+        if (ctx.player.mayPlay('hover')) void ctx.player.audition(other.id, other.unpacked, HOVER_PHRASE);
+      },
       onOpen: (n) => {
         const at = queue.indexOf(n);
         if (at < 0) return;
