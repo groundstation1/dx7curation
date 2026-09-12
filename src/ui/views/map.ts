@@ -247,11 +247,20 @@ let sizes = new Float32Array(0);
  */
 type Collapse = 'copies' | 'sounds' | 'family';
 
-let collapse: Collapse = getSetting<Collapse>(
-  'map.collapse',
-  // Migrated from the checkbox this replaced.
-  getSetting('map.collapseMerged', true) ? 'sounds' : 'copies',
-);
+/**
+ * One dot per family by default.
+ *
+ * On a real corpus roughly half of everything is a near-relative of something
+ * else, so drawing every copy makes the plot a solid mass with the same sound
+ * in it forty times. Collapsing to families also puts the map in the units the
+ * rating queue has always used: what you see is what you would be asked about.
+ *
+ * The stored value wins if there is one; failing that, an old checkbox that
+ * was explicitly switched off still means "show me everything".
+ */
+const storedCollapse = getSetting<Collapse | ''>('map.collapse', '');
+let collapse: Collapse = storedCollapse
+  || (getSetting('map.collapseMerged', true) ? 'family' : 'copies');
 /** Kept as a constant: the transport's play setting is the switch now. */
 const hoverAudition = true;
 let auditionNote = getSetting('audition.note', 60);

@@ -144,14 +144,28 @@ export class Store {
   /**
    * The looser of the two thresholds: groups voices into families that get a
    * face-off, where members are similar but still audibly different.
+   *
+   * Both defaults come from reading the sweep on a real 35,000-voice corpus
+   * rather than from first principles, and they are a good deal more
+   * aggressive than the cautious numbers they replace. At 0.30 that corpus
+   * falls from 35,000 voices to 17,778 families - roughly half of everything
+   * is a near-relative of something else - which is the honest shape of a pile
+   * of patches assembled from twenty overlapping collections.
+   *
+   * Being conservative here is not free: a threshold too tight leaves the same
+   * sound in the rating queue nine times, and nine unnecessary judgements cost
+   * far more than one family drawn slightly too wide.
+   *
+   * 0.30 is the top of the sweep table's range. If it ever wants to go looser,
+   * SWEEP_POINTS in the Sources view needs more entries above it.
    */
-  threshold = 0.12;
+  threshold = 0.3;
   /**
    * The tighter threshold. Anything below it is treated as the same patch:
    * merged silently, shown as one point on the map, and never face-offed,
    * because there would be nothing to hear.
    */
-  mergeThreshold = 0.03;
+  mergeThreshold = 0.16;
   clusters: NearDupeClusters | null = null;
   /** One voice index per near-duplicate cluster. */
   representatives: number[] = [];
