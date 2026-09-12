@@ -33,6 +33,15 @@
 
 * { box-sizing: border-box; }
 
+/*
+ * The hidden attribute beats any display this stylesheet sets.
+ *
+ * Without this, `display: flex` on a pane silently defeats `el.hidden = true` -
+ * which is exactly what happened to the list: in map mode it was still there,
+ * taking half the height, rendering rows nobody could see.
+ */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   height: 100%;
