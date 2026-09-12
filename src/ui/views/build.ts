@@ -472,6 +472,11 @@ function banksPanel(): HTMLElement {
           style: { background: cat ? CATEGORY_COLOURS[cat] : '#555' },
         }),
         el('span', { class: 'slot-name' }, v.name || '(unnamed)'),
+        // The same mark the table uses. With "pinned first" on, the run at the
+        // top of bank A is there because it was pinned rather than because it
+        // rated highest, and nothing on this screen said so - which makes the
+        // ordering look broken exactly when it is doing what you asked.
+        v.pinned ? el('span', { class: 'slot-pin', title: 'pinned' }, ' ●') : null,
       ));
     }
     const filled = Math.min(32, Math.max(0, ordered.length - b * 32));
