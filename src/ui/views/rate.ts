@@ -50,17 +50,12 @@ let auditionVel = getSetting('audition.velocity', 100);
  * which meant the Rate tab simply did not appear for several seconds with no
  * indication that anything was happening.
  */
-async function buildQueue(): Promise<void> {
-  await runTask('preparing the rating queue', async (task) => {
-    task.set(null, `${fmtInt(ctx.store.representatives.length)} candidates`);
-    // Let the bar paint before the blocking part starts, or it never appears.
-    await new Promise((r) => setTimeout(r, 0));
-    buildQueueNow();
-  });
-}
+/** True while the queue is being worked out, so the screen can say so. */
+let building = false;
 
-function buildQueueNow(): void {
+async function buildQueue(): Promise<void> {
   const store = ctx.store;
+  building = true;
   const fromLasso = sessionStorage.getItem('rateQueue');
   let base: number[];
   if (fromLasso) {
@@ -75,19 +70,43 @@ function buildQueueNow(): void {
     base = store.representatives.slice();
   }
 
-  if (ordering === 'coverage') queue = store.coverageOrder(base);
-  else if (ordering === 'predicted') {
-    // Straight down the model's guesses. Coverage is the right default because
-    // it spreads the ratings over the whole corpus, but once the model has
-    // something to say, hearing its best guesses first is both the fastest way
-    // to fill a bank and the fastest way to find out it is wrong.
-    queue = base.slice().sort((a, b) => (store.predictedRating(b) ?? -Infinity) - (store.predictedRating(a) ?? -Infinity));
-  } else if (ordering === 'families') {
-    queue = base.slice().sort((a, b) => store.clusterMembers(b).length - store.clusterMembers(a).length);
-  } else queue = base;
+  await runTask('preparing the rating queue', async (task) => {
+    /*
+     * Let the page draw between slices.
+     *
+     * A `setTimeout(0)` before the work is not enough and was the bug: the bar
+     * gets set, one frame paints, and then the thread is gone for the whole of
+     * a quadratic loop. Yielding has to happen *inside* the work, which is why
+     * the store's long passes take a callback and await it.
+     */
+    const slice = async (done: number, total: number) => {
+      task.set(total ? done / total : null, `${fmtInt(done)} of ${fmtInt(total)}`);
+      await new Promise((r) => setTimeout(r, 0));
+    };
 
-  position = 0;
-  if (skipRated) advanceToUnrated(0);
+    if (ordering === 'coverage') {
+      queue = await store.coverageOrder(base, slice);
+    } else if (ordering === 'predicted') {
+      // Straight down the model's guesses. Coverage is the right default
+      // because it spreads the ratings over the whole corpus, but once the
+      // model has something to say, hearing its best guesses first is both the
+      // fastest way to fill a bank and the fastest way to find out it is wrong.
+      //
+      // The predictions are filled first, in slices; the sort afterwards is
+      // then reading a cache and takes no time worth reporting.
+      task.stage('predicting');
+      await store.fillPredictions(base, slice);
+      queue = base.slice().sort((a, b) => (store.predictedRating(b) ?? -Infinity) - (store.predictedRating(a) ?? -Infinity));
+    } else if (ordering === 'families') {
+      queue = base.slice().sort((a, b) => store.clusterMembers(b).length - store.clusterMembers(a).length);
+    } else {
+      queue = base;
+    }
+
+    position = 0;
+    if (skipRated) advanceToUnrated(0);
+  });
+  building = false;
 }
 
 function advanceToUnrated(from: number): void {
@@ -287,9 +306,10 @@ function render(): void {
         el('select', {
           onchange: (e: Event) => {
             ordering = (e.target as HTMLSelectElement).value as Ordering; setSetting('rate.ordering', ordering);
-            buildQueue();
-            render();
-            void play('click');
+            void buildQueue().then(() => {
+              render();
+              void play('click');
+            });
           },
         },
           el('option', { value: 'coverage', selected: ordering === 'coverage' }, 'even coverage'),
@@ -314,6 +334,13 @@ function render(): void {
   ));
   wrap.appendChild(el('progress', { max: Math.max(1, queue.length), value: rated, style: { width: '100%' } }));
 
+
+  if (building) {
+    wrap.appendChild(el('div', { class: 'panel' },
+      el('div', { class: 'empty-state' }, 'working out what to play you first…')));
+    root.appendChild(wrap);
+    return;
+  }
 
   if (position >= queue.length) {
     wrap.appendChild(el('div', { class: 'panel', style: { textAlign: 'center', padding: '40px' } },

@@ -42,6 +42,17 @@ function yieldToPaint(): Promise<void> {
   return new Promise((r) => setTimeout(r, 0));
 }
 
+/**
+ * Told how far along a long job is, and given the chance to let the page draw.
+ *
+ * Returning a promise is the point: the caller awaits it, which is what
+ * actually hands the thread back.
+ */
+export type SliceCallback = (done: number, total: number) => Promise<void> | void;
+
+/** How long to hold the thread before offering it back, in milliseconds. */
+const SLICE_MS = 12;
+
 function fmtCount(n: number): string {
   return n.toLocaleString('en-GB');
 }
@@ -832,7 +843,8 @@ export class Store {
    * covered. Rating in this order spreads attention across the whole space
    * instead of grinding through the electric piano mass first.
    */
-  coverageOrder(indices: number[]): number[] {
+  async coverageOrder(indices: number[], onSlice?: SliceCallback): Promise<number[]> {
+    let sliceStart = performance.now();
     const proj = this.mapProjection;
     if (!proj || indices.length < 3) return indices.slice();
     const px = (i: number) => proj[i * 2];
@@ -881,8 +893,44 @@ export class Store {
         const d = dx * dx + dy * dy;
         if (d < minDist[k]) minDist[k] = d;
       }
+
+      // Hand the thread back every so often.
+      //
+      // This is quadratic - every pick scans everything still unpicked - so on
+      // a corpus of any size it is seconds of solid work. Run to completion it
+      // freezes the tab: the progress bar is set, one frame paints, and then
+      // nothing moves until it is done, which is indistinguishable from a
+      // crash and is exactly what a progress bar is supposed to prevent.
+      //
+      // Sliced by elapsed time rather than by a count of picks, because the
+      // cost of a pick falls as the remaining set shrinks: a fixed batch size
+      // would yield far too often at the end and not nearly enough at the
+      // start.
+      if (onSlice && performance.now() - sliceStart > SLICE_MS) {
+        await onSlice(order.length, indices.length);
+        sliceStart = performance.now();
+      }
     }
     return order;
+  }
+
+  /**
+   * Work out what the model expects for each of these, a slice at a time.
+   *
+   * Predictions are cached per voice, so this is really about filling the
+   * cache without blocking: the neighbour term scans every rated voice, and
+   * doing forty thousand of those in one go costs as much as the coverage
+   * ordering does.
+   */
+  async fillPredictions(indices: number[], onSlice?: SliceCallback): Promise<void> {
+    let sliceStart = performance.now();
+    for (let k = 0; k < indices.length; k++) {
+      this.predictedRating(indices[k]);
+      if (onSlice && performance.now() - sliceStart > SLICE_MS) {
+        await onSlice(k, indices.length);
+        sliceStart = performance.now();
+      }
+    }
   }
 
   // --------------------------------------------------------------- ratings
