@@ -102,8 +102,14 @@
   /* The gutter between cards. Black shows through it, which is what makes a
      card a card without drawing a line around one. */
   --gut: 10px;
-  /* How much room the sound dock takes along the bottom edge. */
-  --dock-h: 46px;
+  /*
+   * How much room the sound dock takes along the bottom edge.
+   *
+   * Its controls are about 26px, so this leaves the same 8px above and below
+   * them that the title bar leaves around the wordmark - the bottom edge of
+   * the window gets the same margin as the top.
+   */
+  --dock-h: 42px;
   color-scheme: dark;
 }
 
@@ -143,18 +149,36 @@ html, body {
 #app {
   display: flex; flex-direction: column;
   height: 100%;
-  padding-bottom: var(--dock-h);
+  /* The dock floats a gutter clear of the window, so content clears both. */
+  padding-bottom: calc(var(--dock-h) + var(--gut) * 2);
 }
 
 /* ---------------------------------------------------------------- chrome */
 
+/*
+ * A card, like everything else, with black showing round it.
+ *
+ * It was the page colour, flush to the window edge, which made it the one
+ * surface in the app that did not sit in the gutter grid - so the app started
+ * hard against the top of the screen while every pane below it floated.
+ */
 header.topbar {
   display: flex;
   align-items: center;
   gap: 4px;
+  margin: var(--gut) var(--gut) 0;
+  border-radius: var(--radius);
   padding: 0 16px;
-  height: 54px;
-  background: var(--bg);
+  /*
+   * Sized so the space above the wordmark matches the space inside it.
+   *
+   * The blocks sit 10px from the name less a 0.13em pull, about 7px; at 54px
+   * tall the bar left 16px above and below, which is more than twice that and
+   * read as a band of empty with a small thing floating in it. 38 puts 8px
+   * either side of the 22px name, so the whole mark has one rhythm.
+   */
+  height: 38px;
+  background: var(--surface);
   flex: none;
   position: relative;
   z-index: 10;
@@ -193,7 +217,9 @@ header.topbar {
  * yellow dot it replaces looked like a status lamp, which is a promise the app
  * was not keeping.
  */
-.topbar .brand::before {
+/* One either side, so the name is bracketed rather than just prefixed. */
+.topbar .brand::before,
+.topbar .brand::after {
   content: '';
   height: 0.75em;
   width: 1.78em;
@@ -201,8 +227,9 @@ header.topbar {
   border-radius: 2px;
   background: var(--text);
   margin-top: 0.1em;
-  margin-right: -0.13em;
 }
+.topbar .brand::before { margin-right: -0.13em; }
+.topbar .brand::after { margin-left: -0.13em; }
 /* Chango's word space is very wide, so the one inside the name is drawn
    rather than typed. */
 .brand-name { white-space: nowrap; }
@@ -217,7 +244,20 @@ nav.tabs button {
   background: none;
   border: none;
   color: var(--muted);
-  padding: 8px 15px;
+  /*
+   * A pixel more above than below, which is not a fudge.
+   *
+   * Every box in this bar is centred, and measuring said so. The type is not:
+   * Chango inks 17px tall against Space Mono's 11, so their centres differ
+   * even when the boxes agree - and the blocks differ again, because their
+   * 0.1em top margin pushes them about a pixel below the text they sit beside.
+   *
+   * The eye lines the tabs up with the blocks, which are the heaviest thing in
+   * the bar, so that is what they are matched to. Measured at 0.98px out; this
+   * is what closes it. Only moving the text inside its box can, since the box
+   * is already centred.
+   */
+  padding: 7px 14px 4px;
   border-radius: var(--pill);
   font: inherit;
   font-size: 14.5px;
@@ -225,8 +265,8 @@ nav.tabs button {
   cursor: pointer;
   transition: color 0.12s, background 0.12s;
 }
-nav.tabs button:hover:not(:disabled) { color: var(--text); background: var(--surface); }
-nav.tabs button.active { color: var(--text); background: var(--raise); }
+nav.tabs button:hover:not(:disabled) { color: var(--text); background: var(--raise); }
+nav.tabs button.active { color: var(--text); background: var(--raise-2); }
 nav.tabs button:disabled { opacity: 0.32; cursor: not-allowed; }
 
 .topbar .spacer { flex: 1; }
@@ -476,12 +516,16 @@ kbd {
  * carries the padding instead.
  */
 .sound-dock {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
-  background: var(--bg);
+  position: fixed; z-index: 45;
+  left: var(--gut); right: var(--gut); bottom: var(--gut);
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 .sound-bar {
   display: flex; align-items: center; gap: 10px;
-  height: var(--dock-h); padding: 0 14px 6px;
+  /* Symmetric: a bottom-only pad pushed the row up and left the gap uneven. */
+  height: var(--dock-h); padding: 0 14px;
   white-space: nowrap; overflow-x: auto; scrollbar-width: none;
 }
 .sound-bar::-webkit-scrollbar { height: 0; }
@@ -507,11 +551,9 @@ kbd {
 }
 .sound-midi:hover { color: var(--text); background: var(--raise-2); }
 .sound-midi.on { color: var(--good); background: rgba(123, 216, 143, 0.14); }
-/* Opens upward, so reaching for the bend range never moves the app. */
-.sound-panel {
-  margin: var(--gut) var(--gut) 0; padding: 16px; border-radius: var(--radius);
-  background: var(--surface);
-}
+/* Opens upward, so reaching for the bend range never moves the app. Inside the
+   dock's own card now, so it needs no surface of its own. */
+.sound-panel { padding: 16px 16px 8px; box-shadow: 0 1px 0 var(--hair); }
 .sound-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; }
 
 /* The typing keyboard's legend: which letter is which note, and what is down.
@@ -538,7 +580,7 @@ kbd {
  * keeps it out of the way of whatever it is sitting on top of.
  */
 .piano-roll {
-  position: fixed; left: 0; right: 0; bottom: var(--dock-h); height: 184px;
+  position: fixed; left: 0; right: 0; bottom: calc(var(--dock-h) + var(--gut) * 2); height: 184px;
   width: 100%; pointer-events: none; z-index: 40;
   opacity: 0; transition: opacity 0.5s ease-out;
   -webkit-mask-image: linear-gradient(to top, #000 0%, #000 35%, rgba(0, 0, 0, 0.6) 68%, transparent 100%);
@@ -587,6 +629,8 @@ kbd {
   display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w, 300px);
   gap: var(--gut); padding: var(--gut);
   height: 100%; position: relative; background: var(--bg);
+  /* The header already leaves a gutter below itself. */
+  padding-top: 0;
 }
 /* min-height: 0 because a grid item defaults to min-height: auto, which means
    "never shrink below your content". With a canvas that was harmless; with a
