@@ -260,6 +260,16 @@ function render(): void {
       },
     }, 'typing keys'),
 
+    // Which octave the keys are in, where you can see it while playing. The
+    // field in the settings panel is the control; this is the readout, and
+    // without it shifting with 9 or 0 changed everything and showed nothing.
+    typingKeys.enabled
+      ? el('span', {
+        class: 'sound-oct',
+        title: 'Lowest key of the typing keyboard. 9 and 0 shift it.',
+      }, noteName(typingKeys.base))
+      : null,
+
     midiSupported() ? el('span', { class: 'sound-sep' }) : null,
 
     midiSupported()

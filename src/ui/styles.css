@@ -551,6 +551,11 @@ kbd {
 .sound-more:hover, .sound-more.on { color: var(--accent); background: var(--raise); }
 .sound-vol { width: 96px; flex: none; }
 .sound-sep { width: 1px; height: 16px; background: var(--hair); flex: none; margin: 0 4px; }
+/* The typing keyboard's octave, readable at a glance while playing. */
+.sound-oct {
+  font-family: var(--mono); font-size: 11.5px; color: var(--accent);
+  flex: none; min-width: 3ch; text-align: center;
+}
 .sound-midi {
   background: var(--raise); border: none; color: var(--muted); cursor: pointer;
   font: inherit; font-size: 11.5px; padding: 4px 10px; border-radius: var(--radius-sm);
