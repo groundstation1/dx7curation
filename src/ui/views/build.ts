@@ -21,6 +21,7 @@ import { getSetting, setSetting } from '../settings.ts';
 import { keyboard } from '../../audio/keyboard.ts';
 import { voiceDetails } from '../voicePanel.ts';
 import { sidebarSplitter } from '../splitter.ts';
+import { adv, disclosure, isAdvanced } from '../advanced.ts';
 
 const CATEGORY_COLOURS: Record<Category, string> = {
   keys: '#6ea8fe',
@@ -264,7 +265,7 @@ function candidates(): Candidate[] {
   return out;
 }
 
-function runAllocation(opts: { keepOrder?: boolean } = {}): void {
+function runAllocation(opts: { keepOrder?: boolean; quiet?: boolean } = {}): void {
   allocation = allocate(candidates(), { total, minRating, floors, ceilings, backfill });
   if (!opts.keepOrder) {
     ordered = [];
@@ -273,7 +274,20 @@ function runAllocation(opts: { keepOrder?: boolean } = {}): void {
     hovered = -1;
     selected = -1;
   }
-  render();
+  if (!opts.quiet) render();
+}
+
+/**
+ * The whole build, from one button.
+ *
+ * Allocation and ordering were two buttons with a table of category floors and
+ * ceilings between them, and the first one produced nothing you could hear or
+ * send - you had to know that a second press was required. They are one action:
+ * choose the 128, put them in an order, write the files.
+ */
+function buildAll(): void {
+  runAllocation({ quiet: true });
+  runOrdering();
 }
 
 /**
@@ -681,10 +695,7 @@ function buildStatePanel(): HTMLElement | null {
     reasons.length
       ? el('button', {
         class: 'btn primary',
-        onclick: () => {
-          runAllocation();
-          runOrdering();
-        },
+        onclick: () => buildAll(),
       }, 'Rebuild')
       : el('span', { class: 'good' }, 'matches your ratings'),
   ));
@@ -704,135 +715,22 @@ function render(): void {
   const state = buildStatePanel();
   if (state) page.appendChild(state);
 
-  page.appendChild(el('div', { class: 'panel' },
-    el('h2', {}, 'Build'),
-    el('p', { class: 'hint' },
-      'Pinned voices are seated first. Each category then gets a floor, so a minority category survives even if you rated it ',
-      'lukewarm, and a ceiling, so no one category eats the bank. What is left is split in proportion to how highly you rated ',
-      'each category’s best patches. Inside a category, filling is purely by rating rank.'),
-    el('div', { class: 'row' },
-      el('label', { class: 'field' }, 'total slots',
-        el('input', {
-          type: 'number', min: 32, max: 128, step: 32, value: total,
-          onchange: (e: Event) => { total = Number((e.target as HTMLInputElement).value); },
-        })),
-      el('label', { class: 'field' }, 'minimum rating',
-        el('input', {
-          type: 'number', min: 1, max: 5, value: minRating,
-          onchange: (e: Event) => { minRating = Number((e.target as HTMLInputElement).value); },
-        })),
-      el('label', { class: 'field', title: 'Fill leftover slots with lower-rated patches rather than leaving them empty' },
-        el('input', {
-          type: 'checkbox', checked: backfill,
-          onchange: (e: Event) => { backfill = (e.target as HTMLInputElement).checked; },
-        }), 'backfill gaps'),
-      el('button', { class: 'btn primary', onclick: () => runAllocation() }, 'Allocate'),
-    ),
-    el('p', { class: 'hint', style: { marginBottom: 0, marginTop: '10px' } },
-      '128 is a lot to fill from one rating pass. If there are not enough keepers the leftover slots are taken by the ',
-      'next-best patches, marked as backfill, and anything still empty is written as a silent placeholder so the banks ',
-      'stay valid. Dropping the total to 96 or 64 builds fewer, better banks instead.'),
-  ));
-
-  page.appendChild(el('div', { class: 'panel' },
-    el('h3', { style: { marginTop: 0 } }, 'Category limits'),
-    limitsPanel(),
-  ));
-
-  if (allocation) {
-    const summary = el('div', { class: 'panel' },
-      el('h3', { style: { marginTop: 0 } }, 'Selection'),
-      el('div', { class: 'stats' },
-        el('div', { class: 'stat' }, el('div', { class: 'k' }, 'selected'), el('div', { class: 'v' }, fmtInt(allocation.selected.length))),
-        el('div', { class: 'stat' }, el('div', { class: 'k' }, `on merit (${minRating}+)`), el('div', { class: 'v' }, fmtInt(allocation.onMerit))),
-        el('div', { class: 'stat' }, el('div', { class: 'k' }, 'backfilled'), el('div', { class: 'v' }, fmtInt(allocation.backfilled))),
-        el('div', { class: 'stat' }, el('div', { class: 'k' }, 'empty slots'), el('div', { class: 'v' }, fmtInt(allocation.unfilled))),
-        el('div', { class: 'stat' }, el('div', { class: 'k' }, 'pinned'), el('div', { class: 'v' }, fmtInt(allocation.selected.filter((c) => c.pinned).length))),
-        el('div', { class: 'stat' }, el('div', { class: 'k' }, 'candidates'), el('div', { class: 'v' }, fmtInt(candidates().length))),
-      ),
-    );
-    for (const w of allocation.warnings) summary.appendChild(el('p', { class: 'warn', style: { marginBottom: 0 } }, w));
-    summary.appendChild(el('div', { class: 'row', style: { marginTop: '14px' } },
-      el('label', {
-        class: 'field',
-        title: 'Put the patches you pinned at the top of bank A, ordered among themselves.',
-      },
-        el('input', {
-          type: 'checkbox',
-          checked: pinnedFirst,
-          onchange: (e: Event) => {
-            pinnedFirst = (e.target as HTMLInputElement).checked;
-            setSetting('build.pinnedFirst', pinnedFirst);
-          },
-        }), 'pinned first'),
-      el('label', {
-        class: 'field',
-        title: 'Gather the backfilled and lowest-rated patches at the end - up to a bank of them - so the last bank can be skipped or overwritten. Never demotes a top-rated patch to fill the quota.',
-      },
-        el('input', {
-          type: 'checkbox',
-          checked: weakestLast,
-          onchange: (e: Event) => {
-            weakestLast = (e.target as HTMLInputElement).checked;
-            setSetting('build.weakestLast', weakestLast);
-          },
-        }), 'weakest in the last bank'),
-      el('label', { class: 'field' }, 'category ordering strength',
-        el('input', {
-          type: 'number', min: 0, max: 40, step: 1, value: categoryAxisWeight,
-          onchange: (e: Event) => { categoryAxisWeight = Number((e.target as HTMLInputElement).value); },
-        })),
-      el('button', {
-        class: 'btn primary',
-        disabled: allocation.selected.length === 0,
-        onclick: () => runOrdering(),
-      }, 'Order and build'),
-      el('span', { class: 'muted' }, '0 follows the sound alone; higher marches through the categories in order'),
-    ));
-    page.appendChild(summary);
-  }
+  page.appendChild(heroPanel());
 
   if (ordered.length) {
     page.appendChild(el('div', { class: 'panel' },
       el('h3', { style: { marginTop: 0 } }, `The ${fmtInt(ordered.length)}, in order`),
       el('p', { class: 'hint' },
-        'Split at 32/64/96 with no regard for category boundaries — the point is that neighbouring slots sound adjacent ',
-        'wherever you land while scrolling. Hover a slot to play it on the keyboard; click to hear the demo phrase and ',
-        'keep it in the sidebar.'),
+        'Neighbouring slots sound adjacent. Hover to play from the keyboard, click to hear the demo phrase.'),
       banksPanel(),
     ));
-
-    const verifyPanel = el('div', { class: 'panel' }, el('h3', { style: { marginTop: 0 } }, 'Files'));
-    for (const line of verification) {
-      verifyPanel.appendChild(el('div', { class: line.includes('FAILED') || line.includes('could not') ? 'bad mono' : 'good mono' }, line));
-    }
-    if (banks.length === 4) {
-      verifyPanel.appendChild(el('div', { class: 'row', style: { marginTop: '12px' } },
-        ...banks.map((bytes, b) => el('button', {
-          class: 'btn',
-          onclick: () => downloadBytes(bytes, `dx7-curated-${bankNames[b]}.syx`),
-        }, `Download bank ${bankNames[b]}`)),
-        el('button', {
-          class: 'btn',
-          onclick: () => {
-            const all = new Uint8Array(banks.reduce((n, b) => n + b.length, 0));
-            let at = 0;
-            for (const b of banks) {
-              all.set(b, at);
-              at += b.length;
-            }
-            downloadBytes(all, 'dx7-curated-all.syx');
-          },
-        }, 'Download all four in one file'),
-      ));
-    }
-    page.appendChild(verifyPanel);
+    page.appendChild(filesPanel());
     page.appendChild(midiPanel());
   }
 
   if (!store.clusters) {
     page.appendChild(el('p', { class: 'warn' },
-      'Near-duplicate clustering has not run, so every voice is being treated as its own family.'));
+      'Near-duplicate grouping has not run, so every voice counts as its own family.'));
   }
 
   // Same shape as rating: the work on the left, what you are pointing at on
@@ -844,6 +742,166 @@ function render(): void {
   renderSide();
 }
 
+/**
+ * One button, and what it is about to do.
+ *
+ * Everything that used to be asked before it - how many slots, the minimum
+ * rating, whether to backfill, how hard to march through the categories, and a
+ * nine-row table of per-category floors and ceilings - has a default that is
+ * right nearly always, and is now a sentence you can read rather than six
+ * controls you have to answer.
+ */
+function heroPanel(): HTMLElement {
+  const store = ctx.store;
+  const ready = candidates().length;
+  const panel = el('div', { class: 'panel' });
+
+  panel.appendChild(el('div', { class: 'build-hero' },
+    el('button', {
+      class: 'btn primary big',
+      disabled: ready === 0,
+      onclick: () => buildAll(),
+    }, ordered.length ? 'Build again' : `Build ${total}`),
+    el('div', { class: 'sum' },
+      el('b', {}, fmtInt(ready)), ' rated patches to choose from',
+      allocation
+        ? el('span', {}, `  \u00b7  ${fmtInt(allocation.onMerit)} on merit, `
+          + `${fmtInt(allocation.backfilled)} backfilled`
+          + (allocation.unfilled ? `, ${fmtInt(allocation.unfilled)} empty` : ''))
+        : null),
+  ));
+
+  if (ready === 0) {
+    panel.appendChild(el('p', { class: 'hint', style: { margin: '10px 0 0' } },
+      `Nothing is rated ${minRating} or better yet. Rate some patches first, or lower the minimum below.`));
+  }
+
+  for (const w of allocation?.warnings ?? []) {
+    panel.appendChild(el('p', { class: 'warn', style: { margin: '8px 0 0' } }, w));
+  }
+
+  // A plain-language account of the settings, so hiding them is not the same
+  // as hiding what they did.
+  const rules: string[] = [`${total} slots`, `rated ${minRating}+`];
+  if (backfill) rules.push('gaps filled with the next best');
+  if (pinnedFirst) rules.push('pinned first');
+  if (weakestLast) rules.push('weakest in the last bank');
+  panel.appendChild(el('p', { class: 'hint', style: { margin: '10px 0 0' } }, rules.join('  \u00b7  ')));
+
+  if (isAdvanced()) {
+    panel.appendChild(disclosure('Selection rules', settingsControls, { key: 'buildRules' }));
+    panel.appendChild(disclosure('Category floors and ceilings', limitsPanel, { key: 'buildLimits' }));
+    if (allocation) panel.appendChild(disclosure('Where the 128 came from', allocationStats, { key: 'buildStats' }));
+  }
+  void store;
+  return panel;
+}
+
+/** The knobs, for when the sentence above is not what you wanted. */
+function settingsControls(): HTMLElement {
+  return el('div', { class: 'row' },
+    el('label', { class: 'field' }, 'total slots',
+      el('input', {
+        type: 'number', min: 32, max: 128, step: 32, value: total,
+        onchange: (e: Event) => { total = Number((e.target as HTMLInputElement).value); },
+      })),
+    el('label', { class: 'field' }, 'minimum rating',
+      el('input', {
+        type: 'number', min: 1, max: 5, value: minRating,
+        onchange: (e: Event) => { minRating = Number((e.target as HTMLInputElement).value); },
+      })),
+    el('label', { class: 'field', title: 'Fill leftover slots with lower-rated patches rather than leaving them empty.' },
+      el('input', {
+        type: 'checkbox', checked: backfill,
+        onchange: (e: Event) => { backfill = (e.target as HTMLInputElement).checked; },
+      }), 'backfill gaps'),
+    el('label', {
+      class: 'field',
+      title: 'Put the patches you pinned at the top of bank A, ordered among themselves.',
+    },
+      el('input', {
+        type: 'checkbox', checked: pinnedFirst,
+        onchange: (e: Event) => {
+          pinnedFirst = (e.target as HTMLInputElement).checked;
+          setSetting('build.pinnedFirst', pinnedFirst);
+        },
+      }), 'pinned first'),
+    el('label', {
+      class: 'field',
+      title: 'Gather the backfilled and lowest-rated patches at the end - up to a bank of them - so the last bank can be skipped or overwritten. Never demotes a top-rated patch to fill the quota.',
+    },
+      el('input', {
+        type: 'checkbox', checked: weakestLast,
+        onchange: (e: Event) => {
+          weakestLast = (e.target as HTMLInputElement).checked;
+          setSetting('build.weakestLast', weakestLast);
+        },
+      }), 'weakest in the last bank'),
+    el('label', {
+      class: 'field',
+      title: '0 follows the sound alone; higher marches through the categories in order.',
+    }, 'category ordering strength',
+      el('input', {
+        type: 'number', min: 0, max: 40, step: 1, value: categoryAxisWeight,
+        onchange: (e: Event) => { categoryAxisWeight = Number((e.target as HTMLInputElement).value); },
+      })),
+  );
+}
+
+function allocationStats(): HTMLElement {
+  const a = allocation;
+  if (!a) return el('div', {});
+  const stat = (k: string, v: string) => el('div', { class: 'stat' },
+    el('div', { class: 'k' }, k), el('div', { class: 'v' }, v));
+  return el('div', { class: 'stats' },
+    stat('selected', fmtInt(a.selected.length)),
+    stat(`on merit (${minRating}+)`, fmtInt(a.onMerit)),
+    stat('backfilled', fmtInt(a.backfilled)),
+    stat('empty slots', fmtInt(a.unfilled)),
+    stat('pinned', fmtInt(a.selected.filter((c) => c.pinned).length)),
+    stat('candidates', fmtInt(candidates().length)),
+  );
+}
+
+/** The four files, and whether they came out valid. */
+function filesPanel(): HTMLElement {
+  const panel = el('div', { class: 'panel' });
+  const bad = verification.some((line) => line.includes('FAILED') || line.includes('could not'));
+
+  if (banks.length === 4) {
+    panel.appendChild(el('div', { class: 'row' },
+      el('button', {
+        class: 'btn',
+        onclick: () => {
+          const all = new Uint8Array(banks.reduce((n, b) => n + b.length, 0));
+          let at = 0;
+          for (const b of banks) {
+            all.set(b, at);
+            at += b.length;
+          }
+          downloadBytes(all, 'dx7-curated-all.syx');
+        },
+      }, 'Download all four banks'),
+      ...banks.map((bytes, b) => el('button', {
+        class: 'btn',
+        style: { padding: '6px 10px' },
+        onclick: () => downloadBytes(bytes, `dx7-curated-${bankNames[b]}.syx`),
+      }, bankNames[b])),
+      el('span', { class: bad ? 'bad' : 'good' },
+        bad ? 'a bank did not verify' : 'all four verify'),
+    ));
+  }
+
+  const detail = adv(el('div', {},
+    ...verification.map((line) => el('div', {
+      class: line.includes('FAILED') || line.includes('could not') ? 'bad mono' : 'good mono',
+      style: { fontSize: '11.5px' },
+    }, line)),
+  ));
+  if (detail) panel.appendChild(el('div', { style: { marginTop: '10px' } }, detail));
+  return panel;
+}
+
 export const view: View = {
   mount(container, c) {
     ctx = c;
@@ -853,8 +911,13 @@ export const view: View = {
     hovered = -1;
     selected = -1;
     restored = false;
-    runAllocation();
-    void restoreBuild();
+    runAllocation({ quiet: true });
+    // Restore what was built last; if there was nothing, build it now rather
+    // than showing an empty page with a button on it.
+    void restoreBuild().then(() => {
+      if (!restored && candidates().length > 0) buildAll();
+      else render();
+    });
 
     keyHandler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;

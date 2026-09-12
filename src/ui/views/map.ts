@@ -24,6 +24,8 @@ import { DEMO_PHRASE, HOVER_PHRASE, singleNotePhrase } from '../../engine/phrase
 import { keyboard } from '../../audio/keyboard.ts';
 import { matchesQuery, parseQuery, type SearchQuery } from '../search.ts';
 import { getSetting, setSetting } from '../settings.ts';
+import { adv, isAdvanced } from '../advanced.ts';
+import { loopPhrase, usePhrase } from '../soundBar.ts';
 import { blendWeights, dominantAlgorithm, interpolateVoices, inverseDistanceWeights, voiceHash, type InterpolationResult } from '../../engine/interpolate.ts';
 
 type AxisId = string;
@@ -124,13 +126,21 @@ let visible: number[] = [];
 let hovered = -1;
 let selected = -1;
 /**
- * Scatter or table.
+ * Scatter, table, or both.
  *
  * The same voices, the same filters, the same sidebar - only the drawing
  * differs. The map answers "what lives over here"; the list answers "what have
- * I decided, and sorted by what".
+ * I decided, and sorted by what". They are worth having at the same time, which
+ * is why this is three states rather than a toggle - and why it is a segmented
+ * control rather than the dropdown it used to be, where the fact that a table
+ * existed at all was a line item in a menu of seventeen.
  */
-let mode: 'map' | 'list' = getSetting<'map' | 'list'>('map.mode', 'map');
+type Mode = 'map' | 'split' | 'list';
+let mode: Mode = getSetting<Mode>('map.mode', 'split');
+/** How tall the plot is in split mode, dragged by the divider. */
+let plotHeight = getSetting('map.plotHeight', 340);
+let splitEl: HTMLElement | null = null;
+let resetEl: HTMLElement | null = null;
 let listEl: HTMLElement | null = null;
 let list: ListView | null = null;
 const listState: ListState = {
@@ -155,8 +165,6 @@ let sizes = new Float32Array(0);
 let collapseMerged = getSetting('map.collapseMerged', true);
 /** Kept as a constant: the transport's play setting is the switch now. */
 const hoverAudition = true;
-let usePhrase = getSetting('audition.phrase', true);
-let loopPhrase = getSetting('audition.loop', true);
 let auditionNote = getSetting('audition.note', 60);
 let auditionVel = getSetting('audition.velocity', 100);
 
@@ -220,6 +228,8 @@ let interpBias = 0.3;
  * notes: long enough to judge, short enough to keep moving.
  */
 const HOVER_INTERVAL_MS = 220;
+
+const STAR = '\u2605';
 
 // ------------------------------------------------------------------ axes
 
@@ -496,6 +506,9 @@ function computeSizes(): void {
 // ----------------------------------------------------------------- draw
 
 function draw(): void {
+  // There is nothing to reset until something has been zoomed or dragged, so
+  // the button only exists once it would do something.
+  if (resetEl) resetEl.hidden = scale === 1 && offsetX === 0 && offsetY === 0;
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
   const w = Math.max(1, Math.floor(rect.width));
@@ -725,7 +738,7 @@ function pointInPolygon(x: number, y: number, poly: Array<[number, number]>): bo
  */
 /** The phrase an audition should use: the short prefix, or the whole thing. */
 function phrase(full: boolean) {
-  if (!usePhrase) return singleNotePhrase(auditionNote, auditionVel);
+  if (!usePhrase()) return singleNotePhrase(auditionNote, auditionVel);
   return full ? DEMO_PHRASE : HOVER_PHRASE;
 }
 
@@ -759,14 +772,14 @@ async function audition(i: number, quick = false, auto?: 'click' | 'hover'): Pro
   if (auto && !ctx.player.mayPlay(auto)) return;
   const v = ctx.store.voices[i];
   if (!v) return;
-  if (!usePhrase) {
-    await ctx.player.audition(v.id, v.unpacked, singleNotePhrase(auditionNote, auditionVel), { loop: loopPhrase });
+  if (!usePhrase()) {
+    await ctx.player.audition(v.id, v.unpacked, singleNotePhrase(auditionNote, auditionVel), { loop: loopPhrase() });
     return;
   }
   if (quick) {
-    await ctx.player.auditionProgressive(v.id, v.unpacked, HOVER_PHRASE, DEMO_PHRASE, { loop: loopPhrase });
+    await ctx.player.auditionProgressive(v.id, v.unpacked, HOVER_PHRASE, DEMO_PHRASE, { loop: loopPhrase() });
   } else {
-    await ctx.player.audition(v.id, v.unpacked, DEMO_PHRASE, { loop: loopPhrase });
+    await ctx.player.audition(v.id, v.unpacked, DEMO_PHRASE, { loop: loopPhrase() });
   }
 }
 
@@ -855,7 +868,7 @@ function runInterpolation(mx: number, my: number): void {
     keyboard.setPatch(interpResult.voice);
     if (!keyboard.playing && ctx.player.mayPlay('hover')) {
       const id = `blend-${voiceHash(interpResult.voice)}`;
-      void ctx.player.audition(id, interpResult.voice, phrase(false), { loop: loopPhrase });
+      void ctx.player.audition(id, interpResult.voice, phrase(false), { loop: loopPhrase() });
     }
   }
   renderSide();
@@ -950,7 +963,7 @@ function interpolationPanel(): HTMLElement | null {
       onclick: () => {
         if (!interpResult) return;
         const id = `blend-${voiceHash(interpResult.voice)}`;
-        void ctx.player.audition(id, interpResult.voice, phrase(true), { loop: loopPhrase });
+        void ctx.player.audition(id, interpResult.voice, phrase(true), { loop: loopPhrase() });
       },
     }, 'Play in full'),
     el('button', {
@@ -1073,23 +1086,282 @@ function applyFilters(): void {
  * compute all of them.
  */
 function refreshList(): void {
-  if (!list || mode !== 'list') return;
+  if (!list || mode === 'map') return;
   list.update(sortIndices(ctx.store, visible, listState));
 }
 
+/**
+ * Give the plot and the table the room the current mode says they get.
+ *
+ * In split the plot is a fixed band and the table takes whatever is left, so
+ * dragging the divider means one number. The hidden half is genuinely hidden -
+ * `[hidden]` outranks the pane's own `display: flex` - which is what makes a
+ * folded-away table cost nothing rather than quietly rendering rows behind the
+ * one you are looking at.
+ */
 function applyMode(): void {
   if (!listEl || !canvas) return;
-  const showList = mode === 'list';
-  listEl.hidden = !showList;
-  const wrap = canvas.parentElement;
-  if (wrap) wrap.hidden = showList;
-  if (showList) refreshList();
+  const wrap = canvas.parentElement as HTMLElement | null;
+  listEl.hidden = mode === 'map';
+  if (splitEl) splitEl.hidden = mode !== 'split';
+  if (legendEl) legendEl.hidden = mode === 'list';
+  if (wrap) {
+    wrap.hidden = mode === 'list';
+    wrap.style.flex = mode === 'split' ? '0 0 auto' : '1';
+    wrap.style.height = mode === 'split' ? `${plotHeight}px` : '';
+  }
+  if (mode !== 'map') refreshList();
+  if (mode !== 'list') draw();
 }
+
+/**
+ * The draggable edge between the plot and the table in split mode.
+ *
+ * Dragging it to either end is also how you fold one away without reaching for
+ * the mode switch, which is the gesture most people try first.
+ */
+function makeSplitter(): HTMLElement {
+  const handle = el('div', { class: 'pane-split', title: 'Drag to resize. Double-click to even it up.' });
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add('dragging');
+    const top = (canvas?.parentElement as HTMLElement).getBoundingClientRect().top;
+
+    const move = (ev: PointerEvent) => setPlotHeight(ev.clientY - top);
+    const up = (ev: PointerEvent) => {
+      handle.releasePointerCapture(ev.pointerId);
+      handle.classList.remove('dragging');
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      setSetting('map.plotHeight', plotHeight);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+  });
+  handle.addEventListener('dblclick', () => {
+    const main = canvas?.parentElement?.parentElement;
+    setPlotHeight(main ? main.clientHeight / 2 : 340);
+    setSetting('map.plotHeight', plotHeight);
+  });
+  return handle;
+}
+
+/** Clamp the plot band so neither half can be dragged out of existence. */
+function setPlotHeight(px: number): void {
+  const main = canvas?.parentElement?.parentElement;
+  const room = main ? main.clientHeight : window.innerHeight;
+  plotHeight = Math.round(Math.max(120, Math.min(room - 170, px)));
+  applyMode();
+}
+
+/**
+ * Ready-made pairs of axes.
+ *
+ * There are sixty-odd axes and a few thousand possible pairs of them, almost
+ * all of which produce a cloud that tells you nothing. Two dropdowns of sixty
+ * is a control that technically offers everything and in practice offers
+ * whichever two you picked the first time. These are the views worth opening
+ * the map on, each answering a question you would actually ask; the raw axes
+ * are still there under the advanced switch for when you have a specific one
+ * in mind.
+ */
+interface MapPreset {
+  id: string;
+  label: string;
+  x: AxisId;
+  y: AxisId;
+  colour: typeof colourBy;
+  /** What you are looking at, in one line. */
+  note: string;
+}
+
+const PRESETS: MapPreset[] = [
+  {
+    id: 'learned', label: 'Everything at once', x: 'pca1', y: 'pca2', colour: 'category',
+    note: 'the two directions the corpus varies most in',
+  },
+  {
+    id: 'categories', label: 'Kinds of sound', x: 'lda1', y: 'lda2', colour: 'category',
+    note: 'the axes that separate the categories best',
+  },
+  {
+    id: 'envelope', label: 'Attack / release', x: 'attack', y: 'release', colour: 'category',
+    note: 'plucks bottom left, pads top right',
+  },
+  {
+    id: 'timbre', label: 'Brightness / attack', x: 'attack', y: 'brightness', colour: 'category',
+    note: 'the two things you hear in the first half second',
+  },
+  {
+    id: 'taste', label: 'What you like', x: 'predicted', y: 'brightness', colour: 'rating',
+    note: 'the model against timbre, so you can see whether it just likes one sound',
+  },
+  {
+    id: 'dynamics', label: 'How it plays', x: 'velLevel', y: 'velBrightness', colour: 'category',
+    note: 'how much velocity changes the level, and how much it changes the tone',
+  },
+  {
+    id: 'modwheel', label: 'Mod wheel', x: 'modVibrato', y: 'modTimbre', colour: 'category',
+    note: 'vibrato against timbre change; an unused wheel sits at the origin',
+  },
+  {
+    id: 'copies', label: 'Where the copies are', x: 'familySize', y: 'predicted', colour: 'cluster',
+    note: 'how many near-identical versions of each patch the corpus holds',
+  },
+];
+
+let presetId = getSetting('map.preset', 'learned');
+
+function applyPreset(id: string): void {
+  const preset = PRESETS.find((item) => item.id === id);
+  presetId = id;
+  setSetting('map.preset', id);
+  if (!preset) return;
+  xAxisId = preset.x;
+  yAxisId = preset.y;
+  colourBy = preset.colour;
+  setSetting('map.xAxis', xAxisId);
+  setSetting('map.yAxis', yAxisId);
+  setSetting('map.colourBy', colourBy);
+  computeLayout();
+  renderControls();
+  renderLegend();
+  draw();
+}
+
+/** Touching an axis by hand means you are no longer on a preset. */
+function offPreset(): void {
+  presetId = 'custom';
+  setSetting('map.preset', 'custom');
+}
+
+// -------------------------------------------------------------- the search
+
+let searchOpen = false;
+let searchDebounce = 0;
+
+function searchControl(): HTMLElement {
+  const active = searchText.trim().length > 0;
+  const wrap = el('div', { class: 'search-wrap' });
+
+  wrap.appendChild(el('button', {
+    class: active ? 'search-btn on' : 'search-btn',
+    title: 'Search names, aliases, categories and file paths',
+    onclick: () => {
+      searchOpen = !searchOpen;
+      renderControls();
+    },
+  },
+    '\u2315',
+    active ? el('span', { class: 'q' }, searchText) : 'search',
+    active
+      ? el('span', {
+        class: 'x',
+        title: 'Clear',
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          searchText = '';
+          searchOpen = false;
+          applyFilters();
+        },
+      }, '\u00d7')
+      : null,
+  ));
+
+  if (!searchOpen) return wrap;
+
+  const input = el('input', {
+    class: 'text',
+    type: 'search',
+    value: searchText,
+    placeholder: 'bank piano   \u00b7   e-piano OR rhodes',
+    oninput: (e: Event) => {
+      searchText = (e.target as HTMLInputElement).value;
+      // Debounced: every keystroke rebuilds the match set over the whole
+      // corpus, and at forty thousand voices that is not a cost worth paying
+      // per character.
+      clearTimeout(searchDebounce);
+      searchDebounce = window.setTimeout(() => applyFilters(), 180);
+    },
+    onkeydown: (e: KeyboardEvent) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        clearTimeout(searchDebounce);
+        applyFilters();
+      } else if (e.key === 'Escape') {
+        searchOpen = false;
+        renderControls();
+      }
+    },
+  }) as HTMLInputElement;
+
+  const pop = el('div', { class: 'search-pop' },
+    input,
+    el('div', { class: 'row' },
+      el('select', {
+        onchange: (e: Event) => {
+          searchScope = (e.target as HTMLSelectElement).value as typeof searchScope;
+          setSetting('map.searchScope', searchScope);
+          applyFilters();
+        },
+      },
+        el('option', { value: 'name', selected: searchScope === 'name' }, 'name only'),
+        el('option', { value: 'all', selected: searchScope === 'all' }, 'name and file path')),
+      el('select', {
+        onchange: (e: Event) => {
+          searchMode = (e.target as HTMLSelectElement).value as typeof searchMode;
+          setSetting('map.searchMode', searchMode);
+          applyFilters();
+        },
+      },
+        el('option', { value: 'highlight', selected: searchMode === 'highlight' }, 'highlight matches'),
+        el('option', { value: 'only', selected: searchMode === 'only' }, 'show only matches')),
+      matched
+        ? el('label', { class: 'field' },
+          el('input', {
+            type: 'checkbox',
+            checked: snapToMatches,
+            onchange: (e: Event) => {
+              snapToMatches = (e.target as HTMLInputElement).checked;
+              setSetting('map.snapToMatches', snapToMatches);
+            },
+          }), 'snap to results')
+        : null,
+      matched ? el('span', { class: 'muted' }, fmtInt(matched.size) + ' match' + (matched.size === 1 ? '' : 'es')) : null,
+    ),
+    el('div', { class: 'note' },
+      'Every word has to match somewhere. ', el('b', {}, 'OR'), ' or a comma separates alternatives, ',
+      el('b', {}, '"quotes"'), ' keep a phrase together.'),
+  );
+  wrap.appendChild(pop);
+
+  setTimeout(() => {
+    // Flip to the right when the popover would hang off the window. Letting it
+    // overflow is not cosmetic: focusing the input makes the browser scroll it
+    // into view, and the nearest scrollable ancestor is the whole map column,
+    // which slides sideways and takes the control bar with it.
+    if (wrap.getBoundingClientRect().left + pop.offsetWidth > window.innerWidth - 8) {
+      pop.style.left = 'auto';
+      pop.style.right = '0';
+    }
+    input.focus({ preventScroll: true });
+    // Focus survives the rebuild that every keystroke causes, which is the
+    // only reason this can be a live search rather than Enter-to-apply.
+    input.setSelectionRange(input.value.length, input.value.length);
+  }, 0);
+
+  return wrap;
+}
+
+// ------------------------------------------------------------- the controls
 
 function renderControls(): void {
   clear(controlsEl);
   const groups = groupedAxes();
   const important = importantAxisIds();
+  const plot = mode !== 'list';
+
   const axisSelect = (current: AxisId | '', onChange: (id: AxisId) => void, first?: { value: string; label: string }) =>
     el('select', {
       class: 'axis-select',
@@ -1101,81 +1373,92 @@ function renderControls(): void {
         optgroup.appendChild(el('option', {
           value: a.id,
           selected: a.id === current,
-        }, important.has(a.id) ? `\u2022 ${a.label}` : a.label));
+        }, important.has(a.id) ? a.label : '  ' + a.label));
       }
       return optgroup;
     }));
 
-  const searchInput = el('input', {
-    class: 'text',
-    type: 'search',
-    value: searchText,
-    placeholder: 'bank piano   ·   e-piano OR rhodes',
-    title: 'Case-insensitive substrings, OR or commas between terms. Category and subcategory names match too.',
-    style: { width: '260px' },
-    oninput: (e: Event) => {
-      searchText = (e.target as HTMLInputElement).value;
-    },
-    onchange: () => applyFilters(),
-    onkeydown: (e: KeyboardEvent) => {
-      if (e.key === 'Enter') applyFilters();
-      e.stopPropagation();
-    },
-  }) as HTMLInputElement;
-
-  // Axes, colour and size describe a plot. In the list they would be controls
-  // with nothing to control, which is worse than not being there.
-  const plot = mode === 'map';
+  const preset = PRESETS.find((item) => item.id === presetId);
 
   append(controlsEl, [
-    el('label', { class: 'field', title: 'The same voices and the same filters, drawn as a scatter or as a table.' }, 'as',
-      el('select', {
-        onchange: (e: Event) => {
-          mode = (e.target as HTMLSelectElement).value as typeof mode;
-          setSetting('map.mode', mode);
+    // Both drawings, and the fact that there are two of them, in one control.
+    el('div', { class: 'seg', title: 'The same voices and the same filters, drawn as a scatter, a table, or both.' },
+      ...(['map', 'split', 'list'] as const).map((m) => el('button', {
+        class: m === mode ? 'on' : '',
+        onclick: () => {
+          mode = m;
+          setSetting('map.mode', m);
           renderControls();
           applyMode();
-          draw();
         },
+      }, m === 'split' ? 'both' : m))),
+
+    plot ? el('label', { class: 'field', title: preset ? preset.note : 'a pair of axes you chose yourself' }, 'view',
+      el('select', {
+        onchange: (e: Event) => applyPreset((e.target as HTMLSelectElement).value),
       },
-        el('option', { value: 'map', selected: mode === 'map' }, 'map'),
-        el('option', { value: 'list', selected: mode === 'list' }, 'list'),
-      )),
-    plot ? el('label', { class: 'field' }, 'x', axisSelect(xAxisId, (id) => {
+        ...PRESETS.map((item) => el('option', { value: item.id, selected: item.id === presetId }, item.label)),
+        presetId === 'custom' ? el('option', { value: 'custom', selected: true }, 'custom') : null,
+      )) : null,
+
+    el('label', { class: 'field' }, 'show', showSelect()),
+    focusCategory ? subSelect() : null,
+
+    searchControl(),
+
+    // Last, and allowed to shrink to nothing: a caption should never be what
+    // pushes the controls onto a second row.
+    plot && preset && !isAdvanced()
+      ? el('span', { class: 'muted preset-note' }, preset.note)
+      : null,
+
+    // ---- everything below is advanced ----
+    adv(plot ? el('label', { class: 'field' }, 'x', axisSelect(xAxisId, (id) => {
       xAxisId = id;
       setSetting('map.xAxis', id);
+      offPreset();
       computeLayout();
+      renderControls();
       draw();
-    })) : null,
-    plot ? el('label', { class: 'field' }, 'y', axisSelect(yAxisId, (id) => {
+    })) : null),
+    adv(plot ? el('label', { class: 'field' }, 'y', axisSelect(yAxisId, (id) => {
       yAxisId = id;
       setSetting('map.yAxis', id);
+      offPreset();
       computeLayout();
+      renderControls();
       draw();
-    })) : null,
-    plot ? el('label', { class: 'field' }, 'colour',
+    })) : null),
+    adv(plot ? el('label', { class: 'field' }, 'colour',
       el('select', {
         onchange: (e: Event) => {
           colourBy = (e.target as HTMLSelectElement).value as typeof colourBy;
           setSetting('map.colourBy', colourBy);
+          offPreset();
           renderLegend();
           draw();
         },
       }, ...(['category', 'subcategory', 'rating', 'predicted', 'cluster', 'source', 'algorithm'] as const).map((c) =>
-        el('option', { value: c, selected: c === colourBy }, c))),
-    ) : null,
-    el('label', { class: 'field' },
+        el('option', { value: c, selected: c === colourBy }, c)))) : null),
+    adv(plot ? el('label', { class: 'field' }, 'size', axisSelect(sizeAxisId, (id) => {
+      sizeAxisId = id;
+      setSetting('map.sizeAxis', id);
+      computeSizes();
+      draw();
+    }, { value: '', label: 'uniform' })) : null),
+    adv(el('label', { class: 'field', title: 'Show one point per distinct sound rather than one per copy.' },
       el('input', {
         type: 'checkbox',
         checked: collapseMerged,
         onchange: (e: Event) => {
-          collapseMerged = (e.target as HTMLInputElement).checked; setSetting('map.collapseMerged', collapseMerged);
+          collapseMerged = (e.target as HTMLInputElement).checked;
+          setSetting('map.collapseMerged', collapseMerged);
           computeLayout();
           renderControls();
           draw();
         },
-      }), 'collapse near-identical'),
-    plot ? el('label', {
+      }), 'collapse near-identical')),
+    adv(plot ? el('label', {
       class: 'field',
       title: 'Play a patch blended from the voices nearest the cursor, rather than the nearest single patch. Only ever uses what is currently shown.',
     },
@@ -1183,7 +1466,8 @@ function renderControls(): void {
         type: 'checkbox',
         checked: interpolateMode,
         onchange: (e: Event) => {
-          interpolateMode = (e.target as HTMLInputElement).checked; setSetting('map.interpolate', interpolateMode);
+          interpolateMode = (e.target as HTMLInputElement).checked;
+          setSetting('map.interpolate', interpolateMode);
           interpResult = null;
           interpFrozen = false;
           if (!interpolateMode) interpAt = null;
@@ -1191,14 +1475,17 @@ function renderControls(): void {
           renderSide();
           draw();
         },
-      }), 'interpolate') : null,
-    plot && interpolateMode ? el('label', { class: 'field' }, 'blend of',
+      }), 'interpolate') : null),
+    adv(plot && interpolateMode ? el('label', { class: 'field' }, 'blend of',
       el('input', {
         type: 'number', min: 2, max: 32, value: interpNeighbours,
         style: { width: '54px' },
-        onchange: (e: Event) => { interpNeighbours = Number((e.target as HTMLInputElement).value); setSetting('map.interpNeighbours', interpNeighbours); },
-      })) : null,
-    interpolateMode ? el('label', {
+        onchange: (e: Event) => {
+          interpNeighbours = Number((e.target as HTMLInputElement).value);
+          setSetting('map.interpNeighbours', interpNeighbours);
+        },
+      })) : null),
+    adv(interpolateMode ? el('label', {
       class: 'field',
       title: 'How sharply the blend leans on the nearest contributor. Left mixes them evenly; right is dominated by whatever is closest.',
     }, 'bias',
@@ -1209,134 +1496,71 @@ function renderControls(): void {
         onchange: () => {
           if (interpAt) runInterpolation(interpAt[0], interpAt[1]);
         },
-      })) : null,
-    interpolateMode ? el('label', {
+      })) : null),
+    adv(interpolateMode ? el('label', {
       class: 'field',
       title: 'How close to a real patch you have to be for it to win over a blend. Larger snaps to patches more readily; smaller gives you more room to blend between them.',
     }, 'snap',
       el('input', {
         type: 'number', min: 0, max: 40, value: interpSnapRadius,
         style: { width: '54px' },
-        onchange: (e: Event) => { interpSnapRadius = Number((e.target as HTMLInputElement).value); setSetting('map.snapRadius', interpSnapRadius); },
-      }), 'px') : null,
-    el('label', { class: 'field' },
-      el('input', {
-        type: 'checkbox',
-        checked: usePhrase,
-        onchange: (e: Event) => { usePhrase = (e.target as HTMLInputElement).checked; setSetting('audition.phrase', usePhrase); },
-      }), 'demo phrase'),
-    el('label', { class: 'field' },
-      el('input', {
-        type: 'checkbox',
-        checked: loopPhrase,
-        onchange: (e: Event) => { loopPhrase = (e.target as HTMLInputElement).checked; setSetting('audition.loop', loopPhrase); },
-      }), 'loop'),
-    plot ? el('label', { class: 'field' }, 'size', axisSelect(sizeAxisId, (id) => {
-      sizeAxisId = id;
-      setSetting('map.sizeAxis', id);
-      computeSizes();
-      draw();
-    }, { value: '', label: 'uniform' })) : null,
-    plot ? el('button', {
-      class: 'btn',
-      onclick: () => {
-        scale = 1;
-        offsetX = 0;
-        offsetY = 0;
-        draw();
-      },
-    }, 'Reset view') : null,
+        onchange: (e: Event) => {
+          interpSnapRadius = Number((e.target as HTMLInputElement).value);
+          setSetting('map.snapRadius', interpSnapRadius);
+        },
+      }), 'px') : null),
   ]);
+}
 
-  // ---- second row: search, volume, keyboard ----
-  const subDefs = focusCategory ? SUBCATEGORIES[focusCategory] ?? [] : [];
-  const row2 = el('div', { class: 'map-controls', style: { borderTop: '1px solid var(--line)' } },
-    el('label', { class: 'field' }, 'show',
-      el('select', {
-        onchange: (e: Event) => {
-          const value = (e.target as HTMLSelectElement).value;
-          focusSub = '';
-          if (value === 'unrated' || value.startsWith('min')) {
-            focusRating = value === 'unrated' ? 'unrated' : (Number(value.slice(3)) as 1 | 2 | 3 | 4 | 5);
-            focusCategory = '';
-            colourBy = 'rating';
-            setSetting('map.colourBy', colourBy);
-          } else {
-            focusRating = '';
-            focusCategory = value as Category | '';
-            if (focusCategory) {
-              colourBy = 'subcategory';
-              setSetting('map.colourBy', colourBy);
-            }
-          }
-          applyFilters();
-        },
-      },
-        el('option', {
-          value: '',
-          selected: focusCategory === '' && focusRating === '',
-        }, 'everything'),
-        // Two ways to narrow the map, in one control because they are the same
-        // question - which of these am I looking at - and only ever one at a
-        // time. The group labels are the separator.
-        el('optgroup', { label: 'category' },
-          ...CATEGORIES.map((c) => el('option', {
-            value: c,
-            selected: c === focusCategory,
-          }, CATEGORY_LABELS[c]))),
-        el('optgroup', { label: 'rating' },
-          el('option', { value: 'unrated', selected: focusRating === 'unrated' }, 'not rated yet'),
-          ...([1, 2, 3, 4, 5] as const).map((r) => el('option', {
-            value: `min${r}`,
-            selected: focusRating === r,
-          }, r === 1 ? 'rated at all' : r === 5 ? '★'.repeat(5) : `${'★'.repeat(r)} or better`))),
-      )),
-    focusCategory ? el('label', { class: 'field' },
-      el('select', {
-        onchange: (e: Event) => {
-          focusSub = (e.target as HTMLSelectElement).value;
-          applyFilters();
-        },
-      },
-        el('option', { value: '', selected: focusSub === '' }, 'all subcategories'),
-        ...subDefs.map((d) => el('option', { value: d.id, selected: d.id === focusSub }, d.label)),
-      )) : null,
-    el('label', {
-      class: 'field',
-      title: 'Every word must match, anywhere in the name, its aliases, or the path. OR (or a comma) separates alternatives, and "quotes" keep a phrase together.',
-    }, 'search', searchInput),
-    el('label', { class: 'field' },
-      el('select', {
-        onchange: (e: Event) => {
-          searchScope = (e.target as HTMLSelectElement).value as typeof searchScope; setSetting('map.searchScope', searchScope);
-          applyFilters();
-        },
-      },
-        el('option', { value: 'name', selected: searchScope === 'name' }, 'name only'),
-        el('option', { value: 'all', selected: searchScope === 'all' }, 'name and file path'),
-      )),
-    el('label', { class: 'field' },
-      el('select', {
-        onchange: (e: Event) => {
-          searchMode = (e.target as HTMLSelectElement).value as typeof searchMode; setSetting('map.searchMode', searchMode);
-          applyFilters();
-        },
-      },
-        el('option', { value: 'highlight', selected: searchMode === 'highlight' }, 'highlight matches'),
-        el('option', { value: 'only', selected: searchMode === 'only' }, 'show only matches'),
-      )),
-    matched ? el('label', { class: 'field' },
-      el('input', {
-        type: 'checkbox',
-        checked: snapToMatches,
-        onchange: (e: Event) => { snapToMatches = (e.target as HTMLInputElement).checked; setSetting('map.snapToMatches', snapToMatches); },
-      }), 'snap to results') : null,
-    matched ? el('span', { class: 'muted' }, `${fmtInt(matched.size)} match${matched.size === 1 ? '' : 'es'}`) : null,
-    el('div', { class: 'spacer', style: { flex: '1' } }),
+/** The one filter that earns a permanent slot: which slice am I looking at. */
+function showSelect(): HTMLElement {
+  return el('select', {
+    onchange: (e: Event) => {
+      const value = (e.target as HTMLSelectElement).value;
+      focusSub = '';
+      if (value === 'unrated' || value.startsWith('min')) {
+        focusRating = value === 'unrated' ? 'unrated' : (Number(value.slice(3)) as 1 | 2 | 3 | 4 | 5);
+        focusCategory = '';
+        colourBy = 'rating';
+        setSetting('map.colourBy', colourBy);
+      } else {
+        focusRating = '';
+        focusCategory = value as Category | '';
+        if (focusCategory) {
+          colourBy = 'subcategory';
+          setSetting('map.colourBy', colourBy);
+        }
+      }
+      applyFilters();
+    },
+  },
+    el('option', { value: '', selected: focusCategory === '' && focusRating === '' }, 'everything'),
+    // Two ways to narrow the map, in one control because they are the same
+    // question - which of these am I looking at - and only ever one at a time.
+    // The group labels are the separator.
+    el('optgroup', { label: 'category' },
+      ...CATEGORIES.map((c) => el('option', { value: c, selected: c === focusCategory }, CATEGORY_LABELS[c]))),
+    el('optgroup', { label: 'rating' },
+      el('option', { value: 'unrated', selected: focusRating === 'unrated' }, 'not rated yet'),
+      ...([1, 2, 3, 4, 5] as const).map((r) => el('option', {
+        value: 'min' + r,
+        selected: focusRating === r,
+      }, r === 1 ? 'rated at all' : r === 5 ? STAR.repeat(5) : STAR.repeat(r) + ' or better'))),
   );
-  controlsEl.parentElement?.querySelector('.map-controls-2')?.remove();
-  row2.classList.add('map-controls-2');
-  controlsEl.after(row2);
+}
+
+function subSelect(): HTMLElement {
+  const subDefs = focusCategory ? SUBCATEGORIES[focusCategory] ?? [] : [];
+  return el('label', { class: 'field' },
+    el('select', {
+      onchange: (e: Event) => {
+        focusSub = (e.target as HTMLSelectElement).value;
+        applyFilters();
+      },
+    },
+      el('option', { value: '', selected: focusSub === '' }, 'all subcategories'),
+      ...subDefs.map((d) => el('option', { value: d.id, selected: d.id === focusSub }, d.label)),
+    ));
 }
 
 function renderLegend(): void {
@@ -1574,13 +1798,29 @@ export const view: View = {
 
     canvas = el('canvas') as HTMLCanvasElement;
     overlay = el('canvas', { style: { pointerEvents: 'none' } }) as HTMLCanvasElement;
-    legendEl = el('div', { class: 'legend', style: { padding: '8px 12px', borderTop: '1px solid var(--line)' } });
+    legendEl = el('div', { class: 'legend', style: { padding: '8px 12px', boxShadow: '0 -1px 0 var(--line)' } });
     sideEl = el('aside', { class: 'map-side' });
     controlsEl = el('div', { class: 'map-controls' });
 
-    const wrap = el('div', { class: 'map-canvas-wrap' }, canvas, overlay);
+    // Floating over the plot rather than spending a slot in the control bar on
+    // something you need about once a session, and only after zooming.
+    resetEl = el('button', {
+      class: 'map-reset',
+      hidden: true,
+      onclick: () => {
+        scale = 1;
+        offsetX = 0;
+        offsetY = 0;
+        draw();
+      },
+    }, 'Reset view');
+    const wrap = el('div', { class: 'map-canvas-wrap' }, canvas, overlay, resetEl);
     listEl = el('div', { class: 'list-pane', hidden: true });
-    const main = el('div', { class: 'map-main' }, controlsEl, wrap, listEl, legendEl);
+    splitEl = makeSplitter();
+    // The legend belongs to the plot, so it sits under the plot rather than at
+    // the foot of the whole column - which in split mode put it below a table
+    // it says nothing about.
+    const main = el('div', { class: 'map-main' }, controlsEl, wrap, legendEl, splitEl, listEl);
     const layout = el('div', { class: 'map-layout' }, main, sideEl);
     layout.appendChild(sidebarSplitter(layout, { key: 'ui.mapSideWidth', defaultWidth: 300 }));
     root.appendChild(layout);
@@ -1675,6 +1915,8 @@ export const view: View = {
   unmount() {
     list = null;
     listEl = null;
+    splitEl = null;
+    resetEl = null;
     unsubscribe?.();
     unsubscribe = null;
     ctx?.player.stop();

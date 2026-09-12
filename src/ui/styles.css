@@ -12,8 +12,20 @@
   --panel: #171a20;
   --panel-2: #1e222a;
   --panel-3: #262b34;
-  --line: #2b313b;
-  --line-2: #3a4250;
+  /*
+   * Dividers, and nothing else.
+   *
+   * This used to be a border colour, and every group in the app was a rounded
+   * rectangle drawn in it: six of them stacked down the Sources page, five down
+   * Build, some nested inside others. Outlining everything is what made the app
+   * look assembled rather than designed - a box says "these things are
+   * separate" in the loudest possible way, and almost nothing needs to say it
+   * that loudly. Elevation and space say it better, so surfaces are now shaded
+   * and `--line` is reserved for the places where a real edge is meant: between
+   * a header and what it heads, between two columns.
+   */
+  --line: #252a33;
+  --line-2: #343b47;
   --text: #e7e9ee;
   --muted: #8c94a3;
   --accent: #6ea8fe;
@@ -21,13 +33,15 @@
   --good: #7bd88f;
   --bad: #f2777a;
   --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
-  --radius: 8px;
-  --radius-sm: 5px;
+  --radius: 6px;
+  --radius-sm: 4px;
   /* One hairline of light along the top of a raised surface, one soft shadow
      under it. Two lines of CSS, and the difference between "a div with a
      border" and something that looks made. */
-  --lift: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.22);
+  --lift: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 26px rgba(0, 0, 0, 0.2);
+  /* How much room the sound dock takes along the bottom edge. */
+  --dock-h: 34px;
   color-scheme: dark;
 }
 
@@ -63,7 +77,11 @@ html, body {
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
 
-#app { display: flex; flex-direction: column; height: 100%; }
+#app {
+  display: flex; flex-direction: column;
+  height: 100%;
+  padding-bottom: var(--dock-h);
+}
 
 /* ---------------------------------------------------------------- chrome */
 
@@ -72,10 +90,9 @@ header.topbar {
   align-items: center;
   gap: 4px;
   padding: 0 14px;
-  height: 46px;
+  height: 44px;
   background: linear-gradient(180deg, #1b1f26 0%, #15181e 100%);
-  border-bottom: 1px solid #05070a;
-  box-shadow: var(--lift), 0 1px 0 rgba(255, 255, 255, 0.02);
+  box-shadow: var(--lift), 0 1px 0 #05070a, 0 2px 10px rgba(0, 0, 0, 0.3);
   flex: none;
   position: relative;
   z-index: 10;
@@ -83,14 +100,14 @@ header.topbar {
 
 .topbar .brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  margin-right: 16px;
+  margin-right: 14px;
   white-space: nowrap;
 }
 /* The power lamp. Every piece of eighties hardware has one. */
@@ -99,11 +116,6 @@ header.topbar {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--accent-2);
   box-shadow: 0 0 6px rgba(255, 202, 106, 0.7);
-  align-self: center;
-}
-.topbar .brand small {
-  color: var(--muted); font-weight: 400; font-size: 10.5px;
-  letter-spacing: 0.06em; text-transform: none;
 }
 
 nav.tabs { display: flex; gap: 2px; flex: none; }
@@ -114,7 +126,7 @@ nav.tabs button {
   background: none;
   border: none;
   color: var(--muted);
-  padding: 14px 13px 12px;
+  padding: 13px 12px 11px;
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
@@ -122,97 +134,193 @@ nav.tabs button {
 }
 nav.tabs button::after {
   content: '';
-  position: absolute; left: 9px; right: 9px; bottom: 8px; height: 2px;
+  position: absolute; left: 8px; right: 8px; bottom: 7px; height: 2px;
   border-radius: 2px; background: transparent;
   transition: background 0.12s;
 }
 nav.tabs button:hover:not(:disabled) { color: var(--text); }
 nav.tabs button.active { color: var(--text); }
 nav.tabs button.active::after { background: var(--accent); box-shadow: 0 0 10px rgba(110, 168, 254, 0.5); }
-nav.tabs button:disabled { opacity: 0.32; cursor: not-allowed; }
+nav.tabs button:disabled { opacity: 0.3; cursor: not-allowed; }
 
 .topbar .spacer { flex: 1; }
 .topbar .status {
-  color: var(--muted); font-size: 11.5px; letter-spacing: 0.01em;
+  color: var(--muted); font-size: 11.5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  margin-left: 14px;
 }
-.topbar .transport {
-  display: flex; align-items: center; gap: 8px; flex: none;
-  margin-left: 16px; padding-left: 16px;
-  border-left: 1px solid var(--line);
-  white-space: nowrap;
-}
-.topbar .transport .field { gap: 5px; font-size: 11.5px; }
 .topbar .status b { color: var(--text); font-weight: 600; }
 
-main.view { flex: 1; overflow: auto; padding: 20px 22px 44px; }
+main.view { flex: 1; overflow: auto; padding: 18px 20px 30px; }
 main.view.flush { padding: 0; overflow: hidden; }
+
+/* ------------------------------------------------------------- task bar */
+
+/* One bar for every slow thing, so a job with no progress is conspicuous
+   rather than quietly absent. */
+.taskbar {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 11.5px; white-space: nowrap; min-width: 0;
+}
+.task-label { color: var(--text); }
+.task-bar {
+  position: relative; display: block; width: 130px; height: 4px; flex: none;
+  border-radius: 2px; background: rgba(255, 255, 255, 0.07); overflow: hidden;
+}
+.task-bar i {
+  position: absolute; inset: 0 auto 0 0; display: block; width: 0;
+  background: linear-gradient(90deg, var(--accent) 0%, #9ec5ff 100%);
+  border-radius: 2px; transition: width 0.18s linear;
+}
+/* Work whose end cannot be known: a sweep rather than a lie about a fraction. */
+.task-bar.indeterminate i { width: 38%; animation: task-sweep 1.15s ease-in-out infinite; }
+@keyframes task-sweep {
+  0% { transform: translateX(-105%); }
+  100% { transform: translateX(275%); }
+}
+.task-detail { font-size: 11px; }
+.task-stop {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: var(--radius-sm);
+}
+.task-stop:hover { color: var(--bad); background: rgba(255, 255, 255, 0.06); }
+
+/* --------------------------------------------------- the advanced switch */
+
+.adv-switch {
+  display: flex; align-items: center; gap: 7px; flex: none;
+  margin-left: 14px; padding-left: 14px;
+  border-left: 1px solid var(--line);
+  color: var(--muted); font-size: 11.5px; cursor: pointer; user-select: none;
+}
+.adv-switch:hover { color: var(--text); }
+.adv-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.adv-track {
+  position: relative; width: 26px; height: 14px; border-radius: 7px; flex: none;
+  background: var(--panel-3); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  transition: background 0.14s;
+}
+.adv-track::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--muted); transition: transform 0.14s, background 0.14s;
+}
+.adv-switch input:checked + .adv-track { background: rgba(110, 168, 254, 0.35); }
+.adv-switch input:checked + .adv-track::after { transform: translateX(12px); background: var(--accent); }
+.adv-switch input:focus-visible + .adv-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ------------------------------------------------ progressive disclosure */
+
+details.disc { margin: 0; }
+details.disc > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 0;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--muted);
+}
+details.disc > summary::-webkit-details-marker { display: none; }
+details.disc > summary::before {
+  content: '';
+  width: 0; height: 0; flex: none;
+  border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 0.14s;
+}
+details.disc[open] > summary::before { transform: rotate(90deg); }
+details.disc > summary:hover { color: var(--text); }
+.disc-note { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; }
+.disc-body { padding: 2px 0 10px; }
 
 /* ---------------------------------------------------------------- basics */
 
-h2 { font-size: 15px; margin: 0 0 4px; font-weight: 600; letter-spacing: -0.01em; }
+h2 { font-size: 14.5px; margin: 0 0 4px; font-weight: 600; letter-spacing: -0.01em; }
 h3 {
-  font-size: 11px; margin: 22px 0 8px; font-weight: 600; color: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.08em;
+  font-size: 11px; margin: 20px 0 8px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.07em;
 }
-p.hint { color: var(--muted); margin: 0 0 16px; max-width: 68ch; }
+p.hint { color: var(--muted); margin: 0 0 12px; max-width: 72ch; font-size: 12px; }
 
 button.btn {
-  background: linear-gradient(180deg, var(--panel-2) 0%, #1a1e25 100%);
+  background: var(--panel-2);
   color: var(--text);
-  border: 1px solid var(--line);
+  border: none;
   border-radius: var(--radius-sm);
   padding: 6px 12px;
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
   box-shadow: var(--lift);
-  transition: border-color 0.12s, background 0.12s, color 0.12s;
+  transition: background 0.12s, color 0.12s;
 }
-button.btn:hover:not(:disabled) { border-color: var(--line-2); background: var(--panel-3); }
+button.btn:hover:not(:disabled) { background: var(--panel-3); }
 button.btn:active:not(:disabled) { background: #15181e; box-shadow: none; }
-button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+button.btn:disabled { opacity: 0.38; cursor: not-allowed; }
 button.btn.primary {
   background: linear-gradient(180deg, #7cb1ff 0%, var(--accent) 100%);
-  color: #0b1017; border-color: #4d86dd; font-weight: 600;
+  color: #0b1017; font-weight: 600;
 }
-button.btn.primary:hover:not(:disabled) { background: #8ab9ff; border-color: #6ea8fe; }
+button.btn.primary:hover:not(:disabled) { background: #8ab9ff; }
 button.btn.danger { color: var(--bad); }
-/* A transport toggle that is currently engaged. */
-button.btn.on {
-  border-color: rgba(110, 168, 254, 0.6); color: var(--accent);
-  background: rgba(110, 168, 254, 0.09);
-}
+/* A toggle that is currently engaged. */
+button.btn.on { color: var(--accent); background: rgba(110, 168, 254, 0.14); }
 button.btn.off { color: var(--muted); }
+/* The one button a screen is actually about. */
+button.btn.big { padding: 9px 20px; font-size: 13.5px; }
 
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.stack { display: flex; flex-direction: column; gap: 14px; }
+.stack { display: flex; flex-direction: column; gap: 18px; }
+
+/*
+ * A shaded surface, not a box.
+ *
+ * The hairline along the top and the shadow beneath do the work a border used
+ * to: it reads as raised off the page, which is the thing a border was only
+ * ever standing in for.
+ */
 .panel {
   background: var(--panel);
-  border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 15px 17px;
   box-shadow: var(--lift), var(--shadow);
 }
+/* A panel inside a panel is one box too many: same material, no elevation. */
+.panel .panel { background: var(--panel-2); box-shadow: var(--lift); }
+/* A quiet group - related controls that do not deserve a raised surface. */
+.sunk { background: rgba(0, 0, 0, 0.18); border-radius: var(--radius); padding: 12px 14px; }
 
-label.field { display: flex; align-items: center; gap: 8px; color: var(--muted); }
-label.field input[type="number"], label.field select, input.text {
+label.field { display: flex; align-items: center; gap: 7px; color: var(--muted); }
+label.field input[type="number"], label.field select, input.text, select {
   background: var(--bg-2);
   color: var(--text);
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   padding: 5px 8px;
   font: inherit;
   font-size: 12.5px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
   transition: border-color 0.12s;
 }
-label.field input[type="number"]:hover, label.field select:hover, input.text:hover { border-color: var(--line-2); }
+label.field input[type="number"]:hover, label.field select:hover, input.text:hover, select:hover {
+  border-color: var(--line-2);
+}
 label.field input[type="number"] { width: 66px; }
 label.field input[type="checkbox"] { accent-color: var(--accent); }
 input[type="range"] { accent-color: var(--accent); }
 select.axis-select { max-width: 260px; }
 select optgroup { color: var(--muted); font-style: normal; font-weight: 600; background: var(--panel); }
 select option { color: var(--text); font-weight: 400; background: var(--panel); }
+
+/* A segmented control: two or three exclusive choices, both visible. */
+.seg { display: inline-flex; background: var(--bg-2); border-radius: var(--radius-sm); padding: 2px; gap: 2px; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
+.seg button {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 12px; padding: 3px 11px; border-radius: 3px;
+  transition: background 0.12s, color 0.12s;
+}
+.seg button:hover { color: var(--text); }
+.seg button.on { background: var(--panel-3); color: var(--text); box-shadow: var(--lift); }
 
 table.data { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
 table.data th, table.data td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); }
@@ -236,7 +344,7 @@ table.data tr.chosen td { background: rgba(110, 168, 254, 0.12); }
 .stat .v { font-size: 21px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 
 progress {
-  width: 320px; height: 6px; border: none; border-radius: 3px;
+  width: 320px; height: 5px; border: none; border-radius: 3px;
   background: var(--panel-2); overflow: hidden;
 }
 progress::-webkit-progress-bar { background: var(--panel-2); border-radius: 3px; }
@@ -244,18 +352,75 @@ progress::-webkit-progress-value { background: linear-gradient(90deg, var(--acce
 
 kbd {
   font-family: var(--mono); font-size: 10.5px;
-  background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px;
+  background: var(--panel-2); box-shadow: var(--lift), 0 1px 0 rgba(0, 0, 0, 0.5);
   border-radius: 4px; padding: 1px 5px; color: var(--text);
 }
 
+/* ------------------------------------------------------------ sound dock */
+
 /*
- * The MIDI-in strip: fixed to the bottom edge, never in the way.
+ * Everything audible, along the bottom edge, above the piano roll it drives.
+ *
+ * Fixed rather than in the flow so no view has to leave room for it; `#app`
+ * carries the padding instead.
+ */
+.sound-dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
+  background: linear-gradient(180deg, #15181e 0%, #101318 100%);
+  box-shadow: 0 -1px 0 #05070a, var(--lift), 0 -6px 20px rgba(0, 0, 0, 0.3);
+}
+.sound-bar {
+  display: flex; align-items: center; gap: 9px;
+  height: var(--dock-h); padding: 0 12px;
+  white-space: nowrap; overflow-x: auto; scrollbar-width: none;
+}
+.sound-bar::-webkit-scrollbar { height: 0; }
+.sound-bar .field { gap: 5px; font-size: 11.5px; }
+.sound-bar .btn { padding: 3px 9px; font-size: 11.5px; }
+.sound-label {
+  font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--muted); margin-right: 2px;
+}
+.sound-more {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 11px; line-height: 1; padding: 4px 5px; border-radius: var(--radius-sm);
+}
+.sound-more:hover, .sound-more.on { color: var(--accent); background: rgba(110, 168, 254, 0.12); }
+.sound-vol { width: 92px; flex: none; }
+.sound-sep { width: 1px; height: 15px; background: var(--line); flex: none; margin: 0 3px; }
+.sound-midi {
+  background: var(--panel-2); border: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 11.5px; padding: 3px 9px; border-radius: var(--radius-sm);
+  box-shadow: var(--lift);
+}
+.sound-midi:hover { color: var(--text); }
+.sound-midi.on { color: var(--good); background: rgba(123, 216, 143, 0.12); }
+/* Opens upward, so reaching for the bend range never moves the app. */
+.sound-panel { padding: 12px 14px 6px; box-shadow: 0 1px 0 var(--line); }
+.sound-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 9px; font-size: 12px; }
+
+/* The typing keyboard's legend: which letter is which note, and what is down. */
+.keymap { display: flex; gap: 3px; margin-top: 9px; flex-wrap: wrap; }
+.keycap {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 21px; height: 23px; padding: 0 4px; border-radius: 3px;
+  background: var(--panel-3); color: var(--text);
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  box-shadow: var(--lift), 0 1px 0 rgba(0, 0, 0, 0.5);
+}
+/* Black keys sit lower and darker, so the row reads as a keyboard rather than
+   as seventeen identical buttons. */
+.keycap.sharp { background: #0e1014; color: var(--muted); margin-top: 5px; height: 18px; }
+.keycap.down { background: var(--accent); color: #0b1017; }
+
+/*
+ * The MIDI-in strip: along the bottom edge, above the dock, never in the way.
  *
  * Masked so it dissolves upward rather than ending on a line, which is what
  * keeps it out of the way of whatever it is sitting on top of.
  */
 .piano-roll {
-  position: fixed; left: 0; right: 0; bottom: 0; height: 184px;
+  position: fixed; left: 0; right: 0; bottom: var(--dock-h); height: 184px;
   width: 100%; pointer-events: none; z-index: 40;
   opacity: 0; transition: opacity 0.5s ease-out;
   -webkit-mask-image: linear-gradient(to top, #000 0%, #000 35%, rgba(0, 0, 0, 0.6) 68%, transparent 100%);
@@ -265,14 +430,28 @@ kbd {
 /* ------------------------------------------------------------ drop zone */
 
 .dropzone {
-  border: 2px dashed var(--line);
+  background: rgba(110, 168, 254, 0.04);
+  box-shadow: inset 0 0 0 1px var(--line);
   border-radius: 9px;
-  padding: 34px;
+  padding: 30px;
   text-align: center;
   color: var(--muted);
-  transition: border-color 0.12s, background 0.12s;
+  transition: box-shadow 0.12s, background 0.12s;
 }
-.dropzone.over { border-color: var(--accent); background: #1b2431; color: var(--text); }
+.dropzone.over { box-shadow: inset 0 0 0 2px var(--accent); background: rgba(110, 168, 254, 0.1); color: var(--text); }
+
+/* The first screen, when there is nothing yet: the drop zone is the page. */
+.onboard { max-width: 620px; margin: 6vh auto 0; text-align: center; }
+.onboard h1 { font-size: 21px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
+.onboard .lede { color: var(--muted); margin: 0 0 22px; }
+.onboard .dropzone { padding: 46px 30px; }
+.onboard .drop-big { font-size: 16px; color: var(--text); margin-bottom: 8px; }
+.onboard .tipoff {
+  margin-top: 18px; padding: 13px 16px; text-align: left;
+  background: var(--panel); border-radius: var(--radius); box-shadow: var(--lift), var(--shadow);
+}
+.onboard .tipoff b { color: var(--accent-2); }
+.onboard a { color: var(--accent); }
 
 /* ----------------------------------------------------------------- map */
 
@@ -287,19 +466,71 @@ kbd {
    in its own height - dutifully rendered all of them. */
 .map-main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .map-controls {
-  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-  padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel);
-  flex: none;
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  padding: 7px 12px; background: var(--panel);
+  box-shadow: 0 1px 0 var(--line);
+  flex: none; position: relative; z-index: 5;
 }
 .map-canvas-wrap { position: relative; flex: 1; min-height: 0; }
+/* Shrinks away rather than wrapping the control bar onto a second row. */
+/* flex-basis 0, not auto: wrapping is decided from the basis, so an `auto`
+   basis wraps the caption onto its own row before it ever shrinks. */
+.preset-note { font-size: 11px; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-canvas-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.map-side { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 14px; }
+.map-side { box-shadow: inset 1px 0 0 var(--line); background: var(--panel); overflow: auto; padding: 14px; }
+
+/* Floating over the plot rather than spending a control-bar slot on it. */
+.map-reset {
+  position: absolute; top: 10px; right: 10px; z-index: 4;
+  background: rgba(23, 26, 32, 0.85); color: var(--muted); border: none;
+  border-radius: var(--radius-sm); padding: 4px 10px; font: inherit; font-size: 11.5px;
+  cursor: pointer; backdrop-filter: blur(3px); box-shadow: var(--lift);
+}
+.map-reset:hover { color: var(--text); }
+
+/* The divider between plot and table in split mode. */
+.pane-split {
+  height: 7px; flex: none; cursor: row-resize; position: relative;
+  background: var(--panel); box-shadow: 0 1px 0 var(--line), 0 -1px 0 var(--line);
+  touch-action: none;
+}
+.pane-split::after {
+  content: ''; position: absolute; left: 50%; top: 3px;
+  width: 34px; height: 1px; margin-left: -17px; background: var(--line-2);
+  transition: background 0.12s;
+}
+.pane-split:hover::after, .pane-split.dragging::after { background: var(--accent); }
+
+/* -------------------------------------------------------------- search */
+
+.search-wrap { position: relative; }
+.search-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--panel-2); border: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 12px; padding: 5px 10px; border-radius: var(--radius-sm);
+  box-shadow: var(--lift);
+}
+.search-btn:hover { color: var(--text); background: var(--panel-3); }
+/* A search that is filtering must never be invisible: the chip is the reminder. */
+.search-btn.on { color: var(--accent); background: rgba(110, 168, 254, 0.14); }
+.search-btn .q { font-family: var(--mono); font-size: 11.5px; color: var(--text); max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-btn .x { opacity: 0.6; }
+.search-pop {
+  position: absolute; top: calc(100% + 7px); left: 0; z-index: 30;
+  width: 380px; padding: 12px; border-radius: var(--radius);
+  background: var(--panel-2); box-shadow: var(--lift), 0 14px 34px rgba(0, 0, 0, 0.55);
+  display: flex; flex-direction: column; gap: 9px;
+}
+.search-pop input.text { width: 100%; font-size: 13px; padding: 7px 9px; }
+.search-pop .row { gap: 8px; font-size: 11.5px; }
+.search-pop .note { color: var(--muted); font-size: 11px; line-height: 1.45; }
+
 /* ---------------------------------------------------------------- list */
 
 .list-pane { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 /* Clipped, and scrolled sideways by the rows, so wide columns cannot spill
    out over the sidebar sitting in the next grid column. */
-.list-head { overflow: hidden; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
+.list-head { overflow: hidden; box-shadow: 0 1px 0 var(--line); background: var(--panel); flex: none; }
 .list-head-grid { display: grid; gap: 10px; padding: 0 12px; min-width: 620px; }
 .list-th {
   background: none; border: none; padding: 7px 0; text-align: left;
@@ -318,7 +549,7 @@ kbd {
 .list-rows { position: absolute; top: 0; left: 0; right: 0; min-width: 620px; will-change: transform; }
 .list-row {
   display: grid; gap: 10px; padding: 0 12px; height: 26px; align-items: center;
-  cursor: pointer; font-size: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  cursor: pointer; font-size: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.025);
 }
 .list-row:hover { background: var(--panel-2); }
 .list-row.on { background: rgba(110, 168, 254, 0.14); }
@@ -335,7 +566,7 @@ kbd {
 .list-from { color: var(--muted); font-size: 11px; }
 .rating-on { color: var(--accent-2); letter-spacing: -1px; }
 .rating-guess { color: var(--accent-2); letter-spacing: -1px; opacity: 0.7; }
-.list-count { padding: 5px 12px; font-size: 11px; border-top: 1px solid var(--line); flex: none; }
+.list-count { padding: 5px 12px; font-size: 11px; box-shadow: 0 -1px 0 var(--line); flex: none; }
 
 .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; }
 .legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
@@ -350,8 +581,8 @@ kbd {
   gap: 20px; align-items: start; position: relative;
 }
 .detail-side {
-  position: sticky; top: 0; max-height: calc(100vh - 90px); overflow: auto;
-  border-left: 1px solid var(--line); padding-left: 16px;
+  position: sticky; top: 0; max-height: calc(100vh - 110px); overflow: auto;
+  box-shadow: inset 1px 0 0 var(--line); padding-left: 16px;
 }
 .detail-side .voice-panel > h3 { font-size: 12px; margin: 16px 0 4px; }
 .ab .voice-panel { margin-top: 12px; }
@@ -361,22 +592,20 @@ kbd {
 
 .rate-wrap { max-width: 780px; margin: 0 auto; }
 .rate-card {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  background: var(--panel); border-radius: 9px;
   padding: 26px; text-align: center;
+  box-shadow: var(--lift), var(--shadow);
 }
 .rate-name { font-size: 30px; font-weight: 600; letter-spacing: 0.01em; font-family: var(--mono); }
 .rate-meta { color: var(--muted); margin-top: 6px; }
 .rate-keys { display: flex; gap: 8px; justify-content: center; margin-top: 22px; }
 .rate-keys button {
   width: 54px; height: 54px; border-radius: 8px; font-size: 19px; font-weight: 600;
-  background: var(--panel-2); color: var(--text); border: 1px solid var(--line); cursor: pointer;
+  background: var(--panel-2); color: var(--text); border: none; cursor: pointer;
+  box-shadow: var(--lift); transition: background 0.12s, color 0.12s;
 }
-.rate-keys button:hover { border-color: var(--accent); }
-.rate-keys button.on { background: var(--accent); color: #10131a; border-color: var(--accent); }
-kbd {
-  font-family: var(--mono); font-size: 11px; background: var(--panel-2);
-  border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px;
-}
+.rate-keys button:hover { background: var(--panel-3); }
+.rate-keys button.on { background: var(--accent); color: #10131a; }
 .rate-keys.map-rate { margin-top: 12px; gap: 6px; }
 .rate-keys.map-rate button { width: 40px; height: 34px; font-size: 15px; }
 
@@ -384,30 +613,49 @@ kbd {
 
 .ab { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
 .ab .side {
-  border: 2px solid var(--line); border-radius: 9px; padding: 18px; background: var(--panel);
+  border-radius: 9px; padding: 18px; background: var(--panel);
+  box-shadow: var(--lift), var(--shadow);
 }
-.ab .side.live { border-color: var(--accent); background: #1b2431; }
+.ab .side.live { background: #1b2431; box-shadow: inset 0 0 0 1px var(--accent), var(--shadow); }
 .ab .side .tag { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
 .ab .side .nm { font-family: var(--mono); font-size: 18px; margin-top: 4px; }
 
 /* --------------------------------------------------------------- build */
 
-.bank-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-.bank { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 10px 12px; }
-.bank h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
-.bank ol { margin: 0; padding-left: 26px; font-family: var(--mono); font-size: 11.5px; line-height: 1.65; }
+/* Four banks side by side when there is room, and fewer when there is not -
+   rather than four columns so narrow that every patch name wraps. */
+.bank-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 12px; }
+.bank { background: var(--panel-2); border-radius: var(--radius); padding: 10px 12px; box-shadow: var(--lift); }
+.bank h4 { margin: 0 0 8px; font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+.bank ol { margin: 0; padding-left: 0; font-family: var(--mono); font-size: 11.5px; line-height: 1.65; }
 .bank li::marker { color: var(--muted); }
+/*
+ * A patch name is sixteen characters and never wraps; a wrapped slot list
+ * loses the one thing it is for, which is reading down the numbers.
+ *
+ * The marker has to be inside the content box for that: an outside marker sits
+ * in the padding, where `overflow: hidden` clips it away entirely - which is
+ * how the slot numbers vanished the first time this was tried.
+ */
+.bank li {
+  list-style-position: inside;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .slot-cat { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 /* A slot the cursor is on, and one clicked to keep. */
 .bank li.slot { cursor: pointer; border-radius: 4px; padding: 0 4px; margin-left: -4px; }
-.bank li.slot:hover { background: var(--panel-2); }
+.bank li.slot:hover { background: var(--panel-3); }
 .bank li.slot.on { background: rgba(110, 168, 254, 0.14); color: var(--text); }
 .bank li.slot.held { background: rgba(110, 168, 254, 0.22); box-shadow: inset 0 0 0 1px rgba(110, 168, 254, 0.45); }
 
 /* The build's own header: current, or out of date and why. */
-.build-state { border-left: 3px solid var(--good); }
-.build-state.stale { border-left-color: var(--accent-2); }
+.build-state { box-shadow: inset 3px 0 0 var(--good), var(--lift), var(--shadow); }
+.build-state.stale { box-shadow: inset 3px 0 0 var(--accent-2), var(--lift), var(--shadow); }
 
+/* The single button the Build page is about, and what it is about to do. */
+.build-hero { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.build-hero .sum { color: var(--muted); font-size: 12px; }
+.build-hero .sum b { color: var(--text); }
 
 /*
  * The sidebar's draggable edge. Positioned against the layout rather than
@@ -447,7 +695,7 @@ kbd {
 .taste-cats { display: flex; flex-direction: column; gap: 4px; max-width: 560px; }
 .taste-cat {
   display: flex; align-items: center; gap: 9px;
-  padding: 5px 8px; border-radius: 6px; background: var(--panel-2);
+  padding: 5px 8px; border-radius: var(--radius-sm); background: var(--panel-2);
   font-variant-numeric: tabular-nums;
 }
 .taste-cat i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
@@ -480,11 +728,9 @@ table.sweep .zone-label {
 .legend i.swatch-apart { background: #2f343d; }
 
 .algo-diagram {
-  display: flex; justify-content: center; padding: 10px 0 2px;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
-  margin-top: 12px;
+  display: flex; justify-content: center; padding: 8px 0 2px;
+  position: relative;
 }
-.algo-diagram { position: relative; }
 .algo-diagram svg { display: block; width: 100%; height: auto; max-height: 260px; }
 .algo-diagram .op-cell { cursor: default; }
 
@@ -492,8 +738,8 @@ table.sweep .zone-label {
    across six operators and compare them, not to wait a second on each. */
 .op-tip {
   position: fixed; z-index: 60; width: 276px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+  background: var(--panel-2); border-radius: 8px;
+  box-shadow: var(--lift), 0 14px 34px rgba(0, 0, 0, 0.6);
   padding: 9px 10px 8px; pointer-events: none; font-size: 12px;
 }
 .op-head { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }

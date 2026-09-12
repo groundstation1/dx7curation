@@ -1,13 +1,25 @@
 /*
- * Sources screen: bring files in, run the analysis pass, and choose the
- * near-duplicate threshold.
+ * Sources: bring patches in, and let the app get them ready.
  *
- * The threshold is deliberately not hard-coded. The sweep table shows what each
- * value would actually do to this corpus - how many clusters, how many voices
- * collapse, how big the biggest family gets - and the user picks from that.
+ * This screen used to be a worklist. You dropped files, then pressed Analyse
+ * and waited, then pressed Find near-duplicates and waited, then read a table
+ * of nine distances and chose two of them - four decisions and about four
+ * hundred words of explanation before anything was listenable. Every one of
+ * those steps has a right answer nearly all of the time.
+ *
+ * So it runs itself. Dropping files starts the analysis, the analysis starts
+ * the near-duplicate pass, and the thresholds take the defaults that have held
+ * up across every corpus tried so far. All of it reports through the one
+ * progress bar and all of it can be stopped. The sweep table that used to be
+ * the point of the screen is still here, under the advanced switch, for when
+ * you want to disagree with the defaults - which is a thing worth doing, just
+ * not a thing worth requiring.
  */
-import { clear, downloadBytes, el, fmtDuration, fmtInt } from '../dom.ts';
+import { clear, downloadBytes, el, fmtInt } from '../dom.ts';
 import type { View, ViewContext } from '../app.ts';
+import { adv, disclosure, isAdvanced } from '../advanced.ts';
+import { getSetting, setSetting } from '../settings.ts';
+import { Store } from '../state.ts';
 import { SIZE_BUCKETS } from '../../cluster/nearDupe.ts';
 import { listenForSysex, listInputs, midiSupported, requestBulkDump, requestMidi, type MidiPort } from '../../midi/webmidi.ts';
 import { parseSysexFile } from '../../sysex/parse.ts';
@@ -18,13 +30,17 @@ import { FEATURE_DEFS } from '../../features/vector.ts';
 
 const SWEEP_POINTS = [0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.16, 0.22, 0.3];
 
+/** Where to get a lot of patches at once, for someone who has none. */
+const BULK_SOURCE = 'https://bobbyblues.recup.ch/yamaha_dx7/dx7_patches.html';
+
 let ctx: ViewContext;
 let container: HTMLElement;
 let unsubscribe: (() => void) | null = null;
 let analysisAbort: AbortController | null = null;
 let dupeAbort: AbortController | null = null;
-let dupeLine: HTMLElement | null = null;
-let dupeStartedAt = 0;
+/** Set while the chain is running, and cleared if any step is cancelled. */
+let advancing = false;
+let lastNote = '';
 /** Device read-back: which output to ask, and what has arrived so far. */
 let deviceOutputs: MidiPort[] = [];
 let deviceOutputId = '';
@@ -32,13 +48,14 @@ let deviceChannel = 1;
 let listening: (() => void) | null = null;
 let deviceLog: string[] = [];
 let deviceBanks: Array<{ bytes: Uint8Array; from: string; voices: number; at: number }> = [];
-let progressLine: HTMLElement | null = null;
 
 function statBlock(k: string, v: string): HTMLElement {
   return el('div', { class: 'stat' }, el('div', { class: 'k' }, k), el('div', { class: 'v' }, v));
 }
 
-function dropZone(): HTMLElement {
+// ------------------------------------------------------------------ intake
+
+function dropZone(big: boolean): HTMLElement {
   const input = el('input', {
     type: 'file',
     multiple: true,
@@ -55,14 +72,15 @@ function dropZone(): HTMLElement {
   const zone = el(
     'div',
     { class: 'dropzone' },
-    el('div', { style: { fontSize: '15px', marginBottom: '6px' } }, 'Drop .syx files, folders of them, or a .zip archive here'),
-    el('div', {}, 'Bulk 32-voice dumps, single voices, headerless banks and raw packed streams are all read. ',
-      'DX7II supplements and performance data are skipped.'),
-    el('div', { style: { marginTop: '14px' } },
-      el('button', { class: 'btn', onclick: () => input.click() }, 'Choose files'),
+    el('div', { class: big ? 'drop-big' : '' }, 'Drop .syx files, folders or a .zip here'),
+    el('div', { style: { marginTop: big ? '14px' : '10px' } },
+      el('button', { class: big ? 'btn primary big' : 'btn', onclick: () => input.click() }, 'Choose files'),
       input),
-    el('label', { class: 'field', style: { justifyContent: 'center', marginTop: '12px' } },
-      pinToggle, 'pin these voices into the final 128 regardless of rating'),
+    // Pinning on import is how you say "these are mine, keep them" before you
+    // have listened to anything. Hidden until asked for, since the common case
+    // is dropping an archive you have never heard.
+    adv(el('label', { class: 'field', style: { justifyContent: 'center', marginTop: '12px' } },
+      pinToggle, 'pin these into the final 128 regardless of rating')),
   );
 
   const stop = (e: DragEvent) => {
@@ -85,6 +103,159 @@ function dropZone(): HTMLElement {
   });
   return zone;
 }
+
+/** The whole screen, when there is nothing in the corpus yet. */
+function onboarding(): HTMLElement {
+  return el('div', { class: 'onboard' },
+    el('h1', {}, 'Start with some patches'),
+    el('p', { class: 'lede' }, 'Everything stays on this machine. Nothing is uploaded.'),
+    dropZone(true),
+    el('div', { class: 'tipoff' },
+      el('div', {}, 'Want a lot at once? Take ', el('b', {}, 'ALL THE WEB PATCHES'), ' from ',
+        el('a', { href: BULK_SOURCE, target: '_blank', rel: 'noreferrer' }, 'bobbyblues.recup.ch'),
+        ' and drop the zip straight in.'),
+      el('div', { class: 'muted', style: { marginTop: '6px' } },
+        'About 40,000 voices. Duplicates collapse on import, and the rest is automatic.')),
+  );
+}
+
+async function ingest(files: File[], pinned: boolean): Promise<void> {
+  try {
+    await ctx.store.ingestFiles(files, { pinned, userSupplied: pinned });
+  } catch (err) {
+    lastNote = `Could not read those files: ${(err as Error).message}`;
+    render();
+    return;
+  }
+  void autoAdvance();
+}
+
+// ------------------------------------------------------------- the pipeline
+
+/** True when the app is allowed to run the slow passes without being asked. */
+function autoPipeline(): boolean {
+  return getSetting('pipeline.auto', true);
+}
+
+async function runAnalysis(): Promise<void> {
+  analysisAbort = new AbortController();
+  try {
+    await ctx.store.runAnalysis({ signal: analysisAbort.signal });
+  } finally {
+    analysisAbort = null;
+    render();
+  }
+}
+
+async function runDupes(): Promise<void> {
+  if (dupeAbort) return;
+  dupeAbort = new AbortController();
+  render();
+  try {
+    await ctx.store.buildClusters({ signal: dupeAbort.signal });
+  } catch (err) {
+    if ((err as Error).name !== 'AbortError') lastNote = `Near-duplicate pass failed: ${(err as Error).message}`;
+    throw err;
+  } finally {
+    dupeAbort = null;
+    render();
+  }
+}
+
+/**
+ * Carry the corpus as far as it can go on its own.
+ *
+ * Analysis then near-duplicates, each only if it has not already been done.
+ * Cancelling one stops the chain rather than rolling straight into the next
+ * thing you just said no to.
+ */
+async function autoAdvance(): Promise<void> {
+  if (advancing || !autoPipeline()) {
+    render();
+    return;
+  }
+  advancing = true;
+  try {
+    if (ctx.store.voices.length > 0 && !ctx.store.analysisComplete) await runAnalysis();
+    if (ctx.store.analysisComplete && !ctx.store.graph) await runDupes();
+  } catch {
+    // Cancelled, or failed and already reported. Either way the chain stops
+    // and the buttons come back so it can be started again by hand.
+  } finally {
+    advancing = false;
+    render();
+  }
+}
+
+/** Analysis and de-duplication, as one line of status and at most one button. */
+function pipelinePanel(): HTMLElement {
+  const store = ctx.store;
+  const panel = el('div', { class: 'panel' });
+  const pending = store.voices.length - store.analysedCount;
+  const running = analysisAbort !== null || dupeAbort !== null;
+
+  const state = running
+    ? 'working'
+    : pending > 0
+      ? 'needs analysis'
+      : !store.graph
+        ? 'needs de-duplication'
+        : 'ready';
+
+  panel.appendChild(el('div', { class: 'row' },
+    el('h2', { style: { margin: 0 } }, state === 'ready' ? 'Ready' : 'Getting ready'),
+    el('div', { style: { flex: '1' } }),
+    running
+      ? el('button', {
+        class: 'btn danger',
+        onclick: () => {
+          analysisAbort?.abort();
+          dupeAbort?.abort();
+        },
+      }, 'Stop')
+      : state !== 'ready'
+        ? el('button', { class: 'btn primary', onclick: () => void autoAdvance() },
+          pending > 0 ? `Analyse ${fmtInt(pending)} voices` : 'Find near-duplicates')
+        : null,
+  ));
+
+  const bits: string[] = [];
+  bits.push(`${fmtInt(store.analysedCount)} of ${fmtInt(store.voices.length)} analysed`);
+  if (store.clusters && store.mergeClusters) {
+    bits.push(`${fmtInt(store.mergeClusters.clusterCount)} distinct sounds`);
+    bits.push(`${fmtInt(store.clusters.clusterCount)} families to rate`);
+  }
+  panel.appendChild(el('p', { class: 'hint', style: { margin: '6px 0 0' } }, bits.join('  ·  ')));
+
+  if (store.staleFeatures > 0) {
+    panel.appendChild(el('p', { class: 'warn', style: { margin: '8px 0 0' } },
+      `${fmtInt(store.staleFeatures)} voices were analysed by an older build and have to be redone. `,
+      'Ratings and pins are untouched.'));
+  }
+
+  if (isAdvanced()) {
+    panel.appendChild(el('div', { class: 'row', style: { marginTop: '12px' } },
+      el('label', {
+        class: 'field',
+        title: 'Run the analysis and near-duplicate passes on their own after an import.',
+      },
+        el('input', {
+          type: 'checkbox', checked: autoPipeline(),
+          onchange: (e: Event) => {
+            setSetting('pipeline.auto', (e.target as HTMLInputElement).checked);
+            render();
+          },
+        }), 'run these automatically'),
+      store.graph
+        ? el('button', { class: 'btn', onclick: () => void runDupes() }, 'Recompute near-duplicates')
+        : null,
+    ));
+  }
+
+  return panel;
+}
+
+// ----------------------------------------------------------- read a device
 
 /**
  * Read what is already on the device, before overwriting it.
@@ -134,22 +305,18 @@ async function keepDeviceBanks(pinned: boolean): Promise<void> {
   }
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
   const file = new File([all as BlobPart], `device-readback-${stamp}.syx`, { type: 'application/octet-stream' });
-  await ingest([file], pinned);
-  deviceLog.push(`added ${fmtInt(deviceBanks.length)} dump${deviceBanks.length === 1 ? '' : 's'} to the corpus`);
   deviceBanks = [];
-  render();
+  await ingest([file], pinned);
 }
 
 function devicePanel(): HTMLElement {
-  const panel = el('div', { class: 'panel' }, el('h3', { style: { marginTop: 0 } }, 'Read from the device'));
+  const panel = el('div', {});
   if (!midiSupported()) {
-    panel.appendChild(el('p', { class: 'warn' }, 'This browser has no WebMIDI, so nothing can be read back here.'));
-    return panel;
+    return el('p', { class: 'muted' }, 'This browser has no WebMIDI, so nothing can be read back here.');
   }
   panel.appendChild(el('p', { class: 'hint' },
-    'Back up what is on the FM-1 before you send four banks over it. Ask for a dump, or start the transmit from the ',
-    'unit itself - either way the bytes arrive here, go through the same parser as a file, and deduplicate against ',
-    'the corpus you already have.'));
+    'Back up what is on the unit before you send four banks over it. Ask for a dump, or start the transmit from the ',
+    'device itself.'));
 
   panel.appendChild(el('div', { class: 'row' },
     el('button', {
@@ -158,7 +325,7 @@ function devicePanel(): HTMLElement {
         const state = await requestMidi();
         deviceOutputs = state.outputs;
         deviceOutputId = deviceOutputs[0]?.id ?? '';
-        deviceLog.push(state.error ?? `${deviceOutputs.length} output${deviceOutputs.length === 1 ? '' : 's'}, ${listInputs().length} input${listInputs().length === 1 ? '' : 's'}`);
+        deviceLog.push(state.error ?? `${deviceOutputs.length} out, ${listInputs().length} in`);
         render();
       },
     }, deviceOutputs.length ? 'Rescan MIDI' : 'Connect MIDI'),
@@ -197,10 +364,7 @@ function devicePanel(): HTMLElement {
     const voices = deviceBanks.reduce((n, b) => n + b.voices, 0);
     panel.appendChild(el('div', { class: 'row', style: { marginTop: '12px' } },
       el('b', {}, `${fmtInt(voices)} voices in ${fmtInt(deviceBanks.length)} dump${deviceBanks.length === 1 ? '' : 's'}`),
-      el('button', {
-        class: 'btn primary',
-        onclick: () => void keepDeviceBanks(false),
-      }, 'Add to corpus'),
+      el('button', { class: 'btn primary', onclick: () => void keepDeviceBanks(false) }, 'Add to corpus'),
       el('button', {
         class: 'btn',
         onclick: () => {
@@ -228,92 +392,10 @@ function devicePanel(): HTMLElement {
     panel.appendChild(el('div', { class: 'muted mono', style: { fontSize: '11.5px', marginTop: '10px' } },
       ...deviceLog.slice(-6).map((line) => el('div', {}, line))));
   }
-  panel.appendChild(el('p', { class: 'hint', style: { marginBottom: 0, marginTop: '10px' } },
-    'Nothing is added until you press Add to corpus. If a request goes unanswered, the unit probably ignores dump ',
-    'requests: leave this listening and send the bank from its own menu.'));
   return panel;
 }
 
-async function ingest(files: File[], pinned: boolean): Promise<void> {
-  ctx.store.setBusy(`reading ${files.length} file${files.length === 1 ? '' : 's'}`);
-  try {
-    await ctx.store.ingestFiles(files, {
-      pinned,
-      userSupplied: pinned,
-      onProgress: (label, done, total) => ctx.store.setBusy(`reading ${label} (${done + 1}/${total})`),
-    });
-  } catch (err) {
-    alert(`Could not read those files: ${(err as Error).message}`);
-  } finally {
-    ctx.store.setBusy(null);
-  }
-}
-
-async function runAnalysis(): Promise<void> {
-  analysisAbort = new AbortController();
-  try {
-    await ctx.store.runAnalysis({
-      signal: analysisAbort.signal,
-      onProgress: (p) => {
-        if (!progressLine) return;
-        clear(progressLine);
-        progressLine.append(
-          el('progress', { max: p.total, value: p.done }),
-          el('span', { class: 'muted', style: { marginLeft: '10px' } },
-            `${fmtInt(p.done)} / ${fmtInt(p.total)}  ·  ${p.rate.toFixed(0)} voices/s  ·  ${fmtDuration(p.etaMs)} left`),
-        );
-      },
-    });
-  } finally {
-    analysisAbort = null;
-    render();
-  }
-}
-
-/**
- * Run the near-duplicate pass, reporting as it goes.
- *
- * The same treatment the analysis pass gets: a bar, what it is doing, how long
- * it has taken and how long is left. This one used to be a button that froze
- * the tab for minutes with nothing on screen, which is the difference between
- * "working" and "broken" from the outside.
- */
-async function runDupes(): Promise<void> {
-  if (dupeAbort) return;
-  dupeAbort = new AbortController();
-  dupeStartedAt = performance.now();
-  render();
-  try {
-    await ctx.store.buildClusters({
-      signal: dupeAbort.signal,
-      onProgress: (done, total, stage) => {
-        if (!dupeLine) return;
-        const fraction = total > 0 ? Math.min(1, done / total) : 0;
-        const elapsed = performance.now() - dupeStartedAt;
-        // Stages do not take equal time, so an ETA from the overall fraction
-        // would be a lie. It is honest about the stage it is in.
-        const eta = fraction > 0.02 ? (elapsed / fraction) * (1 - fraction) : NaN;
-        clear(dupeLine);
-        dupeLine.append(
-          el('progress', { max: 1000, value: Math.round(fraction * 1000) }),
-          el('span', { class: 'muted' },
-            `${stage} — ${Math.round(fraction * 100)}%`,
-            `  ·  ${fmtDuration(elapsed)} so far`,
-            Number.isFinite(eta) ? `  ·  about ${fmtDuration(eta)} left in this stage` : ''),
-        );
-      },
-    });
-  } catch (err) {
-    if ((err as Error).name !== 'AbortError') {
-      ctx.store.setBusy(null);
-      window.alert(`Near-duplicate pass failed: ${(err as Error).message}`);
-    }
-  } finally {
-    dupeAbort = null;
-    dupeLine = null;
-    render();
-  }
-}
+// --------------------------------------------------------- the sweep table
 
 function sweepTable(): HTMLElement {
   const store = ctx.store;
@@ -322,9 +404,9 @@ function sweepTable(): HTMLElement {
 
   const wrap = el('div', {});
   wrap.appendChild(el('p', { class: 'hint' },
-    'Both settings are cut-offs, not picks: choosing a row means ',
-    el('b', {}, 'that distance and everything closer'),
-    '. The shaded bands below show what each one currently covers.'));
+    'Both are cut-offs: a row means that distance ', el('b', {}, 'and everything closer'), '. ',
+    el('b', {}, 'merge'), ' is "the same patch" — one point on the map, one entry to rate. ',
+    el('b', {}, 'family'), ' is "similar but audibly different" — one representative is rated for the group.'));
 
   const table = el('table', { class: 'data sweep' });
   table.appendChild(el('thead', {}, el('tr', {},
@@ -384,28 +466,22 @@ function sweepTable(): HTMLElement {
   wrap.appendChild(table);
 
   wrap.appendChild(el('div', { class: 'legend', style: { marginTop: '10px' } },
-    el('span', {}, el('i', { class: 'swatch-merged' }), 'merged \u2014 treated as the same patch, never compared'),
-    el('span', {}, el('i', { class: 'swatch-family' }), 'family \u2014 similar but audibly different, goes to the face-off'),
-    el('span', {}, el('i', { class: 'swatch-apart' }), 'apart \u2014 unrelated'),
+    el('span', {}, el('i', { class: 'swatch-merged' }), 'merged'),
+    el('span', {}, el('i', { class: 'swatch-family' }), 'family'),
+    el('span', {}, el('i', { class: 'swatch-apart' }), 'unrelated'),
   ));
 
   return wrap;
 }
 
+// ---------------------------------------------------------------- the model
+
 function tastePanel(): HTMLElement {
   const store = ctx.store;
-  const panel = el('div', { class: 'panel' }, el('h3', { style: { marginTop: 0 } }, 'What your ratings have in common'));
-  panel.appendChild(el('p', { class: 'hint' },
-    'Three models fitted together from your ratings: a line through the measured features, an offset per category, ',
-    'and an average of the ratings of nearby patches. Cross-validation decides how much of each is used, so liking ',
-    'two unrelated kinds of sound - which no straight line can express - still produces something useful. Features ',
-    'the model finds irrelevant are also down-weighted when deciding which patches count as similar.'));
-
+  const panel = el('div', {});
   const model = store.tasteModel;
   if (!model) {
-    panel.appendChild(el('p', { class: 'muted' },
-      `Needs at least 12 ratings; you have ${fmtInt(store.ratings.size)}.`));
-    return panel;
+    return el('p', { class: 'muted' }, `Needs at least 12 ratings; you have ${fmtInt(store.ratings.size)}.`);
   }
 
   const quality = model.r2 > 0.25 ? 'good' : model.r2 > 0.08 ? 'warn' : 'muted';
@@ -413,14 +489,14 @@ function tastePanel(): HTMLElement {
     ? 'it has found real structure in your taste'
     : model.r2 > 0.08
       ? 'weak but not nothing'
-      : 'no better than guessing the average - rate more, or your taste may just not be a linear function of these features';
+      : 'no better than guessing the average — rate more';
 
-  panel.appendChild(el('div', { class: 'stats', style: { marginBottom: '12px' } },
-    el('div', { class: 'stat' }, el('div', { class: 'k' }, 'ratings used'), el('div', { class: 'v' }, fmtInt(model.samples))),
+  panel.appendChild(el('div', { class: 'stats', style: { marginBottom: '10px' } },
+    statBlock('ratings used', fmtInt(model.samples)),
     el('div', { class: 'stat' },
-      el('div', { class: 'k' }, 'cross-validated R\u00b2'),
+      el('div', { class: 'k' }, 'cross-validated R²'),
       el('div', { class: `v ${quality}` }, model.r2.toFixed(2))),
-    el('div', { class: 'stat' }, el('div', { class: 'k' }, 'mean rating'), el('div', { class: 'v' }, model.meanRating.toFixed(2))),
+    statBlock('mean rating', model.meanRating.toFixed(2)),
   ));
   panel.appendChild(el('p', { class: quality, style: { marginTop: 0 } }, verdict));
 
@@ -432,7 +508,7 @@ function tastePanel(): HTMLElement {
     el('td', { class: `num ${value > 0.15 ? 'good' : value > 0.05 ? 'warn' : 'muted'}` }, value.toFixed(2)),
     el('td', { class: 'muted', style: { fontSize: '11.5px' } }, note),
   );
-  const parts = el('table', { class: 'data', style: { maxWidth: '560px', marginBottom: '14px' } },
+  panel.appendChild(el('table', { class: 'data', style: { maxWidth: '560px', marginBottom: '14px' } },
     el('tbody', {},
       share('the line alone', model.linearR2, 'ridge regression on the features'),
       share('plus category offsets', model.categoryR2, 'whole families running above or below the line'),
@@ -442,8 +518,7 @@ function tastePanel(): HTMLElement {
           ? 'neighbours did not help, so they are switched off'
           : `${Math.round(model.neighbourWeight * 100)}% neighbours, ${Math.round((1 - model.neighbourWeight) * 100)}% line and offsets`),
     ),
-  );
-  panel.appendChild(parts);
+  ));
 
   if (model.categories.length) {
     const cats = el('div', { class: 'taste-cats' });
@@ -465,7 +540,6 @@ function tastePanel(): HTMLElement {
   const { up, down } = topTerms(model, 6);
   const list = (title: string, terms: Array<{ index: number; coefficient: number }>, cls: string) => {
     const box = el('div', { style: { flex: '1', minWidth: '240px' } }, el('h3', {}, title));
-    const table = el('table', { class: 'data' });
     const body = el('tbody');
     for (const t of terms) {
       body.appendChild(el('tr', {},
@@ -473,8 +547,7 @@ function tastePanel(): HTMLElement {
         el('td', { class: `num ${cls}` }, t.coefficient.toFixed(3)),
       ));
     }
-    table.appendChild(body);
-    box.appendChild(table);
+    box.appendChild(el('table', { class: 'data' }, body));
     return box;
   };
   panel.appendChild(el('div', { class: 'row', style: { alignItems: 'flex-start', gap: '26px' } },
@@ -502,19 +575,24 @@ function tastePanel(): HTMLElement {
     el('span', { class: 'muted' }, `${Math.round(store.tasteStrength * 100)}%`),
   ));
 
-  if (store.whitener) {
-    panel.appendChild(el('p', { class: 'hint', style: { marginTop: '14px', marginBottom: 0 } },
-      `Feature space whitened: the raw space was ${store.redundancy.toFixed(1)}x more spread along its dominant `,
-      'direction than the average one, which meant whichever property happened to have the most redundant features ',
-      `dominated every distance. ${fmtInt(store.whitener.cappedDirections)} near-flat directions were capped rather `,
-      'than amplified, since those are mostly noise.'));
-  }
-
   return panel;
 }
 
+// ------------------------------------------------------------ save and load
+
+/**
+ * Getting things out, and back in.
+ *
+ * Two files, and the difference between them used to be buried in a paragraph
+ * nobody reads: one carries the patches, the other carries only what you
+ * decided about them. Restoring the second one into a browser that has never
+ * seen the patches matches nothing and looks exactly like a broken button, so
+ * both the names and the result now say which is which.
+ */
 function exportPanel(): HTMLElement {
   const store = ctx.store;
+  const result = el('div', { class: 'muted', style: { marginTop: '10px' } });
+
   const restoreInput = el('input', {
     type: 'file',
     accept: '.json,application/json',
@@ -522,221 +600,189 @@ function exportPanel(): HTMLElement {
     onchange: async () => {
       const file = restoreInput.files?.[0];
       if (!file) return;
-      try {
-        const result = await store.importBackup(await file.text());
-        alert(
-          `Restored ${result.ratings} ratings, ${result.overrides} category overrides and ${result.pinned} pins.` +
-          (result.missing ? `
-${result.missing} entries referred to voices that are not in this corpus.` : ''),
-        );
-      } catch (err) {
-        alert(`Could not read that backup: ${(err as Error).message}`);
-      }
+      const text = await file.text();
       restoreInput.value = '';
+      clear(result);
+      try {
+        if (Store.isSession(text)) {
+          if (!confirm('Replace everything in this browser with the session in that file?')) return;
+          const { voices } = await store.importSession(text);
+          result.className = 'good';
+          result.textContent = `Restored ${fmtInt(voices)} voices and their ratings.`;
+          void autoAdvance();
+          return;
+        }
+        const r = await store.importBackup(text);
+        const applied = r.ratings + r.overrides + r.pinned;
+        result.className = applied > 0 ? 'good' : 'warn';
+        result.textContent = applied > 0
+          ? `Restored ${fmtInt(r.ratings)} ratings, ${fmtInt(r.overrides)} category overrides and ${fmtInt(r.pinned)} pins.`
+            + (r.missing ? ` ${fmtInt(r.missing)} referred to patches this corpus does not have.` : '')
+          : `Nothing applied: all ${fmtInt(r.missing)} entries refer to patches that are not in this corpus. `
+            + 'This file holds ratings only — import the patches themselves first, or use a full session file.';
+      } catch (err) {
+        result.className = 'bad';
+        result.textContent = `Could not read that file: ${(err as Error).message}`;
+      }
       render();
     },
   }) as HTMLInputElement;
 
-  return el('div', { class: 'panel' },
-    el('h3', { style: { marginTop: 0 } }, 'Export and backup'),
-    el('p', { class: 'hint' },
-      'The deduplicated corpus is written as back-to-back 32-voice bulk dumps in one file, which is what every other DX7 ',
-      'tool reads. The session backup is keyed by patch content rather than by row id, so it still applies after the ',
-      'corpus has been rebuilt from the original files.'),
+  const panel = el('div', { class: 'panel' },
+    el('h2', {}, 'Save and load'),
     el('div', { class: 'row' },
       el('button', {
         class: 'btn',
         disabled: store.voices.length === 0,
+        title: 'Patches and ratings together. This is the one to move to another machine.',
         onclick: () => {
-          const { bytes, banks, voices } = store.exportDedupedSyx();
-          downloadBytes(bytes, `dx7-deduped-${voices}-voices.syx`);
-          alert(`${fmtInt(voices)} unique voices written as ${fmtInt(banks)} banks (${fmtInt(bytes.length)} bytes).`);
+          const json = new TextEncoder().encode(store.exportSession());
+          downloadBytes(json, `dx7-session-${new Date().toISOString().slice(0, 10)}.json`);
         },
-      }, `Download deduped corpus (${fmtInt(store.voices.length)} voices)`),
+      }, `Full session (${fmtInt(store.voices.length)} patches + ratings)`),
       el('button', {
         class: 'btn',
         disabled: store.ratings.size === 0 && !store.voices.some((v) => v.pinned),
+        title: 'Ratings, pins and category overrides only, keyed by patch content. Reapplies to a corpus you already have.',
         onclick: () => {
           const blob = new TextEncoder().encode(store.exportBackup());
-          downloadBytes(blob, `dx7-curation-backup-${new Date().toISOString().slice(0, 10)}.json`);
+          downloadBytes(blob, `dx7-ratings-${new Date().toISOString().slice(0, 10)}.json`);
         },
-      }, 'Download session backup'),
-      el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Restore backup'),
+      }, `Ratings only (${fmtInt(store.ratings.size)})`),
+      el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load a file…'),
       restoreInput,
+      el('button', {
+        class: 'btn',
+        disabled: store.voices.length === 0,
+        title: 'The deduplicated corpus as back-to-back 32-voice bulk dumps, which is what every other DX7 tool reads.',
+        onclick: () => {
+          const { bytes, voices } = store.exportDedupedSyx();
+          downloadBytes(bytes, `dx7-deduped-${voices}-voices.syx`);
+        },
+      }, 'Deduped .syx'),
     ),
+    result,
   );
+  return panel;
 }
+
+// -------------------------------------------------------------------- page
 
 function render(): void {
   const store = ctx.store;
   clear(container);
-  const page = el('div', { class: 'stack' });
 
-  // ---- ingest ----
-  page.appendChild(devicePanel());
-
-  page.appendChild(el('div', { class: 'panel' },
-    el('h2', {}, 'Sources'),
-    el('p', { class: 'hint' },
-      'Everything here stays on this machine. Voices are deduplicated on the packed bytes with the name field excluded, ',
-      'so the same patch under twenty different names collapses to one - and every name and source it arrived under is kept.'),
-    dropZone(),
-  ));
-
-  if (store.lastIngest) {
-    const s = store.lastIngest;
-    const panel = el('div', { class: 'panel' },
-      el('h3', { style: { marginTop: '0' } }, 'Last import'),
-      el('div', { class: 'stats' },
-        statBlock('files', fmtInt(s.files)),
-        statBlock('voices read', fmtInt(s.voicesRead)),
-        statBlock('new', fmtInt(s.added)),
-        statBlock('already known', fmtInt(s.merged)),
-        statBlock('init / silent', fmtInt(s.rejected)),
-        statBlock('bytes clamped', fmtInt(s.clampedBytes)),
-        statBlock('checksum fails', fmtInt(s.checksumFailures)),
-      ),
-    );
-    if (s.skipped.length) {
-      panel.appendChild(el('h3', {}, 'Skipped'));
-      const ul = el('ul', { class: 'muted', style: { margin: '0', paddingLeft: '18px' } });
-      for (const sk of s.skipped) ul.appendChild(el('li', {}, `${sk.reason}: ${fmtInt(sk.count)}`));
-      panel.appendChild(ul);
-    }
-    if (s.errors.length) {
-      panel.appendChild(el('h3', { class: 'bad' }, 'Errors'));
-      const ul = el('ul', { class: 'bad', style: { margin: '0', paddingLeft: '18px' } });
-      for (const e of s.errors.slice(0, 12)) ul.appendChild(el('li', {}, `${e.file}: ${e.error}`));
-      if (s.errors.length > 12) ul.appendChild(el('li', {}, `and ${s.errors.length - 12} more`));
-      panel.appendChild(ul);
-    }
-    if (s.checksumFailures > 0) {
-      panel.appendChild(el('p', { class: 'warn', style: { marginBottom: 0 } },
-        `${fmtInt(s.checksumFailures)} voices came from a dump whose checksum did not verify. They were kept anyway - `,
-        'a bad checksum usually means a sloppy archiver rather than corrupt patch data - but they are worth a listen.'));
-    }
-    page.appendChild(panel);
-  }
-
-  if (store.voices.length === 0) {
-    container.appendChild(page);
+  if (store.voices.length === 0 && !isAdvanced()) {
+    container.appendChild(onboarding());
     return;
   }
 
-  // ---- analysis ----
-  const analysisPanel = el('div', { class: 'panel' }, el('h3', { style: { marginTop: 0 } }, 'Analysis'));
-  const pending = store.voices.length - store.analysedCount;
-  analysisPanel.appendChild(el('p', { class: 'hint' },
-    'Each voice is rendered at three pitches and two velocities, held then released, plus once more with the mod wheel ',
-    'up so its response to the wheel can be measured rather than guessed. No audio is kept.'));
-  if (store.staleFeatures > 0) {
-    analysisPanel.appendChild(el('p', { class: 'warn' },
-      `${fmtInt(store.staleFeatures)} voices were analysed by an earlier build whose feature set was different. `,
-      'Those results were discarded rather than patched up, since a half-filled vector would corrupt every distance. ',
-      'Ratings, pins and category overrides are untouched - only the rendering needs redoing.'));
+  const page = el('div', { class: 'stack' });
+
+  if (lastNote) {
+    page.appendChild(el('p', { class: 'bad' }, lastNote));
+    lastNote = '';
   }
-  progressLine = el('div', { class: 'row' });
-  if (store.busy && analysisAbort) {
-    analysisPanel.appendChild(progressLine);
-    analysisPanel.appendChild(el('div', { class: 'row', style: { marginTop: '10px' } },
-      el('button', { class: 'btn danger', onclick: () => analysisAbort?.abort() }, 'Stop')));
+
+  if (store.voices.length === 0) {
+    page.appendChild(el('div', { class: 'panel' }, dropZone(true)));
   } else {
-    analysisPanel.appendChild(el('div', { class: 'row' },
-      el('button', {
-        class: 'btn primary',
-        disabled: pending === 0,
-        onclick: () => void runAnalysis(),
-      }, pending === 0 ? 'All voices analysed' : `Analyse ${fmtInt(pending)} voices`),
-      el('span', { class: 'muted' },
-        `${fmtInt(store.analysedCount)} of ${fmtInt(store.voices.length)} done`),
+    page.appendChild(pipelinePanel());
+    page.appendChild(el('div', { class: 'panel' },
+      el('h2', {}, 'Add more'),
+      dropZone(false),
+      store.lastIngest ? lastImport(store.lastIngest) : null,
     ));
-    analysisPanel.appendChild(progressLine);
   }
-  page.appendChild(analysisPanel);
 
-  // ---- clustering ----
   if (store.analysisComplete) {
-    const clusterPanel = el('div', { class: 'panel' }, el('h3', { style: { marginTop: 0 } }, 'Near-duplicates'));
-    clusterPanel.appendChild(el('p', { class: 'hint' },
-      'Distance combines the audio features with parameter distance, scaled so an unrelated pair sits near 1.0. ',
-      'There are two thresholds, and both are picked from what they do to this corpus rather than from a default.'));
-    clusterPanel.appendChild(el('ul', { class: 'hint', style: { paddingLeft: '18px' } },
-      el('li', {}, el('b', {}, 'merge'), ' — below this, voices are treated as the same patch. They collapse to one point ',
-        'on the map, one entry in the rating queue, and never reach the face-off, because there would be nothing to hear.'),
-      el('li', {}, el('b', {}, 'family'), ' — below this, voices are similar but still audibly different. One representative ',
-        'is rated; if it scores well, the rest of the family goes to the face-off.'),
+    page.appendChild(el('div', { class: 'panel' },
+      disclosure('What your ratings have in common', tastePanel, { key: 'taste' }),
     ));
-
-    dupeLine = el('div', { class: 'row' });
-    if (dupeAbort) {
-      clusterPanel.appendChild(dupeLine);
-      clusterPanel.appendChild(el('div', { class: 'row', style: { marginTop: '10px' } },
-        el('button', { class: 'btn danger', onclick: () => dupeAbort?.abort() }, 'Stop')));
-    } else if (!store.graph) {
-      clusterPanel.appendChild(el('button', {
-        class: 'btn primary',
-        onclick: () => void runDupes(),
-      }, 'Find near-duplicates'));
-      clusterPanel.appendChild(el('p', { class: 'hint', style: { marginTop: '8px', marginBottom: 0 } },
-        `Compares every voice against its neighbours in feature space: ${fmtInt(store.voices.length)} voices is `,
-        'a few tens of millions of comparisons, so this one takes minutes rather than seconds on a large corpus. ',
-        'It runs in a worker, so the rest of the app keeps working while it does, and it can be stopped.'));
-    } else {
-      clusterPanel.appendChild(el('div', { class: 'row', style: { marginBottom: '12px' } },
-        el('span', {}, `${fmtInt(store.graph.a.length)} candidate pairs in ${fmtInt(store.graph.blocks)} blocks`),
-        store.graph.truncated ? el('span', { class: 'warn' }, 'edge list was truncated; raise the limit or lower the max distance') : null,
-        el('button', { class: 'btn', onclick: () => void runDupes() }, 'Recompute'),
-      ));
-      clusterPanel.appendChild(sweepTable());
-      if (store.clusters && store.mergeClusters) {
-        clusterPanel.appendChild(el('p', { style: { marginBottom: 0, marginTop: '12px' } },
-          `Merging at ${store.mergeThreshold.toFixed(2)} leaves `,
-          el('b', {}, fmtInt(store.mergeClusters.clusterCount)),
-          ' distinct sounds from ', fmtInt(store.voices.length), ' voices. ',
-          `Grouping into families at ${store.threshold.toFixed(2)} gives `,
-          el('b', {}, fmtInt(store.clusters.clusterCount)),
-          ' representatives to rate in round one.'));
-      }
-    }
-    page.appendChild(clusterPanel);
   }
 
-  if (store.analysisComplete) page.appendChild(tastePanel());
   page.appendChild(exportPanel());
 
-  // ---- danger zone ----
-  page.appendChild(el('div', { class: 'panel' },
-    el('h3', { style: { marginTop: 0 } }, 'Start over'),
-    el('div', { class: 'row', style: { marginBottom: '14px' } },
+  if (isAdvanced()) {
+    page.appendChild(el('div', { class: 'panel' },
+      disclosure('Read patches off a device', devicePanel, { key: 'device' }),
+      store.graph
+        ? disclosure('Near-duplicate thresholds', sweepTable, {
+          key: 'sweep',
+          note: `merge ${store.mergeThreshold.toFixed(2)}  ·  family ${store.threshold.toFixed(2)}`,
+        })
+        : null,
+      disclosure('Start over', dangerZone, { key: 'danger' }),
+    ));
+  }
+
+  container.appendChild(page);
+}
+
+/** What the last import did, as a line, with the awkward parts on request. */
+function lastImport(s: NonNullable<typeof ctx.store.lastIngest>): HTMLElement {
+  const awkward = s.skipped.length > 0 || s.errors.length > 0 || s.checksumFailures > 0 || s.clampedBytes > 0;
+  const wrap = el('div', { style: { marginTop: '12px' } },
+    el('p', { class: 'muted', style: { margin: 0, fontSize: '12px' } },
+      `Last import: ${fmtInt(s.voicesRead)} voices read from ${fmtInt(s.files)} file${s.files === 1 ? '' : 's'} — `,
+      el('b', { class: 'good' }, `${fmtInt(s.added)} new`), `, ${fmtInt(s.merged)} already known`,
+      s.rejected ? `, ${fmtInt(s.rejected)} init or silent` : '',
+    ));
+
+  if (!awkward) return wrap;
+
+  wrap.appendChild(disclosure('What was skipped', () => {
+    const body = el('div', {});
+    if (s.skipped.length) {
+      const ul = el('ul', { class: 'muted', style: { margin: '0 0 8px', paddingLeft: '18px' } });
+      for (const sk of s.skipped) ul.appendChild(el('li', {}, `${sk.reason}: ${fmtInt(sk.count)}`));
+      body.appendChild(ul);
+    }
+    if (s.clampedBytes) {
+      body.appendChild(el('p', { class: 'muted', style: { margin: '0 0 8px' } },
+        `${fmtInt(s.clampedBytes)} out-of-range bytes were clamped.`));
+    }
+    if (s.checksumFailures) {
+      body.appendChild(el('p', { class: 'warn', style: { margin: '0 0 8px' } },
+        `${fmtInt(s.checksumFailures)} voices came from a dump whose checksum did not verify. `,
+        'Kept anyway — usually a sloppy archiver rather than corrupt data — but worth a listen.'));
+    }
+    if (s.errors.length) {
+      const ul = el('ul', { class: 'bad', style: { margin: 0, paddingLeft: '18px' } });
+      for (const e of s.errors.slice(0, 12)) ul.appendChild(el('li', {}, `${e.file}: ${e.error}`));
+      if (s.errors.length > 12) ul.appendChild(el('li', {}, `and ${fmtInt(s.errors.length - 12)} more`));
+      body.appendChild(ul);
+    }
+    return body;
+  }, { note: `${fmtInt(s.skipped.reduce((n, x) => n + x.count, 0) + s.errors.length)} entries` }));
+
+  return wrap;
+}
+
+function dangerZone(): HTMLElement {
+  const store = ctx.store;
+  return el('div', {},
+    el('div', { class: 'row' },
       el('button', {
         class: 'btn danger',
         disabled: store.ratings.size === 0 && store.faceoffExtras.size === 0,
         onclick: async () => {
-          if (!confirm(
-            `Delete all ${store.ratings.size} ratings and ${store.faceoffExtras.size} face-off results?
-
-` +
-            'The corpus and its analysis are kept, so nothing has to be re-rendered - but every judgement you have ' +
-            'made is gone. Download a session backup first if you might want it back.',
-          )) return;
+          if (!confirm(`Delete all ${store.ratings.size} ratings and ${store.faceoffExtras.size} face-off results? `
+            + 'The corpus and its analysis are kept. Save a file first if you might want them back.')) return;
           await ctx.store.resetRatings();
           render();
         },
       }, `Reset all ratings (${fmtInt(store.ratings.size)})`),
-      el('span', { class: 'muted' }, 'keeps the corpus and the analysis'),
+      el('button', {
+        class: 'btn danger',
+        onclick: async () => {
+          if (!confirm('Delete all voices, features and ratings? This cannot be undone.')) return;
+          await ctx.store.reset();
+          render();
+        },
+      }, 'Delete everything'),
     ),
-    el('p', { class: 'hint' }, 'Deletes the voice table, the features and every rating.'),
-    el('button', {
-      class: 'btn danger',
-      onclick: async () => {
-        if (!confirm('Delete all voices, features and ratings? This cannot be undone.')) return;
-        await ctx.store.reset();
-        render();
-      },
-    }, 'Delete everything'),
-  ));
-
-  container.appendChild(page);
+  );
 }
 
 export const view: View = {
@@ -744,11 +790,13 @@ export const view: View = {
     ctx = c;
     container = el_;
     unsubscribe = c.store.subscribe(() => {
-      // Only re-render wholesale when not mid-analysis; the progress line
-      // updates itself and a full rebuild would fight the user's scroll.
-      if (!analysisAbort) render();
+      // The progress bar updates itself; a full rebuild mid-pass would fight
+      // the user's scroll for no gain.
+      if (!analysisAbort && !dupeAbort) render();
     });
     render();
+    // Anything left half-done from a previous visit carries on by itself.
+    void autoAdvance();
   },
   unmount() {
     unsubscribe?.();

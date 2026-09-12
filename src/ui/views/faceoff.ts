@@ -21,6 +21,7 @@ import { DEMO_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
 import { voiceDetails } from '../voicePanel.ts';
 import { getSetting, setSetting } from '../settings.ts';
+import { usePhrase } from '../soundBar.ts';
 
 interface Bout {
   clusterId: number;
@@ -36,7 +37,6 @@ let challengerIndex = 1;
 let extras: number[] = [];
 let ab: AbPlayer | null = null;
 let keyHandler: ((e: KeyboardEvent) => void) | null = null;
-let usePhrase = getSetting('audition.phrase', true);
 let auditionNote = getSetting('audition.note', 60);
 let auditionVel = getSetting('audition.velocity', 100);
 let loading = false;
@@ -106,7 +106,7 @@ async function loadPair(): Promise<void> {
   await ab.load(
     store.voices[champion].id, store.voices[champion].unpacked,
     store.voices[b].id, store.voices[b].unpacked,
-    usePhrase ? DEMO_PHRASE : singleNotePhrase(auditionNote, auditionVel, 1.4, 1.4),
+    usePhrase() ? DEMO_PHRASE : singleNotePhrase(auditionNote, auditionVel, 1.4, 1.4),
   );
   keyboard.setPatch(store.voices[champion].unpacked);
   loading = false;
@@ -199,14 +199,9 @@ function render(): void {
   wrap.appendChild(el('div', { class: 'row', style: { justifyContent: 'space-between' } },
     el('div', {}, el('b', {}, fmtInt(done)), ' of ', el('b', {}, fmtInt(bouts.length)), ' families settled'),
     el('div', { class: 'row' },
-      el('label', { class: 'field' },
-        el('input', {
-          type: 'checkbox', checked: usePhrase,
-          onchange: (e: Event) => { usePhrase = (e.target as HTMLInputElement).checked; setSetting('audition.phrase', usePhrase); void loadPair(); },
-        }), 'demo phrase'),
       el('label', { class: 'field' }, 'note',
         el('input', {
-          type: 'number', min: 24, max: 96, value: auditionNote, disabled: usePhrase,
+          type: 'number', min: 24, max: 96, value: auditionNote, disabled: usePhrase(),
           onchange: (e: Event) => { auditionNote = Number((e.target as HTMLInputElement).value); setSetting('audition.note', auditionNote); void loadPair(); },
         })),
     ),

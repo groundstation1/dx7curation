@@ -20,6 +20,7 @@ import { keyboard } from '../../audio/keyboard.ts';
 import { voiceDetails } from '../voicePanel.ts';
 import { sidebarSplitter } from '../splitter.ts';
 import { getSetting, setSetting } from '../settings.ts';
+import { loopPhrase, usePhrase } from '../soundBar.ts';
 
 type Ordering = 'coverage' | 'predicted' | 'families' | 'given';
 
@@ -31,8 +32,6 @@ let keyHandler: ((e: KeyboardEvent) => void) | null = null;
 let unsubKeyboard: (() => void) | null = null;
 let skipRated = getSetting('rate.skipRated', true);
 let ordering: Ordering = getSetting<Ordering>('rate.ordering', 'coverage');
-let usePhrase = getSetting('audition.phrase', true);
-let loopPhrase = getSetting('audition.loop', true);
 let auditionNote = getSetting('audition.note', 60);
 let auditionVel = getSetting('audition.velocity', 100);
 
@@ -79,7 +78,7 @@ function advanceToUnrated(from: number): void {
 }
 
 function phrase() {
-  return usePhrase ? DEMO_PHRASE : singleNotePhrase(auditionNote, auditionVel);
+  return usePhrase() ? DEMO_PHRASE : singleNotePhrase(auditionNote, auditionVel);
 }
 
 /** @param auto set when advancing did this rather than the user asking. */
@@ -90,7 +89,7 @@ async function play(auto?: 'click' | 'hover'): Promise<void> {
   keyboard.setPatch(v.unpacked);
   if (keyboard.playing) return;
   if (auto && !ctx.player.mayPlay(auto)) return;
-  await ctx.player.audition(v.id, v.unpacked, phrase(), { loop: loopPhrase });
+  await ctx.player.audition(v.id, v.unpacked, phrase(), { loop: loopPhrase() });
 }
 
 async function rate(value: number): Promise<void> {
@@ -149,22 +148,6 @@ function render(): void {
             render();
           },
         }), 'skip rated'),
-      el('label', { class: 'field' },
-        el('input', {
-          type: 'checkbox', checked: usePhrase,
-          onchange: (e: Event) => {
-            usePhrase = (e.target as HTMLInputElement).checked; setSetting('audition.phrase', usePhrase);
-            void play('click');
-          },
-        }), 'demo phrase'),
-      el('label', { class: 'field' },
-        el('input', {
-          type: 'checkbox', checked: loopPhrase,
-          onchange: (e: Event) => {
-            loopPhrase = (e.target as HTMLInputElement).checked; setSetting('audition.loop', loopPhrase);
-            void play('click');
-          },
-        }), 'loop'),
     ),
   ));
   wrap.appendChild(el('progress', { max: Math.max(1, queue.length), value: rated, style: { width: '100%' } }));
