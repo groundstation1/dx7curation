@@ -201,6 +201,7 @@ header.topbar {
   border-radius: 2px;
   background: var(--text);
   margin-top: 0.1em;
+  margin-right: -0.13em;
 }
 /* Chango's word space is very wide, so the one inside the name is drawn
    rather than typed. */
