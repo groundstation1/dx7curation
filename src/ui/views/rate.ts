@@ -21,10 +21,9 @@ import { voiceDetails } from '../voicePanel.ts';
 import { sidebarSplitter } from '../splitter.ts';
 import { getSetting, setSetting } from '../settings.ts';
 import { runTask } from '../task.ts';
-import { disclosure } from '../advanced.ts';
+import { disclosure, isAdvanced } from '../advanced.ts';
 import { topTerms } from '../../cluster/taste.ts';
 import { categoryColour } from '../colour.ts';
-import { FEATURE_DEFS } from '../../features/vector.ts';
 import { loopPhrase, usePhrase } from '../soundBar.ts';
 
 type Ordering = 'coverage' | 'predicted' | 'families' | 'given';
@@ -285,6 +284,22 @@ function tastePanel(): HTMLElement {
       share('the line alone', model.linearR2, 'ridge regression on the features'),
       share('plus category offsets', model.categoryR2, 'whole families running above or below the line'),
       share('the neighbours alone', model.neighbourR2, `average of the ${model.neighbours?.k ?? 8} nearest rated patches`),
+      /*
+       * Whether the patch names were worth reading.
+       *
+       * The store fits the model twice, once on the sound alone and once with
+       * the words in the names folded in, and keeps whichever predicts your
+       * ratings better out of fold. Which one won is worth saying out loud:
+       * it is the difference between an archive whose names mean something
+       * and one full of INIT VOICE and slot numbers, and it is not something
+       * anybody can tell by looking.
+       */
+      ctx.store.nameSpace
+        ? share('what they are called', ctx.store.nameGain,
+          ctx.store.tasteUsesNames
+            ? `words in the names, worth ${ctx.store.nameGain >= 0 ? '+' : ''}${ctx.store.nameGain.toFixed(2)} - kept`
+            : 'the names predicted nothing here, so the model ignores them')
+        : null,
       share('as used', model.r2,
         model.neighbourWeight === 0
           ? 'neighbours did not help, so they are switched off'
@@ -315,7 +330,7 @@ function tastePanel(): HTMLElement {
     const body = el('tbody');
     for (const t of terms) {
       body.appendChild(el('tr', {},
-        el('td', {}, FEATURE_DEFS[t.index]?.label ?? String(t.index)),
+        el('td', {}, ctx.store.featureLabel(t.index)),
         el('td', { class: `num ${cls}` }, t.coefficient.toFixed(3)),
       ));
     }
@@ -346,6 +361,34 @@ function tastePanel(): HTMLElement {
       })),
     el('span', { class: 'muted' }, `${Math.round(store.tasteStrength * 100)}%`),
   ));
+
+  /*
+   * How much the names count, for when you disagree with the fit.
+   *
+   * The model already decides for itself whether to read them, so this is not
+   * needed to keep bad names out. It is here because the decision is made on
+   * the ratings you have given so far, and you may know something the ratings
+   * do not say yet - that this collection is meticulously named and worth
+   * leaning on, or that it is thirty thousand slot numbers.
+   */
+  if (store.nameSpace && isAdvanced()) {
+    const weightRow = el('div', { class: 'row', style: { marginTop: '10px' } },
+      el('label', { class: 'field' }, 'how much the name counts',
+        el('input', {
+          type: 'range', min: 0, max: 200, step: 10, value: Math.round(store.nameWeight * 100),
+          style: { width: '120px' },
+          onchange: async (e: Event) => {
+            await ctx.store.setNameWeight(Number((e.target as HTMLInputElement).value) / 100);
+            render();
+          },
+        })),
+      el('span', { class: 'muted' },
+        store.nameWeight === 0 ? 'off' : `${Math.round(store.nameWeight * 100)}%`),
+      el('span', { class: 'muted', style: { fontSize: '11.5px' } },
+        `${store.nameSpace.vocabulary.concepts.length} concepts and ${store.nameSpace.vocabulary.tokens.length} words, in ${store.nameSpace.dims} components`),
+    );
+    panel.appendChild(weightRow);
+  }
 
   return panel;
 }

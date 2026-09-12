@@ -43,6 +43,14 @@ interface Axis {
    * where the only question left is which way is which.
    */
   short?: string;
+  /**
+   * What the two ends mean, when the axis knows better than the table does.
+   *
+   * The fixed table cannot name the ends of an axis that is discovered rather
+   * than declared - a name component is whatever the words in this corpus
+   * turned out to be - so such an axis carries its own.
+   */
+  ends?: [string, string];
   value: (i: number) => number;
 }
 
@@ -98,7 +106,7 @@ const AXIS_ENDS: Record<string, [string, string]> = {
 };
 
 function axisEnds(id: AxisId): [string, string] {
-  return AXIS_ENDS[id] ?? ['low', 'high'];
+  return axisById(id).ends ?? AXIS_ENDS[id] ?? ['low', 'high'];
 }
 
 /**
@@ -355,6 +363,31 @@ function axes(): Axis[] {
     const pct = (i: number) => ((store.ldaExplained[i] ?? 0) * 100).toFixed(0);
     list.push({ id: 'lda1', label: `category axis 1 (${pct(0)}% of separation)`, short: 'category axis 1', value: (i) => p[i * 2] });
     list.push({ id: 'lda2', label: `category axis 2 (${pct(1)}% of separation)`, short: 'category axis 2', value: (i) => p[i * 2 + 1] });
+  }
+  /*
+   * What the names say, as axes.
+   *
+   * The components come out of the words in the patch names, so each one has a
+   * readable name of its own - "organ, hammond / bass, sub" - and plotting one
+   * against a measured feature is the direct way to see where what a patch is
+   * called and what it sounds like agree, and where they do not.
+   */
+  const named = store.nameSpace;
+  if (named) {
+    for (let d = 0; d < named.dims; d++) {
+      const pct = (named.explained[d] * 100).toFixed(0);
+      // The label is already an axis - "organ, hammond / bass, sub" - so its
+      // two halves are the two ends, and the plot says so instead of
+      // repeating the whole thing and then adding "low" and "high".
+      const [up, down] = named.labels[d].split(' / ');
+      list.push({
+        id: `name${d + 1}`,
+        label: `named: ${named.labels[d]} (${pct}%)`,
+        short: 'what it is called',
+        ends: [down ?? 'less', up ?? 'more'],
+        value: (i) => named.coords[i * named.dims + d],
+      });
+    }
   }
   for (let d = 0; d < FEATURE_COUNT; d++) {
     const def = FEATURE_DEFS[d];
@@ -1609,6 +1642,10 @@ const PRESETS: MapPreset[] = [
     note: 'the model against timbre, so you can see whether it just likes one sound',
   },
   {
+    id: 'naming', label: 'Name against sound', x: 'name1', y: 'brightness', colour: 'category',
+    note: 'what the patch is called, against what it measures - the disagreements are the interesting ones',
+  },
+  {
     id: 'dynamics', label: 'How it plays', x: 'velLevel', y: 'velBrightness', colour: 'category',
     note: 'how much velocity changes the level, and how much it changes the tone',
   },
@@ -1850,7 +1887,13 @@ function renderControls(): void {
       el('select', {
         onchange: (e: Event) => applyPreset((e.target as HTMLSelectElement).value),
       },
-        ...PRESETS.map((item) => el('option', { value: item.id, selected: item.id === presetId }, item.label)),
+        // A preset whose axes do not exist in this corpus is not offered:
+        // axisById would quietly substitute the first axis and the plot would
+        // not be the one the name promises.
+        ...PRESETS.filter((item) => {
+          const ids = new Set(axes().map((a) => a.id));
+          return ids.has(item.x) && ids.has(item.y);
+        }).map((item) => el('option', { value: item.id, selected: item.id === presetId }, item.label)),
         presetId === 'custom' ? el('option', { value: 'custom', selected: true }, 'custom') : null,
       ),
       preset && !isAdvanced() ? el('span', { class: 'preset-note' }, preset.note) : null,
