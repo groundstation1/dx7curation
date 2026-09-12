@@ -164,10 +164,10 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
   if (opts.related !== false) {
     const voiceList = (title: string, indices: number[], note: string) => {
       if (indices.length === 0) return;
-      panel.appendChild(el('h3', {}, title));
+      panel.appendChild(el('h3', {}, `${title} (${indices.length})`));
       panel.appendChild(el('div', { class: 'muted', style: { fontSize: '11px', marginBottom: '5px' } }, note));
       const list = el('div', { class: 'stack', style: { gap: '3px' } });
-      for (const m of indices.slice(0, 14)) {
+      for (const m of indices) {
         const name = store.voices[m].name || '(unnamed)';
         list.appendChild(opts.onOpen
           ? el('button', {
@@ -177,9 +177,6 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
           }, name)
           : el('div', { class: 'muted mono', style: { fontSize: '11px' } }, name));
       }
-      if (indices.length > 14) {
-        list.appendChild(el('div', { class: 'muted' }, `and ${indices.length - 14} more`));
-      }
       panel.appendChild(list);
     };
 
@@ -188,12 +185,41 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
   }
 
   if (opts.sources !== false) {
-    panel.appendChild(el('h3', {}, `Where this one came from (${v.sources.length})`));
-    const ul = el('ul', { class: 'muted mono', style: { margin: 0, paddingLeft: '16px', fontSize: '11px' } });
-    for (const s of v.sources.slice(0, 10)) {
-      ul.appendChild(el('li', {}, `${s.name.trim() || '(unnamed)'} — ${s.file} slot ${s.slot + 1}`));
+    // Every one of them, in a box that scrolls. A count with "and 15 more"
+    // under it answers the least interesting half of the question: the whole
+    // point of this list is to see which collections a patch turns up in, and
+    // the fifteen you cannot see are as much a part of that as the ten you can.
+    // Grouped by name and file, with the slots gathered onto one line. A patch
+    // that sits in eight slots of the same cartridge, or arrived twice because
+    // a folder was imported again, produced eight or sixteen identical-looking
+    // lines - which is what made the list long enough to want truncating in the
+    // first place. Collapsed, it is usually short enough to read whole.
+    const groups = new Map<string, { name: string; file: string; slots: number[] }>();
+    for (const src of v.sources) {
+      const name = src.name.trim() || '(unnamed)';
+      const key = `${name} ${src.file}`;
+      const group = groups.get(key) ?? { name, file: src.file, slots: [] };
+      group.slots.push(src.slot + 1);
+      groups.set(key, group);
     }
-    if (v.sources.length > 10) ul.appendChild(el('li', {}, `and ${v.sources.length - 10} more`));
+    const files = new Set(v.sources.map((src) => src.file)).size;
+    panel.appendChild(el('h3', {},
+      `Where this one came from (${v.sources.length} in ${files} file${files === 1 ? '' : 's'})`));
+    const ul = el('ul', {
+      class: 'muted mono',
+      style: { margin: 0, paddingLeft: '16px', fontSize: '11px' },
+    });
+    for (const group of groups.values()) {
+      const counted = new Map<number, number>();
+      for (const slot of group.slots) counted.set(slot, (counted.get(slot) ?? 0) + 1);
+      const slots = [...counted.entries()]
+        .sort((a, b) => a[0] - b[0])
+        // A slot listed twice means the same file was imported twice, which is
+        // worth seeing rather than silently collapsing.
+        .map(([slot, n]) => (n > 1 ? `${slot}×${n}` : String(slot)));
+      ul.appendChild(el('li', {},
+        `${group.name} — ${group.file} slot${slots.length === 1 ? '' : 's'} ${slots.join(', ')}`));
+    }
     panel.appendChild(ul);
   }
 
