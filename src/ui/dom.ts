@@ -64,6 +64,22 @@ export function fmtDuration(ms: number): string {
   return `${m}m ${String(s % 60).padStart(2, '0')}s`;
 }
 
+/** What the app calls itself, in one place. */
+export const APP_NAME = 'DX7 curator';
+
+/**
+ * A filename for one patch, saying where it came from.
+ *
+ * These files end up in other people's editors and other people's folders
+ * years later, and a bare `BASS 1.syx` says nothing about how it got there.
+ * Anything a filesystem would object to is replaced rather than stripped, so
+ * two patches whose names differ only in punctuation stay two files.
+ */
+export function patchFile(name: string, ext = 'syx'): string {
+  const safe = (name || 'voice').trim().replace(/[\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
+  return `${safe || 'voice'} - via ${APP_NAME}.${ext}`;
+}
+
 export function downloadBytes(bytes: Uint8Array, filename: string): void {
   const blob = new Blob([bytes as BlobPart], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);

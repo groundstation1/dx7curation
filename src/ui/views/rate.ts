@@ -116,11 +116,35 @@ async function play(auto?: 'click' | 'hover'): Promise<void> {
   await ctx.player.audition(v.id, v.unpacked, phrase(), { loop: loopPhrase() });
 }
 
+/**
+ * What the last rating was, so it can be taken back.
+ *
+ * Rating is meant to be fast - a key press and gone - and the cost of that is
+ * that a slip is gone too, several patches back, with no way to find it again
+ * except by scrolling the queue and remembering. One step is enough: mistakes
+ * are noticed immediately or not at all.
+ */
+let lastRating: { index: number; previous: number | null } | null = null;
+
 async function rate(value: number): Promise<void> {
   const i = queue[position];
   if (i === undefined) return;
+  lastRating = { index: i, previous: ctx.store.ratingOf(i) };
   await ctx.store.rate(i, value, 'round1');
   next();
+}
+
+/** Put the last rating back the way it was, and return to that patch. */
+async function undoRating(): Promise<void> {
+  const last = lastRating;
+  if (!last) return;
+  lastRating = null;
+  if (last.previous === null) await ctx.store.clearRating(last.index);
+  else await ctx.store.rate(last.index, last.previous, 'round1');
+  const at = queue.indexOf(last.index);
+  if (at >= 0) position = at;
+  render();
+  void play('click');
 }
 
 function next(): void {
@@ -290,15 +314,6 @@ function render(): void {
   ));
   wrap.appendChild(el('progress', { max: Math.max(1, queue.length), value: rated, style: { width: '100%' } }));
 
-  // Closed until asked for: it is a thing to check between stretches of rating,
-  // not something to read past on the way to every patch.
-  if (ctx.store.tasteModel || ctx.store.ratings.size > 0) {
-    wrap.appendChild(el('div', { class: 'panel' },
-      disclosure('What your ratings have in common', tastePanel, {
-        key: 'taste',
-        note: ctx.store.tasteModel ? `R² ${ctx.store.tasteModel.r2.toFixed(2)}` : 'not enough yet',
-      })));
-  }
 
   if (position >= queue.length) {
     wrap.appendChild(el('div', { class: 'panel', style: { textAlign: 'center', padding: '40px' } },
@@ -353,20 +368,33 @@ function render(): void {
       `  ·  velocity ${a.acoustic.velLevelDb.toFixed(0)} dB`));
   }
 
-  const keys = el('div', { class: 'rate-keys' });
+  // The same stars as the sidebar, at the size this screen deserves: one
+  // control in one notation, wherever a rating is given. Five numbered buttons
+  // here and five stars three inches to the right was two notations for one
+  // thing, and the digits are still how it is actually done - which is what
+  // the legend underneath says.
+  const stars = el('div', { class: 'stars big' });
   for (let r = 1; r <= 5; r++) {
-    keys.appendChild(el('button', {
-      class: current === r ? 'on' : '',
+    stars.appendChild(el('button', {
+      class: `star${current !== null && r <= current ? ' on' : ''}`,
+      title: current === r ? 'Rated ' + r + '. Press again to clear.' : 'Rate ' + r,
       onclick: () => void rate(r),
-    }, String(r)));
+    }, '\u2605'));
   }
-  card.appendChild(keys);
+  card.appendChild(el('div', { class: 'rate-stars' }, stars,
+    el('button', {
+      class: 'btn',
+      disabled: !lastRating,
+      title: lastRating ? 'Put the last rating back and return to that patch' : 'Nothing to undo yet',
+      onclick: () => void undoRating(),
+    }, '\u21b6 Undo')));
 
   card.appendChild(el('div', { class: 'keyhelp' },
     el('span', {}, el('kbd', {}, '1'), '–', el('kbd', {}, '5'), ' rate and advance'),
     el('span', {}, el('kbd', {}, 'space'), ' replay'),
     el('span', {}, el('kbd', {}, '←'), ' ', el('kbd', {}, '→'), ' move without rating'),
     el('span', {}, el('kbd', {}, 'p'), ' pin'),
+    el('span', {}, el('kbd', {}, 'u'), ' undo'),
     keyboard.connected
       ? el('span', { class: 'good' }, 'MIDI keyboard plays this patch')
       : el('span', {},
@@ -381,6 +409,16 @@ function render(): void {
   ));
 
   wrap.appendChild(card);
+
+  // Below the patch, and closed until asked for: something to check between
+  // stretches of rating, not to read past on the way to every one of them.
+  if (store.tasteModel || store.ratings.size > 0) {
+    wrap.appendChild(el('div', { class: 'panel' },
+      disclosure('What your ratings have in common', tastePanel, {
+        key: 'taste',
+        note: store.tasteModel ? `R² ${store.tasteModel.r2.toFixed(2)}` : 'not enough yet',
+      })));
+  }
 
   // The same detail panel the map puts in its sidebar. Rating is the moment the
   // information matters most - the algorithm, what the classifier decided, how
@@ -429,6 +467,9 @@ export const view: View = {
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         prev();
+      } else if (e.key.toLowerCase() === 'u') {
+        e.preventDefault();
+        void undoRating();
       } else if (e.key.toLowerCase() === 'p') {
         e.preventDefault();
         const i = queue[position];

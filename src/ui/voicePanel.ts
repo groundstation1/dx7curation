@@ -13,7 +13,7 @@
  * sense: the face-off is already a family comparison, so repeating the family
  * lists inside each side would say nothing.
  */
-import { downloadBytes, el } from './dom.ts';
+import { downloadBytes, el, patchFile } from './dom.ts';
 import { algorithmPanel } from './algorithmDiagram.ts';
 import { CATEGORIES, CATEGORY_LABELS, subcategoryLabel, type Category } from '../cluster/category.ts';
 import { P } from '../sysex/voice.ts';
@@ -104,8 +104,7 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
         title: 'Download this patch as a single-voice .syx',
         onclick: (e: Event) => {
           e.stopPropagation();
-          const safe = (v.name || 'voice').trim().replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'voice';
-          downloadBytes(buildSingleVoice(v.unpacked), `${safe}.syx`);
+          downloadBytes(buildSingleVoice(v.unpacked), patchFile(v.name));
         },
       }, '↓ .syx')));
   }

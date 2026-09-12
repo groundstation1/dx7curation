@@ -1,4 +1,4 @@
-# DX7 patch curation
+# DX7 curator
 
 A local web app for turning tens of thousands of freely available Yamaha DX7
 sysex patches into a curated, musically ordered set of 128 voices, packed as

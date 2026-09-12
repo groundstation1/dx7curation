@@ -112,7 +112,12 @@ export class App {
     const header = el(
       'header',
       { class: 'topbar' },
-      el('div', { class: 'brand' }, 'DX7 curation'),
+      // The name is one flex item, not three: a flex container puts its gap
+      // between every child, bare text nodes included, so spelling the name out
+      // at this level made the word space the same size as the gap after the
+      // mark.
+      el('div', { class: 'brand' },
+        el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
       this.tabsEl,
       el('div', { class: 'spacer' }),
       this.taskEl,
@@ -234,14 +239,37 @@ export class App {
     ]);
   }
 
+  /**
+   * Show a view, and make sure exactly one is ever mounted.
+   *
+   * The await in the middle is a dynamic import, and two calls either side of
+   * it interleave: the second reads `this.current` before the first has set
+   * it, so the first mounts a view that nobody ever unmounts. Its key handler
+   * stays on the window for the rest of the session, which is how pressing 1
+   * on the Browse tab redrew the whole screen as the ranking page while the
+   * tab bar went on claiming you were still browsing.
+   *
+   * A generation counter settles it: whoever started last owns the screen, and
+   * an older transition that comes back from its import finds it has been
+   * overtaken and stops before mounting anything.
+   */
+  private generation = 0;
+
   async go(id: ViewId): Promise<void> {
     const tab = TABS.find((t) => t.id === id) ?? TABS[0];
     if (!tab.enabled()) return;
+    const mine = ++this.generation;
+
     this.current?.unmount?.();
+    // Cleared before the await, so an overlapping call cannot unmount it twice.
+    this.current = null;
     this.currentId = tab.id;
     this.renderTabs();
     clear(this.main);
+
     const view = await tab.load();
+    if (mine !== this.generation) return;
+
     clear(this.main);
     this.main.className = view.flush ? 'view flush' : 'view';
     this.current = view;

@@ -6,7 +6,7 @@
  * because the floors and ceilings are the main thing the user will want to
  * argue with after seeing the first result.
  */
-import { clear, downloadBytes, el, fmtInt, pageHead } from '../dom.ts';
+import { clear, downloadBytes, el, fmtInt, pageHead, patchFile } from '../dom.ts';
 import type { View, ViewContext } from '../app.ts';
 import { CATEGORIES, CATEGORY_LABELS, type Category } from '../../cluster/category.ts';
 import { allocate, DEFAULT_CEILINGS, DEFAULT_FLOORS, type Candidate, type AllocationResult } from '../../alloc/allocate.ts';
@@ -711,8 +711,7 @@ function render(): void {
   clear(root);
   const store = ctx.store;
   const page = el('div', { class: 'stack' });
-  page.appendChild(pageHead('Build',
-    'Choose the best 128, put them in an order that flows, and send them to the device.'));
+  page.appendChild(pageHead('Build'));
 
   const state = buildStatePanel();
   if (state) page.appendChild(state);
@@ -892,13 +891,13 @@ function filesPanel(): HTMLElement {
             all.set(b, at);
             at += b.length;
           }
-          downloadBytes(all, 'dx7-curated-all.syx');
+          downloadBytes(all, patchFile('DX7 banks A-D'));
         },
       }, 'Download all four banks'),
       ...banks.map((bytes, b) => el('button', {
         class: 'btn',
         style: { padding: '6px 10px' },
-        onclick: () => downloadBytes(bytes, `dx7-curated-${bankNames[b]}.syx`),
+        onclick: () => downloadBytes(bytes, patchFile(`DX7 bank ${bankNames[b]}`)),
       }, bankNames[b])),
       el('span', { class: bad ? 'bad' : 'good' },
         bad ? 'a bank did not verify' : 'all four verify'),

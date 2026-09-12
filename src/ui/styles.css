@@ -195,10 +195,17 @@ header.topbar {
  */
 .topbar .brand::before {
   content: '';
-  height: 1em; width: 1.78em; flex: none;
-  border-radius: 4px;
+  height: 0.75em;
+  width: 1.78em;
+  flex: none;
+  border-radius: 2px;
   background: var(--text);
+  margin-top: 0.1em;
 }
+/* Chango's word space is very wide, so the one inside the name is drawn
+   rather than typed. */
+.brand-name { white-space: nowrap; }
+.brand-sp { display: inline-block; width: 0.14em; }
 
 nav.tabs { display: flex; gap: 3px; flex: none; }
 
@@ -873,6 +880,12 @@ kbd {
 }
 .rate-name { font-size: 30px; font-weight: 600; letter-spacing: 0.01em; font-family: var(--mono); }
 .rate-meta { color: var(--muted); margin-top: 8px; }
+/* The rating control on its own screen: the same stars as the sidebar, at the
+   size a screen with one patch on it can afford, with the undo beside them. */
+.rate-stars { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 22px; }
+.stars.big .star { font-size: 40px; padding: 2px 4px; }
+.rate-stars .btn { padding: 6px 12px; }
+
 .rate-keys { display: flex; gap: 8px; justify-content: center; margin-top: 24px; }
 .rate-keys button {
   width: 54px; height: 54px; border-radius: var(--radius); font-size: 19px; font-weight: 600;

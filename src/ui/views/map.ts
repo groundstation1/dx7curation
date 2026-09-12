@@ -84,6 +84,7 @@ const AXIS_ENDS: Record<string, [string, string]> = {
   modTimbre: ['tone fixed', 'wheel opens the tone'],
   modBrightness: ['no change', 'brightens'],
   predicted: ['you would not', 'you would'],
+  rating: ['unrated and low', 'five stars'],
   familySize: ['one of a kind', 'many near-copies'],
   algorithm: ['algorithm 1', 'algorithm 32'],
   carriers: ['one carrier', 'many carriers'],
@@ -225,7 +226,7 @@ let yAxisId: AxisId = getSetting('map.yAxis', 'pca2');
 let colourBy: 'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 'source' | 'algorithm' =
   getSetting<'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 'source' | 'algorithm'>('map.colourBy', 'category');
 /** Any axis can drive dot size as well; '' is a uniform dot. */
-let sizeAxisId: AxisId | '' = getSetting<AxisId | ''>('map.sizeAxis', '');
+let sizeAxisId: AxisId | '' = getSetting<AxisId | ''>('map.sizeAxis', 'familySize');
 let sizes = new Float32Array(0);
 let collapseMerged = getSetting('map.collapseMerged', true);
 /** Kept as a constant: the transport's play setting is the switch now. */
@@ -317,6 +318,15 @@ function axes(): Axis[] {
     const def = FEATURE_DEFS[d];
     list.push({ id: def.name, label: def.label, value: (i) => store.analysis[i]?.vector[d] ?? 0 });
   }
+  // The thing the whole app is for. It was available as a colour and not as an
+  // axis, which meant you could not plot what you actually think against
+  // anything the app measured.
+  list.push({
+    id: 'rating',
+    label: 'your rating',
+    short: 'your rating',
+    value: (i) => store.effectiveRating(i) ?? 0,
+  });
   if (store.tasteModel) {
     list.push({
       id: 'predicted',
@@ -352,7 +362,7 @@ function axisById(id: AxisId): Axis {
 const AXIS_GROUPS: Array<{ label: string; ids: string[] }> = [
   {
     label: 'Learned axes',
-    ids: ['pca1', 'pca2', 'lda1', 'lda2', 'predicted'],
+    ids: ['pca1', 'pca2', 'lda1', 'lda2', 'rating', 'predicted'],
   },
   {
     label: 'Envelope',
@@ -1291,6 +1301,33 @@ function syncList(): void {
   else list.mark();
 }
 
+/**
+ * Move to the next or previous row, and play it.
+ *
+ * Walks the order the table is actually sorted in rather than the order the
+ * corpus is stored in, so stepping down after sorting by rating goes down the
+ * ratings. The selection follows, which means the sidebar and the plot follow
+ * too - they are all pointed at the same thing.
+ */
+function stepList(delta: number): void {
+  const order = sortIndices(ctx.store, visible, listState);
+  if (order.length === 0) return;
+  const current = selected >= 0 ? selected : hovered;
+  const at = order.indexOf(current);
+  const next = at < 0
+    ? (delta > 0 ? 0 : order.length - 1)
+    : Math.max(0, Math.min(order.length - 1, at + delta));
+  const target = order[next];
+  if (target === undefined) return;
+  selected = target;
+  hovered = target;
+  armKeyboard();
+  renderSide();
+  list?.reveal(target);
+  draw();
+  void audition(target, false, 'click');
+}
+
 function applyMode(): void {
   if (!listEl || !canvas) return;
   listEl.hidden = mode === 'map';
@@ -2154,6 +2191,13 @@ export const view: View = {
         if (i < 0) return;
         e.preventDefault();
         void audition(i, true);
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        // Step through the table from the keyboard, which is how you audition a
+        // run of patches without taking a hand off it. Only in the table: on
+        // the plot, "the next one" is not a question with an answer.
+        if (mode === 'map' || !list) return;
+        e.preventDefault();
+        stepList(e.key === 'ArrowDown' ? 1 : -1);
       } else if (e.key === 'Escape') {
         if (selected < 0) return;
         e.preventDefault();

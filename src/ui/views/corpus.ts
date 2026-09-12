@@ -15,7 +15,7 @@
  * you want to disagree with the defaults - which is a thing worth doing, just
  * not a thing worth requiring.
  */
-import { clear, downloadBytes, el, fmtInt, pageHead } from '../dom.ts';
+import { clear, downloadBytes, el, fmtInt, pageHead, patchFile } from '../dom.ts';
 import type { View, ViewContext } from '../app.ts';
 import { adv, disclosure, isAdvanced } from '../advanced.ts';
 import { getSetting, setSetting } from '../settings.ts';
@@ -48,13 +48,6 @@ let deviceChannel = 1;
 let listening: (() => void) | null = null;
 let deviceLog: string[] = [];
 let deviceBanks: Array<{ bytes: Uint8Array; from: string; voices: number; at: number }> = [];
-
-/** How many distinct files the corpus was assembled from. */
-function sourceFileCount(): number {
-  const seen = new Set<string>();
-  for (const v of ctx.store.voices) for (const src of v.sources) seen.add(src.file);
-  return seen.size;
-}
 
 function statBlock(k: string, v: string): HTMLElement {
   return el('div', { class: 'stat' }, el('div', { class: 'k' }, k), el('div', { class: 'v' }, v));
@@ -330,10 +323,6 @@ function devicePanel(): HTMLElement {
   if (!midiSupported()) {
     return el('p', { class: 'muted' }, 'This browser has no WebMIDI, so nothing can be read back here.');
   }
-  panel.appendChild(el('p', { class: 'hint' },
-    'Back up what is on the unit before you send four banks over it. Ask for a dump, or start the transmit from the ',
-    'device itself.'));
-
   panel.appendChild(el('div', { class: 'row' },
     el('button', {
       class: 'btn',
@@ -391,7 +380,7 @@ function devicePanel(): HTMLElement {
             all.set(b.bytes, at);
             at += b.bytes.length;
           }
-          downloadBytes(all, `dx7-device-readback-${new Date().toISOString().slice(0, 10)}.syx`);
+          downloadBytes(all, patchFile(`DX7 device read-back ${new Date().toISOString().slice(0, 10)}`));
         },
       }, 'Download as .syx'),
       el('button', {
@@ -419,11 +408,6 @@ function sweepTable(): HTMLElement {
   if (rows.length === 0) return el('p', { class: 'muted' }, 'No candidate pairs yet.');
 
   const wrap = el('div', {});
-  wrap.appendChild(el('p', { class: 'hint' },
-    'Both are cut-offs: a row means that distance ', el('b', {}, 'and everything closer'), '. ',
-    el('b', {}, 'merge'), ' is "the same patch" — one point on the map, one entry to rate. ',
-    el('b', {}, 'family'), ' is "similar but audibly different" — one representative is rated for the group.'));
-
   const table = el('table', { class: 'data sweep' });
   table.appendChild(el('thead', {}, el('tr', {},
     el('th', {}, ''),
@@ -551,7 +535,7 @@ function exportPanel(): HTMLElement {
         title: 'Patches and ratings together. This is the one to move to another machine.',
         onclick: () => {
           const json = new TextEncoder().encode(store.exportSession());
-          downloadBytes(json, `dx7-session-${new Date().toISOString().slice(0, 10)}.json`);
+          downloadBytes(json, patchFile(`DX7 session ${new Date().toISOString().slice(0, 10)}`, 'json'));
         },
       }, `Full session (${fmtInt(store.voices.length)} patches + ratings)`),
       empty ? null : el('button', {
@@ -560,7 +544,7 @@ function exportPanel(): HTMLElement {
         title: 'Ratings, pins and category overrides only, keyed by patch content. Reapplies to a corpus you already have.',
         onclick: () => {
           const blob = new TextEncoder().encode(store.exportBackup());
-          downloadBytes(blob, `dx7-ratings-${new Date().toISOString().slice(0, 10)}.json`);
+          downloadBytes(blob, patchFile(`DX7 ratings ${new Date().toISOString().slice(0, 10)}`, 'json'));
         },
       }, `Ratings only (${fmtInt(store.ratings.size)})`),
       empty ? null : el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load a file…'),
@@ -570,7 +554,7 @@ function exportPanel(): HTMLElement {
         title: 'The deduplicated corpus as back-to-back 32-voice bulk dumps, which is what every other DX7 tool reads.',
         onclick: () => {
           const { bytes, voices } = store.exportDedupedSyx();
-          downloadBytes(bytes, `dx7-deduped-${voices}-voices.syx`);
+          downloadBytes(bytes, patchFile(`DX7 corpus, ${voices} voices`));
         },
       }, 'Deduped .syx'),
     ),
@@ -591,8 +575,7 @@ function render(): void {
   }
 
   const page = el('div', { class: 'stack page-narrow' });
-  page.appendChild(pageHead('Sources',
-    `${fmtInt(store.voices.length)} patches in this browser, from ${fmtInt(sourceFileCount())} files.`));
+  page.appendChild(pageHead('Sources'));
 
   if (lastNote) {
     page.appendChild(el('p', { class: 'bad' }, lastNote));
