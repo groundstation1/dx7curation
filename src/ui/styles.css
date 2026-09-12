@@ -572,6 +572,8 @@ kbd {
 .keymap { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; }
 .keyrow { display: flex; gap: 3px; }
 .keyrow:first-child { margin-left: 13px; }
+/* Offset the other way, so the three rows step like a keyboard. */
+.keyrow:last-child { margin-left: -7px; }
 .keycap.gap { background: none; }
 .keycap {
   display: inline-flex; align-items: center; justify-content: center;
@@ -582,6 +584,8 @@ kbd {
 /* Black keys sit lower and darker, so the row reads as a keyboard rather than
    as seventeen identical buttons. */
 .keycap.sharp { background: var(--bg); color: var(--muted); }
+/* The soft row: the same notes, lighter on the page as they are on the ear. */
+.keycap.soft { background: var(--surface); color: var(--muted); }
 .keycap.down { background: var(--accent); color: #0b1017; }
 
 /*
@@ -591,8 +595,21 @@ kbd {
  * keeps it out of the way of whatever it is sitting on top of.
  */
 .piano-roll {
-  position: fixed; left: 0; right: 0; bottom: calc(var(--dock-h) + var(--gut) * 2); height: 184px;
-  width: 100%; pointer-events: none; z-index: 40;
+  /*
+   * Hard against the bottom of the window, and over everything.
+   *
+   * It used to sit above the sound dock, which put it inside the card grid and
+   * made it look like part of whichever pane happened to be behind it. It is
+   * not part of a pane: it is what the keyboard is doing, and that belongs to
+   * the window rather than to the view. Over the dock as well, since it passes
+   * no clicks - the controls underneath stay reachable, and the canvas is
+   * transparent everywhere a note is not being drawn.
+   *
+   * Below the operator tooltip on purpose: that is a card you are reading, and
+   * nothing should paint across it.
+   */
+  position: fixed; left: 0; right: 0; bottom: 0; height: 184px;
+  width: 100%; pointer-events: none; z-index: 55;
   opacity: 0; transition: opacity 0.5s ease-out;
   -webkit-mask-image: linear-gradient(to top, #000 0%, #000 35%, rgba(0, 0, 0, 0.6) 68%, transparent 100%);
   mask-image: linear-gradient(to top, #000 0%, #000 35%, rgba(0, 0, 0, 0.6) 68%, transparent 100%);

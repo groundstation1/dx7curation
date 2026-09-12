@@ -166,25 +166,27 @@ function typingSection(): HTMLElement {
   ));
 
   // Drawn as a keyboard: blacks on top with the gaps a piano has, whites below.
-  const sounding = typingKeys.sounding;
+  const sounding = typingKeys.soundingKeys;
   const rows = keyRows(typingKeys.layout, typingKeys.base);
-  const drawRow = (caps: KeyCap[], sharp: boolean) => {
+  const drawRow = (caps: KeyCap[], sharp: boolean, soft = false) => {
     const row = el('div', { class: 'keyrow' });
     for (const k of caps) {
       row.appendChild(k.empty
         ? el('span', { class: 'keycap gap' })
         : el('span', {
-          class: `keycap${sharp ? ' sharp' : ''}${sounding.has(k.note) ? ' down' : ''}`,
-          title: noteName(k.note),
+          class: `keycap${sharp ? ' sharp' : ''}${soft ? ' soft' : ''}${sounding.has(k.label.toLowerCase()) ? ' down' : ''}`,
+          title: soft ? `${noteName(k.note)}, softly` : noteName(k.note),
         }, k.label));
     }
     return row;
   };
   section.appendChild(el('div', { class: 'keymap' },
     drawRow(rows.black, true),
-    drawRow(rows.white, false)));
+    drawRow(rows.white, false),
+    drawRow(rows.soft, false, true)));
   section.appendChild(el('div', { class: 'muted', style: { fontSize: '10.5px', marginTop: '4px' } },
-    'Minus and equals shift the octave. Shift plays harder. ',
+    'The bottom row plays the same notes softly; shift plays harder. ',
+    'Page up and page down shift the octave, as do minus and equals. ',
     'Rating (1-5), pinning (P) and space keep working.'));
   return section;
 }

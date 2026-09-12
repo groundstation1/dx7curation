@@ -58,29 +58,75 @@ const NOTES: Record<string, number> = {
   KeyK: 12, KeyO: 13, KeyL: 14,
 };
 
-/** The two physical rows, in order, so the legend can be drawn as a keyboard. */
+/** The three physical rows, in order, so the legend can be drawn as a keyboard. */
 const WHITE_ROW = ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL'];
 const BLACK_ROW = ['KeyW', 'KeyE', null, 'KeyT', 'KeyY', 'KeyU', null, 'KeyO', null];
+/*
+ * The row under the home row: the same white notes, played softly.
+ *
+ * Velocity is most of what an FM patch has to say. It does not merely set the
+ * level - it drives the modulators, so a soft note has audibly fewer sidebands
+ * rather than being the same sound quieter, and how a patch behaves when
+ * played gently is half of what you are judging. Shift-as-accent only ever
+ * offered one direction away from a fixed middle.
+ *
+ * Below the home row rather than above it because that is where the hand goes:
+ * it drops for a soft note the way it lifts for a hard one. Whites only, since
+ * there is no fourth row for the black keys - a real limit, and the scale is
+ * still playable both ways.
+ */
+const SOFT_ROW = ['KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'Comma', 'Period'];
+
+/** How hard a soft-row note is played, against the set velocity. */
+const SOFT_SCALE = 0.5;
+/** And how hard a shifted one is, since the two are a pair. */
+const ACCENT_ADD = 28;
+
+/** What one key does: which note, and whether it came from the soft row. */
+export interface KeyAction {
+  offset: number;
+  soft: boolean;
+}
 
 /**
- * Character to semitone, for one layout.
+ * Character to action, for one layout.
  *
  * Built from the same two tables the legend is drawn from, so what is printed
  * on a key and what that key plays cannot drift apart: both come from
  * `NOTES[code]` and `keyLabel(code, layout)`.
  */
-export function charNotes(layout: KeyLayout): Map<string, number> {
-  const out = new Map<string, number>();
+export function charNotes(layout: KeyLayout): Map<string, KeyAction> {
+  const out = new Map<string, KeyAction>();
   for (const [code, offset] of Object.entries(NOTES)) {
     const label = keyLabel(code, layout).toLowerCase();
-    if (label) out.set(label, offset);
+    if (label) out.set(label, { offset, soft: false });
   }
+  // A character already claimed by a piano row is not overwritten. On a layout
+  // where the two collide the note wins: losing a note costs more than losing
+  // one way of playing it quietly.
+  SOFT_ROW.forEach((code, k) => {
+    const label = keyLabel(code, layout).toLowerCase();
+    const white = NOTES[WHITE_ROW[k]];
+    if (label && white !== undefined && !out.has(label)) out.set(label, { offset: white, soft: true });
+  });
   return out;
 }
 
-/** Physical keys that shift the octave, either side of the number row's end. */
-const OCTAVE_DOWN = 'Minus';
-const OCTAVE_UP = 'Equal';
+/*
+ * Shifting the octave, by every route that might exist on a given board.
+ *
+ * The minus and equals keys are the obvious pair and cannot be the only one.
+ * By position they are at the far end of the number row, which a compact
+ * keyboard may not have; by character they need a modifier on several layouts,
+ * and on those the unmodified key produces something else entirely.
+ *
+ * So: those two by position, those two by character, and Page Up and Page Down
+ * - which are the same gesture, exist on effectively every keyboard, and are
+ * unambiguous because they cannot be confused with a note. The octave field in
+ * the sound panel does the same job for anyone who has none of them.
+ */
+const OCTAVE_DOWN_CODES = ['Minus', 'PageDown'];
+const OCTAVE_UP_CODES = ['Equal', 'PageUp'];
 
 /**
  * What is printed on those keys, per layout.
@@ -162,13 +208,20 @@ export interface KeyCap {
  * between B and C - which is the whole reason a keyboard is recognisable at a
  * glance. A sorted flat list of every key loses exactly that.
  */
-export function keyRows(layout: KeyLayout, baseNote: number): { black: KeyCap[]; white: KeyCap[] } {
+export function keyRows(
+  layout: KeyLayout, baseNote: number,
+): { black: KeyCap[]; white: KeyCap[]; soft: KeyCap[] } {
   const cap = (code: string | null): KeyCap => (code === null
     ? { label: '', note: -1, empty: true }
     : { label: keyLabel(code, layout), note: baseNote + NOTES[code] });
   return {
     black: BLACK_ROW.map(cap),
     white: WHITE_ROW.map(cap),
+    // Each soft key is labelled from itself and sounds the white above it.
+    soft: SOFT_ROW.map((code, k) => ({
+      label: keyLabel(code, layout),
+      note: baseNote + NOTES[WHITE_ROW[k]],
+    })),
   };
 }
 
@@ -256,8 +309,8 @@ export class TypingKeys {
       // The octave keys are taken by position as well as by character: they
       // are not notes, and on a layout that puts the minus sign somewhere
       // unexpected the key beside the digits is still the obvious place.
-      const down = e.key === '-' || e.code === OCTAVE_DOWN;
-      const up = e.key === '=' || e.code === OCTAVE_UP;
+      const down = e.key === '-' || OCTAVE_DOWN_CODES.includes(e.code);
+      const up = e.key === '=' || OCTAVE_UP_CODES.includes(e.code);
       if (down || up) {
         e.preventDefault();
         e.stopPropagation();
@@ -268,19 +321,23 @@ export class TypingKeys {
       // Shift produces an upper-case character, so the lookup is folded down;
       // every key in the map is a letter, which makes that safe.
       const char = e.key.toLowerCase();
-      const offset = this.notes.get(char);
-      if (offset === undefined) return;
+      const action = this.notes.get(char);
+      if (action === undefined) return;
       e.preventDefault();
       // Capture-phase, so the views' own single-key shortcuts never also fire
       // for a key that is currently a piano key.
       e.stopPropagation();
       if (e.repeat || this.held.has(char)) return;
 
-      const note = this.base + offset;
+      const note = this.base + action.offset;
       this.held.set(char, note);
-      // Shift is the accent, which is the one dynamic a typing keyboard can
-      // offer without a second row of keys.
-      keyboard.noteOn(note, e.shiftKey ? Math.min(127, this.velocity + 28) : this.velocity);
+      // Three levels: the row below plays soft, shift plays hard, the home row
+      // is what you set. Shift on a soft key is a contradiction, and the soft
+      // row wins - you chose that one with your hand.
+      const velocity = action.soft
+        ? Math.max(1, Math.round(this.velocity * SOFT_SCALE))
+        : e.shiftKey ? Math.min(127, this.velocity + ACCENT_ADD) : this.velocity;
+      keyboard.noteOn(note, velocity);
       this.emit();
     };
 
@@ -321,9 +378,15 @@ export class TypingKeys {
     this.emit();
   }
 
-  /** Notes currently down, for drawing the legend. */
-  get sounding(): Set<number> {
-    return new Set(this.held.values());
+  /**
+   * The keys currently down, for drawing the legend.
+   *
+   * Keys rather than notes: a soft key and its home-row twin sound the same
+   * note, so lighting by note lit both of them and pressing one looked like
+   * pressing two.
+   */
+  get soundingKeys(): Set<string> {
+    return new Set(this.held.keys());
   }
 }
 
