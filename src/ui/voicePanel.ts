@@ -212,10 +212,7 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
     // Dedupe ignores the name bytes, so one voice can arrive under several
     // names. Each line carries the name that copy had in that file, even when
     // it matches this voice's own - it is what the file actually says.
-    const ul = el('ul', {
-      class: 'muted mono',
-      style: { margin: 0, paddingLeft: '16px', fontSize: '11px' },
-    });
+    const ul = el('ul', { class: 'muted mono src-list' });
     // Oldest first, undated last. Where a patch turned up earliest is the
     // closest thing to provenance this corpus can offer.
     const ordered = [...groups.values()].sort((a, b) => (a.at || Infinity) - (b.at || Infinity));
@@ -227,20 +224,37 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
         // A slot listed twice means the same file was imported twice, which is
         // worth seeing rather than silently collapsing.
         .map(([slot, n]) => (n > 1 ? `${slot}×${n}` : String(slot)));
-      const line = el('li', {},
-        `${group.name} \u2014 ${group.file} slot${slots.length === 1 ? '' : 's'} ${slots.join(', ')}`);
+      // Two lines: what it was called and where it sat, then the path.
+      //
+      // The path is the long, boring, indispensable part - long enough to push
+      // the name off the edge if they share a line, and indispensable because
+      // it is the only way to tell which of forty collections this came from.
+      // It is truncated in the middle rather than the end, since the filename
+      // identifies a pack and the directories above it rarely do.
+      const line = el('li', {});
+      const head = el('div', { class: 'src-head' },
+        el('b', {}, group.name),
+        el('span', { class: 'muted' },
+          `  slot${slots.length === 1 ? '' : 's'} ${slots.join(', ')}`));
       // The date, when the file had one worth keeping. Dimmer for a loose
       // file's own timestamp, which is usually just the day it was downloaded,
       // than for an archive entry's, which usually survives from whenever the
       // pack was put together.
       if (group.at > 0) {
-        line.appendChild(el('span', {
+        head.appendChild(el('span', {
+          class: 'src-date',
           style: { opacity: group.atFrom === 'archive' ? '0.9' : '0.45' },
           title: group.atFrom === 'archive'
             ? 'from inside the archive, usually the date the pack was made'
             : 'the file\u2019s own timestamp, often just when it was downloaded',
-        }, `  ${new Date(group.at).toISOString().slice(0, 10)}`));
+        }, new Date(group.at).toISOString().slice(0, 10)));
       }
+      line.appendChild(head);
+
+      const cut = group.file.lastIndexOf('/');
+      line.appendChild(el('div', { class: 'src-path', title: group.file },
+        el('span', { class: 'src-dir' }, cut >= 0 ? group.file.slice(0, cut) : ''),
+        el('span', { class: 'src-file' }, cut >= 0 ? group.file.slice(cut) : group.file)));
       ul.appendChild(line);
     }
     panel.appendChild(ul);

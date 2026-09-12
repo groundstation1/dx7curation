@@ -368,6 +368,24 @@ kbd {
 }
 .side-handle:hover::after, .side-handle.dragging::after { background: var(--accent); }
 
+/*
+ * A source entry: name and slots on one line, the path under it.
+ *
+ * The path truncates in the middle - the directory half gets the ellipsis and
+ * the filename is always whole - which is done by letting one span shrink
+ * beside one that cannot. No measuring, so it re-truncates for free when the
+ * sidebar is dragged.
+ */
+/* No bullets and no indent: this list is dense on purpose. */
+.src-list { list-style: none; margin: 0; padding: 0; font-size: 11px; line-height: 1.35; }
+.src-list li + li { margin-top: 5px; }
+.src-head { display: flex; align-items: baseline; gap: 6px; }
+.src-head b { color: var(--text); font-weight: 600; }
+.src-date { margin-left: auto; flex: none; font-size: 10px; }
+.src-path { display: flex; opacity: 0.72; }
+.src-dir { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.src-file { flex: none; white-space: nowrap; }
+
 /* Category offsets in the taste panel. */
 .taste-cats { display: flex; flex-direction: column; gap: 4px; max-width: 560px; }
 .taste-cat {
