@@ -737,6 +737,7 @@ export class Store {
     if (!this.graph || !space) return;
     this.clusters = clusterAtThreshold(this.graph, this.threshold);
     this.representatives = chooseRepresentatives(this.clusters.clusters, space, FEATURE_COUNT);
+    this.representativeSet = null;
     this.mergeClusters = clusterAtThreshold(this.graph, this.mergeThreshold);
     this.mergeRepresentatives = chooseRepresentatives(this.mergeClusters.clusters, space, FEATURE_COUNT);
     if (persist) {
@@ -815,6 +816,23 @@ export class Store {
   isMergeRepresentative(index: number): boolean {
     return this.mergeRepresentativeOf(index) === index;
   }
+
+  /**
+   * Whether this voice is the one chosen to stand for its whole family.
+   *
+   * The looser of the two groupings: a family is "similar but audibly
+   * different", so standing for one is a stronger claim than standing for a
+   * set of near-identical copies. Backed by a set rather than a scan, because
+   * the map asks this once per voice on every layout.
+   */
+  isFamilyRepresentative(index: number): boolean {
+    if (!this.representativeSet || this.representativeSet.size !== this.representatives.length) {
+      this.representativeSet = new Set(this.representatives);
+    }
+    return this.representativeSet.has(index);
+  }
+
+  private representativeSet: Set<number> | null = null;
 
   /**
    * The distinct sounds inside a face-off family: one per merge cluster, so
@@ -1366,6 +1384,7 @@ export class Store {
     this.graph = null;
     this.clusters = null;
     this.representatives = [];
+    this.representativeSet = null;
     this.ratings.clear();
     this.categoryOverrides.clear();
     this.faceoffExtras.clear();

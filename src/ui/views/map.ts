@@ -228,7 +228,30 @@ let colourBy: 'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 
 /** Any axis can drive dot size as well; '' is a uniform dot. */
 let sizeAxisId: AxisId | '' = getSetting<AxisId | ''>('map.sizeAxis', 'familySize');
 let sizes = new Float32Array(0);
-let collapseMerged = getSetting('map.collapseMerged', true);
+/**
+ * How much of the corpus to fold together before drawing it.
+ *
+ * There are two thresholds and therefore three answers, which is why this is a
+ * pulldown rather than the checkbox it started as:
+ *
+ *   copies   every voice, including the forty files that are byte-identical
+ *            once you ignore the name
+ *   sounds   one dot per distinct sound - things below the merge threshold are
+ *            the same patch and drawing forty of them says nothing
+ *   family   one dot per family, so a cluster of forty near-relatives becomes
+ *            the single representative you would actually rate
+ *
+ * The last is the one that makes a forty-thousand-voice corpus legible: the
+ * plot stops being a solid mass of electric pianos and becomes the couple of
+ * thousand decisions there actually are.
+ */
+type Collapse = 'copies' | 'sounds' | 'family';
+
+let collapse: Collapse = getSetting<Collapse>(
+  'map.collapse',
+  // Migrated from the checkbox this replaced.
+  getSetting('map.collapseMerged', true) ? 'sounds' : 'copies',
+);
 /** Kept as a constant: the transport's play setting is the switch now. */
 const hoverAudition = true;
 let auditionNote = getSetting('audition.note', 60);
@@ -463,7 +486,8 @@ function computeLayout(): void {
   visible = [];
   for (let i = 0; i < n; i++) {
     if (!store.analysis[i]) continue;
-    if (collapseMerged && !store.isMergeRepresentative(i)) continue;
+    if (collapse === 'sounds' && !store.isMergeRepresentative(i)) continue;
+    if (collapse === 'family' && !store.isFamilyRepresentative(i)) continue;
     if (searchMode === 'only' && matched && !matched.has(i)) continue;
     rawX[i] = ax.value(i);
     rawY[i] = ay.value(i);
@@ -1796,18 +1820,27 @@ function renderControls(): void {
       draw();
     }, { value: '', label: 'uniform' })) : null),
     adv(el('span', { class: 'bar-sep' })),
-    adv(el('label', { class: 'field', title: 'Show one point per distinct sound rather than one per copy.' },
-      el('input', {
-        type: 'checkbox',
-        checked: collapseMerged,
+    el('label', {
+      class: 'field',
+      title: 'How much to fold together: every copy, one per distinct sound, or one per family.',
+    }, 'show one per',
+      el('select', {
         onchange: (e: Event) => {
-          collapseMerged = (e.target as HTMLInputElement).checked;
-          setSetting('map.collapseMerged', collapseMerged);
+          collapse = (e.target as HTMLSelectElement).value as Collapse;
+          setSetting('map.collapse', collapse);
           computeLayout();
           renderControls();
           draw();
         },
-      }), 'collapse near-identical')),
+      },
+        el('option', { value: 'copies', selected: collapse === 'copies' }, 'copy'),
+        el('option', { value: 'sounds', selected: collapse === 'sounds' }, 'distinct sound'),
+        el('option', {
+          value: 'family',
+          selected: collapse === 'family',
+          disabled: ctx.store.representatives.length === 0,
+        }, 'family'),
+      )),
     adv(plot ? el('label', {
       class: 'field',
       title: 'Play a patch blended from the voices nearest the cursor, rather than the nearest single patch. Only ever uses what is currently shown.',
