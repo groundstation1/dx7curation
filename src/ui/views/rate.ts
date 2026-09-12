@@ -171,18 +171,47 @@ async function play(auto?: 'click' | 'hover'): Promise<void> {
  */
 let lastRating: { index: number; previous: number | null } | null = null;
 
+/**
+ * Long enough to see the stars land, short enough not to slow you down.
+ *
+ * Rating advanced the instant the key went down, so the card you had just
+ * judged was replaced in the same frame and the stars you filled in were never
+ * drawn. With a few hundred patches to get through that is not a cosmetic
+ * problem: with no acknowledgement at all, the only way to know a keystroke
+ * registered is that the patch changed, and a keystroke that misses looks
+ * exactly like one that landed.
+ */
+const ADVANCE_DELAY_MS = 240;
+let advanceTimer: number | null = null;
+
+function cancelAdvance(): void {
+  if (advanceTimer === null) return;
+  window.clearTimeout(advanceTimer);
+  advanceTimer = null;
+}
+
 async function rate(value: number): Promise<void> {
   const i = queue[position];
   if (i === undefined) return;
   lastRating = { index: i, previous: ctx.store.ratingOf(i) };
   await ctx.store.rate(i, value, 'round1');
-  next();
+  // Draw the rating on the card that earned it, then move on.
+  render();
+  // Changing your mind inside the delay re-rates this patch rather than
+  // rating this one and then the next.
+  cancelAdvance();
+  advanceTimer = window.setTimeout(() => {
+    advanceTimer = null;
+    next();
+  }, ADVANCE_DELAY_MS);
 }
 
 /** Put the last rating back the way it was, and return to that patch. */
 async function undoRating(): Promise<void> {
   const last = lastRating;
   if (!last) return;
+  // Undoing during the pause keeps you on the patch you just rated.
+  cancelAdvance();
   lastRating = null;
   if (last.previous === null) await ctx.store.clearRating(last.index);
   else await ctx.store.rate(last.index, last.previous, 'round1');
@@ -193,6 +222,7 @@ async function undoRating(): Promise<void> {
 }
 
 function next(): void {
+  cancelAdvance();
   if (skipRated) advanceToUnrated(position + 1);
   else position = Math.min(queue.length, position + 1);
   render();
@@ -200,6 +230,7 @@ function next(): void {
 }
 
 function prev(): void {
+  cancelAdvance();
   position = Math.max(0, position - 1);
   render();
   void play('click');
@@ -531,6 +562,7 @@ export const view: View = {
         void play();
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
+        cancelAdvance();
         position = Math.min(queue.length, position + 1);
         render();
         void play('click');
@@ -554,6 +586,7 @@ export const view: View = {
     void ctx.player.unlock().then(() => play('click'));
   },
   unmount() {
+    cancelAdvance();
     if (keyHandler) window.removeEventListener('keydown', keyHandler);
     keyHandler = null;
     unsubKeyboard?.();
