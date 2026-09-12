@@ -17,6 +17,7 @@ import { CATEGORIES, CATEGORY_LABELS, SUBCATEGORIES, subcategoryLabel, type Cate
 import { P } from '../../sysex/voice.ts';
 import { algorithmPanel } from '../algorithmDiagram.ts';
 import { voiceDetails } from '../voicePanel.ts';
+import { sidebarSplitter } from '../splitter.ts';
 import { categoryColour, focusedSubcategoryColour, oklch, ratingColour, subcategoryColour as subColour } from '../colour.ts';
 import { DEMO_PHRASE, HOVER_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
@@ -1069,7 +1070,7 @@ function renderControls(): void {
     class: 'text',
     type: 'search',
     value: searchText,
-    placeholder: 'e-piano OR epiano OR organ',
+    placeholder: 'bank piano   ·   e-piano OR rhodes',
     title: 'Case-insensitive substrings, OR or commas between terms. Category and subcategory names match too.',
     style: { width: '260px' },
     oninput: (e: Event) => {
@@ -1243,7 +1244,10 @@ function renderControls(): void {
         el('option', { value: '', selected: focusSub === '' }, 'all subcategories'),
         ...subDefs.map((d) => el('option', { value: d.id, selected: d.id === focusSub }, d.label)),
       )) : null,
-    el('label', { class: 'field' }, 'search', searchInput),
+    el('label', {
+      class: 'field',
+      title: 'Every word must match, anywhere in the name, its aliases, or the path. OR (or a comma) separates alternatives, and "quotes" keep a phrase together.',
+    }, 'search', searchInput),
     el('label', { class: 'field' },
       el('select', {
         onchange: (e: Event) => {
@@ -1519,7 +1523,9 @@ export const view: View = {
 
     const wrap = el('div', { class: 'map-canvas-wrap' }, canvas, overlay);
     const main = el('div', { class: 'map-main' }, controlsEl, wrap, legendEl);
-    root.appendChild(el('div', { class: 'map-layout' }, main, sideEl));
+    const layout = el('div', { class: 'map-layout' }, main, sideEl);
+    layout.appendChild(sidebarSplitter(layout, { key: 'ui.mapSideWidth', defaultWidth: 300 }));
+    root.appendChild(layout);
 
     // The second control row is inserted after controlsEl by renderControls.
     computeLayout();

@@ -18,6 +18,7 @@ import { P } from '../../sysex/voice.ts';
 import { DEMO_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
 import { voiceDetails } from '../voicePanel.ts';
+import { sidebarSplitter } from '../splitter.ts';
 import { getSetting, setSetting } from '../settings.ts';
 
 type Ordering = 'coverage' | 'predicted' | 'families' | 'given';
@@ -254,7 +255,7 @@ function render(): void {
   // information matters most - the algorithm, what the classifier decided, how
   // many near-copies are riding on this one score - and until now it was the
   // one view that did not show it.
-  root.appendChild(el('div', { class: 'detail-layout' },
+  const layout = el('div', { class: 'detail-layout' },
     wrap,
     el('aside', { class: 'detail-side' }, voiceDetails(store, i, {
       onPlay: () => void play(),
@@ -267,7 +268,9 @@ function render(): void {
       },
       onChange: () => render(),
     })),
-  ));
+  );
+  layout.appendChild(sidebarSplitter(layout, { key: 'ui.detailSideWidth', defaultWidth: 300 }));
+  root.appendChild(layout);
 }
 
 export const view: View = {

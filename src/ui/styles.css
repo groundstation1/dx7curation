@@ -267,7 +267,10 @@ kbd {
 
 /* ----------------------------------------------------------------- map */
 
-.map-layout { display: grid; grid-template-columns: 1fr 300px; height: 100%; }
+.map-layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w, 300px);
+  height: 100%; position: relative;
+}
 .map-main { position: relative; display: flex; flex-direction: column; min-width: 0; }
 .map-controls {
   display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
@@ -285,7 +288,10 @@ kbd {
 .detail dd { margin: 1px 0 0; font-variant-numeric: tabular-nums; }
 
 /* A main column with the voice detail panel beside it, as the map has. */
-.detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.detail-layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w, 300px);
+  gap: 20px; align-items: start; position: relative;
+}
 .detail-side {
   position: sticky; top: 0; max-height: calc(100vh - 90px); overflow: auto;
   border-left: 1px solid var(--line); padding-left: 16px;
@@ -345,6 +351,22 @@ kbd {
 .build-state { border-left: 3px solid var(--good); }
 .build-state.stale { border-left-color: var(--accent-2); }
 
+
+/*
+ * The sidebar's draggable edge. Positioned against the layout rather than
+ * inserted into the grid, so the columns stay two and a scrolling sidebar
+ * cannot carry it off.
+ */
+.side-handle {
+  position: absolute; top: 0; bottom: 0; right: var(--side-w, 300px);
+  width: 9px; margin-right: -4px; z-index: 6;
+  cursor: col-resize; touch-action: none;
+}
+.side-handle::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 4px;
+  width: 1px; background: transparent; transition: background 0.12s;
+}
+.side-handle:hover::after, .side-handle.dragging::after { background: var(--accent); }
 
 /* Category offsets in the taste panel. */
 .taste-cats { display: flex; flex-direction: column; gap: 4px; max-width: 560px; }

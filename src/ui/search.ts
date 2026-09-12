@@ -1,24 +1,51 @@
 /*
  * Search over the corpus.
  *
- * Deliberately dumb: case-insensitive substring matching, with OR between
- * terms. Patch names in these archives are inconsistent enough that "e-piano OR
- * epiano OR e.piano OR rhodes" is exactly the query you want to write, and
- * anything cleverer would just get in the way of that.
+ * Deliberately dumb, with exactly two operators:
+ *
+ *   space  every word must appear somewhere - not necessarily in the same
+ *          field, so "FM-1_Bank piano" finds the pianos that came out of that
+ *          bank file even though no single field contains both words
+ *   OR     alternatives, also written as a comma
+ *
+ * Both matter for this corpus. Patch names in these archives are inconsistent
+ * enough that "e-piano OR epiano OR e.piano OR rhodes" is exactly the query you
+ * want to write; and once you have thirty thousand voices, narrowing by two
+ * words at once is the only way to get a list you can actually look at.
+ *
+ * Double quotes make a phrase, for the rare case where the space is part of
+ * what you are looking for.
  */
 import type { LoadedVoice } from './state.ts';
 
 export interface SearchQuery {
-  terms: string[];
+  /**
+   * Alternatives, each a list of words that must all match. A voice matches if
+   * any one alternative does.
+   */
+  terms: string[][];
   raw: string;
 }
 
-/** Split on OR (any case) and commas; blank terms are dropped. */
+/** Split a single alternative into words, keeping "quoted phrases" whole. */
+function words(text: string): string[] {
+  const out: string[] = [];
+  const pattern = /"([^"]*)"|(\S+)/g;
+  let m = pattern.exec(text);
+  while (m) {
+    const word = (m[1] ?? m[2] ?? '').trim().toLowerCase();
+    if (word) out.push(word);
+    m = pattern.exec(text);
+  }
+  return out;
+}
+
+/** Split on OR (any case) and commas; blank alternatives are dropped. */
 export function parseQuery(raw: string): SearchQuery {
   const terms = raw
     .split(/\s+OR\s+|,/i)
-    .map((t) => t.trim().toLowerCase())
-    .filter((t) => t.length > 0);
+    .map((part) => words(part))
+    .filter((list) => list.length > 0);
   return { terms, raw };
 }
 
@@ -43,8 +70,8 @@ export function searchableText(voice: LoadedVoice, scope: SearchScope, extra = '
 export function matchesQuery(voice: LoadedVoice, query: SearchQuery, scope: SearchScope, extra = ''): boolean {
   if (query.terms.length === 0) return true;
   const text = searchableText(voice, scope, extra);
-  for (const term of query.terms) {
-    if (text.includes(term)) return true;
+  for (const alternative of query.terms) {
+    if (alternative.every((word) => text.includes(word))) return true;
   }
   return false;
 }

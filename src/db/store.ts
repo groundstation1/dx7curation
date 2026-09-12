@@ -18,6 +18,19 @@ export interface VoiceSource {
   name: string;
   container: string;
   checksumOk: boolean | null;
+  /**
+   * When the file this copy came from was last written, epoch millis, or
+   * absent if unknown.
+   *
+   * Inside an archive this is the entry's own date, which patch collections
+   * usually preserve from whenever the pack was assembled - often the only
+   * chronology there is, since a voice carries no date of its own. For a loose
+   * file it is the filesystem's modified time, which is frequently just the
+   * day it was downloaded.
+   */
+  at?: number;
+  /** Where `at` came from, since the two are worth very different amounts. */
+  atFrom?: 'archive' | 'file';
 }
 
 export interface VoiceRecord {

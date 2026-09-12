@@ -19,6 +19,7 @@ import { DEMO_PHRASE } from '../../engine/phrase.ts';
 import { kvGet, kvSet } from '../../db/store.ts';
 import { keyboard } from '../../audio/keyboard.ts';
 import { voiceDetails } from '../voicePanel.ts';
+import { sidebarSplitter } from '../splitter.ts';
 
 const CATEGORY_COLOURS: Record<Category, string> = {
   keys: '#6ea8fe',
@@ -735,7 +736,9 @@ function render(): void {
   // Same shape as rating: the work on the left, what you are pointing at on
   // the right.
   sideEl = el('aside', { class: 'detail-side' });
-  root.appendChild(el('div', { class: 'detail-layout' }, page, sideEl));
+  const layout = el('div', { class: 'detail-layout' }, page, sideEl);
+  layout.appendChild(sidebarSplitter(layout, { key: 'ui.detailSideWidth', defaultWidth: 300 }));
+  root.appendChild(layout);
   renderSide();
 }
 

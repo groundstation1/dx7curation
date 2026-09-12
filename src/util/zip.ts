@@ -18,6 +18,33 @@ export interface ZipEntry {
   method: number;
   offset: number;
   isDirectory: boolean;
+  /** Epoch millis from the entry's DOS timestamp, or 0 if it is unusable. */
+  modified: number;
+}
+
+/**
+ * The DOS date and time a zip entry carries, as epoch millis.
+ *
+ * Two sixteen-bit fields that have been in the format since 1980: the date is
+ * (year - 1980) in the top seven bits, then month and day; the time is hours,
+ * minutes and two-second units. It is the only chronology a patch collection
+ * usually has - the voices themselves carry no date, and a downloaded file's
+ * own timestamp is the day you downloaded it - so the dates inside an archive
+ * are typically the only surviving trace of when a pack was actually made.
+ *
+ * Local time with no zone, so it is read as local and treated as a day, not a
+ * moment.
+ */
+function dosDateToEpoch(time: number, date: number): number {
+  const year = 1980 + ((date >> 9) & 0x7f);
+  const month = (date >> 5) & 0x0f;
+  const day = date & 0x1f;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return 0;
+  const hour = (time >> 11) & 0x1f;
+  const minute = (time >> 5) & 0x3f;
+  const second = (time & 0x1f) * 2;
+  const at = new Date(year, month - 1, day, hour, minute, second).getTime();
+  return Number.isFinite(at) ? at : 0;
 }
 
 export function isZip(bytes: Uint8Array): boolean {
@@ -47,6 +74,8 @@ export function readZipDirectory(bytes: Uint8Array): ZipEntry[] {
   for (let i = 0; i < count; i++) {
     if (p + 46 > bytes.length || dv.getUint32(p, true) !== CENTRAL_SIGNATURE) break;
     const method = dv.getUint16(p + 10, true);
+    const modTime = dv.getUint16(p + 12, true);
+    const modDate = dv.getUint16(p + 14, true);
     const compressedSize = dv.getUint32(p + 20, true);
     const uncompressedSize = dv.getUint32(p + 24, true);
     const nameLen = dv.getUint16(p + 28, true);
@@ -57,6 +86,7 @@ export function readZipDirectory(bytes: Uint8Array): ZipEntry[] {
     entries.push({
       name,
       method,
+      modified: dosDateToEpoch(modTime, modDate),
       compressedSize,
       uncompressedSize,
       offset,
@@ -90,6 +120,8 @@ export async function readZipEntry(bytes: Uint8Array, entry: ZipEntry): Promise<
 export interface ExtractedFile {
   name: string;
   bytes: Uint8Array;
+  /** Epoch millis from the archive entry, or 0 when it has no usable date. */
+  modified: number;
 }
 
 /** Extract every entry that could plausibly hold voice data. */
@@ -108,7 +140,7 @@ export async function extractZip(
       skipped++;
     } else {
       try {
-        files.push({ name: e.name, bytes: await readZipEntry(bytes, e) });
+        files.push({ name: e.name, bytes: await readZipEntry(bytes, e), modified: e.modified });
       } catch (err) {
         failed.push({ name: e.name, error: (err as Error).message });
       }

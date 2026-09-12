@@ -194,22 +194,32 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
     // a folder was imported again, produced eight or sixteen identical-looking
     // lines - which is what made the list long enough to want truncating in the
     // first place. Collapsed, it is usually short enough to read whole.
-    const groups = new Map<string, { name: string; file: string; slots: number[] }>();
+    const groups = new Map<string, {
+      name: string; file: string; slots: number[]; at: number; atFrom: string;
+    }>();
     for (const src of v.sources) {
       const name = src.name.trim() || '(unnamed)';
-      const key = `${name} ${src.file}`;
-      const group = groups.get(key) ?? { name, file: src.file, slots: [] };
+      const key = `${name}\u0000${src.file}`;
+      const group = groups.get(key)
+        ?? { name, file: src.file, slots: [], at: src.at ?? 0, atFrom: src.atFrom ?? '' };
       group.slots.push(src.slot + 1);
       groups.set(key, group);
     }
     const files = new Set(v.sources.map((src) => src.file)).size;
     panel.appendChild(el('h3', {},
       `Where this one came from (${v.sources.length} in ${files} file${files === 1 ? '' : 's'})`));
+
+    // Dedupe ignores the name bytes, so one voice can arrive under several
+    // names. Each line carries the name that copy had in that file, even when
+    // it matches this voice's own - it is what the file actually says.
     const ul = el('ul', {
       class: 'muted mono',
       style: { margin: 0, paddingLeft: '16px', fontSize: '11px' },
     });
-    for (const group of groups.values()) {
+    // Oldest first, undated last. Where a patch turned up earliest is the
+    // closest thing to provenance this corpus can offer.
+    const ordered = [...groups.values()].sort((a, b) => (a.at || Infinity) - (b.at || Infinity));
+    for (const group of ordered) {
       const counted = new Map<number, number>();
       for (const slot of group.slots) counted.set(slot, (counted.get(slot) ?? 0) + 1);
       const slots = [...counted.entries()]
@@ -217,8 +227,21 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
         // A slot listed twice means the same file was imported twice, which is
         // worth seeing rather than silently collapsing.
         .map(([slot, n]) => (n > 1 ? `${slot}×${n}` : String(slot)));
-      ul.appendChild(el('li', {},
-        `${group.name} — ${group.file} slot${slots.length === 1 ? '' : 's'} ${slots.join(', ')}`));
+      const line = el('li', {},
+        `${group.name} \u2014 ${group.file} slot${slots.length === 1 ? '' : 's'} ${slots.join(', ')}`);
+      // The date, when the file had one worth keeping. Dimmer for a loose
+      // file's own timestamp, which is usually just the day it was downloaded,
+      // than for an archive entry's, which usually survives from whenever the
+      // pack was put together.
+      if (group.at > 0) {
+        line.appendChild(el('span', {
+          style: { opacity: group.atFrom === 'archive' ? '0.9' : '0.45' },
+          title: group.atFrom === 'archive'
+            ? 'from inside the archive, usually the date the pack was made'
+            : 'the file\u2019s own timestamp, often just when it was downloaded',
+        }, `  ${new Date(group.at).toISOString().slice(0, 10)}`));
+      }
+      ul.appendChild(line);
     }
     panel.appendChild(ul);
   }

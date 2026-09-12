@@ -262,6 +262,9 @@ export class Store {
       clampedBytes: 0, checksumFailures: 0, skipped: [], errors: [],
     };
     const skipTally = new Map<string, number>();
+    /** Set per file and per archive entry, read by the handler below. */
+    let fileDate = 0;
+    let entryDate = 0;
     const pending: Array<Omit<VoiceRecord, 'id'>> = [];
 
     const handleBytes = (bytes: Uint8Array, name: string) => {
@@ -275,6 +278,8 @@ export class Store {
       for (const s of report.skipped) skipTally.set(s.reason, (skipTally.get(s.reason) ?? 0) + s.count);
       summary.files++;
       summary.voicesRead += report.voices.length;
+      const at = entryDate > 0 ? entryDate : fileDate;
+      const atFrom: 'archive' | 'file' = entryDate > 0 ? 'archive' : 'file';
       for (const raw of report.voices) {
         if (raw.checksumOk === false) summary.checksumFailures++;
         const unpacked = unpackVoice(raw.packed);
@@ -297,6 +302,7 @@ export class Store {
             name: voiceName(unpacked),
             container: raw.container,
             checksumOk: raw.checksumOk,
+            ...(at > 0 ? { at, atFrom } : {}),
           }],
           pinned: opts.pinned ?? false,
           clampedBytes: changed,
@@ -309,6 +315,11 @@ export class Store {
       const file = files[i];
       opts.onProgress?.(file.name, i, files.length);
       const bytes = new Uint8Array(await file.arrayBuffer());
+      // A loose file's timestamp is usually the day it was downloaded, which
+      // says nothing; an archive entry's is usually from whenever the pack was
+      // put together, which is the only chronology these patches have. Both are
+      // recorded, labelled differently, and the UI trusts them accordingly.
+      fileDate = Number.isFinite(file.lastModified) ? file.lastModified : 0;
       if (isZip(bytes)) {
         const { files: inner, failed } = await extractZip(
           bytes,
@@ -316,7 +327,11 @@ export class Store {
           (done, total) => opts.onProgress?.(`${file.name} (${done}/${total})`, i, files.length),
         );
         for (const f of failed) summary.errors.push({ file: `${file.name}:${f.name}`, error: f.error });
-        for (const f of inner) handleBytes(f.bytes, `${file.name}/${f.name}`);
+        for (const f of inner) {
+          entryDate = f.modified;
+          handleBytes(f.bytes, `${file.name}/${f.name}`);
+        }
+        entryDate = 0;
       } else {
         handleBytes(bytes, file.name);
       }
