@@ -206,6 +206,22 @@ export class Keyboard {
     this.ensureEngine();
   }
 
+  /**
+   * Move the mod wheel from something other than a wheel.
+   *
+   * The typing keyboard uses this to hold the wheel open while a second key is
+   * down. Deliberately the same state the hardware writes, not a parallel one:
+   * the wheel is a property of the instrument, so there is only ever one of it
+   * and whatever moved it last is where it is.
+   */
+  setModWheel(value: number): void {
+    const v = Math.max(0, Math.min(1, value));
+    if (v === this.modWheel) return;
+    this.modWheel = v;
+    this.engine.setModWheel(v);
+    this.emit();
+  }
+
   setModDeadzone(v: number): void {
     this.modDeadzone = Math.max(0, Math.min(0.5, v));
     // Re-apply, so raising the dead zone past where the wheel is resting

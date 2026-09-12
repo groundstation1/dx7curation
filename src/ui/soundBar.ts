@@ -184,9 +184,6 @@ function typingSection(): HTMLElement {
     drawRow(rows.black, true),
     drawRow(rows.white, false),
     drawRow(rows.soft, false, true)));
-  section.appendChild(el('div', { class: 'muted', style: { fontSize: '10.5px', marginTop: '4px' } },
-    'The bottom row plays the same notes softly; shift plays harder. ',
-    'The number row stays out of it: 1-5 rate, 6 pins, 9 and 0 shift the octave.'));
   return section;
 }
 
@@ -285,9 +282,16 @@ function render(): void {
       }, keyboard.connected ? `MIDI ${keyboard.inputs.length} in` : 'connect MIDI')
       : null,
 
-    keyboard.connected && keyboard.modWheel > 0
-      ? el('span', { class: 'warn mono', title: `raw CC ${Math.round(keyboard.modWheelRaw * 127)} of 127` },
-        `mod ${Math.round(keyboard.modWheel * 100)}%`)
+    // Shown whenever the wheel is open, whatever opened it: a hardware wheel,
+    // or two fingers on one note. It was gated on a MIDI connection, which is
+    // exactly the case where the typing keys are not what moved it.
+    keyboard.modWheel > 0
+      ? el('span', {
+        class: 'warn mono',
+        title: keyboard.connected
+          ? `raw CC ${Math.round(keyboard.modWheelRaw * 127)} of 127`
+          : 'held open by the second key on a note',
+      }, `mod ${Math.round(keyboard.modWheel * 100)}%`)
       : null,
 
     el('span', { style: { flex: '1' } }),

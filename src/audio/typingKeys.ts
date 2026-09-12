@@ -253,6 +253,16 @@ export class TypingKeys {
    * least one key holds it.
    */
   private voices = new Map<number, { keys: Set<string>; velocity: number }>();
+  /**
+   * Keys being held as the mod wheel rather than as notes.
+   *
+   * A note has two keys - the soft row mirrors the home row - so the second
+   * one pressed on a note already sounding has nothing useful to do as a note.
+   * It opens the wheel instead. See the note-on handler.
+   */
+  private modKeys = new Set<string>();
+  /** Where the wheel was before a key took it, so it can be given back. */
+  private modBefore = 0;
   private handler: ((e: KeyboardEvent) => void) | null = null;
   private upHandler: ((e: KeyboardEvent) => void) | null = null;
   private blurHandler: (() => void) | null = null;
@@ -352,24 +362,28 @@ export class TypingKeys {
       if (!voice) {
         this.voices.set(note, { keys: new Set([char]), velocity });
         keyboard.noteOn(note, velocity);
-      } else if (!voice.keys.has(char)) {
+      } else if (!voice.keys.has(char) && !this.modKeys.has(char)) {
         /*
-         * A second key on a note that is already sounding adds to it, and the
-         * sum wraps.
+         * The second key on a note that is already sounding is the mod wheel.
          *
-         * Two keys play the same note - the soft row mirrors the home row - so
-         * holding both has to mean something or it means nothing. Adding
-         *  modulo the velocity range gives a third value that is neither of the
-         * two: soft and normal together come out at 16 rather than at 144,
-         * which is quieter than either of them. That is a quirk rather than a
-         * simulation of anything, and it is playable - two keys, one hand, a
-         * velocity you cannot otherwise reach.
+         * Every note has two keys, one in the home row and its twin below, and
+         * pressing both is otherwise a contradiction: retriggering throws away
+         * the note you are holding, and doing nothing wastes the gesture. What
+         * the gesture is good for is the thing a typing keyboard has no room
+         * for - the wheel. Hold a note, drop a finger onto the row below, and
+         * the wheel opens; lift it and the wheel goes back where it was.
          *
-         * Zero is note-off in MIDI, so the wrap floors at one.
+         * Either order. Soft first then the home key, or the other way round:
+         * whichever arrives second modulates, because by then the note it
+         * would have played is already sounding.
+         *
+         * The wheel is global - one instrument, one wheel - so this bends
+         * everything currently down, not only the note under the two fingers.
+         * That is what a wheel does, and it is why this is worth having.
          */
-        voice.keys.add(char);
-        voice.velocity = ((voice.velocity + velocity) % 128) || 1;
-        keyboard.noteOn(note, voice.velocity);
+        if (this.modKeys.size === 0) this.modBefore = keyboard.modWheel;
+        this.modKeys.add(char);
+        keyboard.setModWheel(1);
       }
       this.emit();
     };
@@ -379,6 +393,15 @@ export class TypingKeys {
       const note = this.held.get(char);
       if (note === undefined) return;
       this.held.delete(char);
+
+      // A key that was holding the wheel gives it back rather than stopping a
+      // note it never started.
+      if (this.modKeys.delete(char)) {
+        if (this.modKeys.size === 0) keyboard.setModWheel(this.modBefore);
+        this.emit();
+        return;
+      }
+
       const voice = this.voices.get(note);
       if (!voice) return;
       voice.keys.delete(char);
@@ -396,6 +419,10 @@ export class TypingKeys {
       for (const note of this.voices.keys()) keyboard.noteOff(note);
       this.voices.clear();
       this.held.clear();
+      if (this.modKeys.size) {
+        this.modKeys.clear();
+        keyboard.setModWheel(this.modBefore);
+      }
       this.emit();
     };
 
@@ -416,6 +443,10 @@ export class TypingKeys {
     for (const note of this.voices.keys()) keyboard.noteOff(note);
     this.voices.clear();
     this.held.clear();
+    if (this.modKeys.size) {
+      this.modKeys.clear();
+      keyboard.setModWheel(this.modBefore);
+    }
     this.enabled = false;
     this.emit();
   }

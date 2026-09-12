@@ -59,12 +59,17 @@ for (const layout of LAYOUTS) {
     `${drawn.length} keys drawn`);
 }
 
-// Two keys, one note: the soft row mirrors the home row, so holding both has
-// to add up to something rather than fighting over the same note.
-const wrap = (a: number, b: number) => ((a + b) % 128) || 1;
-check('soft plus normal wraps to a third velocity', wrap(48, 96) === 16, String(wrap(48, 96)));
-check('the wrap never lands on zero, which is note-off', wrap(64, 64) === 1, String(wrap(64, 64)));
-check('two soft presses still make a real velocity', wrap(48, 48) === 96, String(wrap(48, 48)));
+// Every note has two keys - the home row and its twin below - which is what
+// makes the second press free to mean something else. Nothing else collides.
+for (const layout of LAYOUTS) {
+  const notes = charNotes(layout);
+  const byNote = new Map<number, string[]>();
+  for (const [ch, a] of notes) byNote.set(a.offset, [...(byNote.get(a.offset) ?? []), ch]);
+  const pairs = [...byNote.values()].filter((ks) => ks.length > 1);
+  check(`${layout.label}: each white note has exactly two keys`,
+    pairs.length === WHITES.length && pairs.every((ks) => ks.length === 2),
+    `${pairs.length} paired`);
+}
 
 console.log(fail === 0 ? '\nall typing checks passed\n' : `\n${fail} check(s) failed\n`);
 process.exit(fail === 0 ? 0 : 1);
