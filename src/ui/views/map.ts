@@ -540,6 +540,29 @@ function radiusOf(i: number): number {
 }
 
 /**
+ * The order dots are painted in: biggest first, so the smallest end up on top.
+ *
+ * The hit test already ignores size, but that alone does not make a small dot
+ * as easy to hit as a big one - a small dot painted underneath a big one is
+ * invisible, and you cannot aim at what you cannot see. Painting small last
+ * means every dot has some of itself showing, which is what actually equalises
+ * them.
+ *
+ * Only worth computing when a size axis is on; with uniform dots the order
+ * cannot matter, and sorting forty thousand indices for nothing is a cost paid
+ * on every filter change.
+ */
+let drawOrder: number[] = [];
+
+function computeDrawOrder(): void {
+  if (!sizeAxisId) {
+    drawOrder = visible;
+    return;
+  }
+  drawOrder = visible.slice().sort((a, b) => radiusOf(b) - radiusOf(a));
+}
+
+/**
  * Dot radius from the size axis, if there is one.
  *
  * Area carries the value, not radius: a dot with twice the number in it looks
@@ -551,7 +574,10 @@ function radiusOf(i: number): number {
 function computeSizes(): void {
   const n = ctx.store.voices.length;
   sizes = new Float32Array(n).fill(BASE_RADIUS);
-  if (!sizeAxisId) return;
+  if (!sizeAxisId) {
+    computeDrawOrder();
+    return;
+  }
 
   const axis = axisById(sizeAxisId);
   const raw = new Float32Array(n);
@@ -561,7 +587,10 @@ function computeSizes(): void {
     raw[i] = v;
     if (Number.isFinite(v)) vals.push(v);
   }
-  if (vals.length === 0) return;
+  if (vals.length === 0) {
+    computeDrawOrder();
+    return;
+  }
   vals.sort((a, b) => a - b);
   const lo = vals[Math.floor(vals.length * 0.005)];
   const hi = vals[Math.min(vals.length - 1, Math.ceil(vals.length * 0.995))];
@@ -577,6 +606,7 @@ function computeSizes(): void {
     const r = Math.sqrt((minArea + t * (maxArea - minArea)) / Math.PI);
     sizes[i] = Math.round(r * 4) / 4;
   }
+  computeDrawOrder();
 }
 
 // ----------------------------------------------------------------- draw
@@ -607,7 +637,7 @@ function draw(): void {
   const highlight = searchMode === 'highlight' && matched ? matched : null;
 
   g.globalAlpha = 1;
-  for (const i of visible) {
+  for (const i of drawOrder) {
     const [px, py] = toScreen(i, w, h);
     if (px < -20 || py < -20 || px > w + 20 || py > h + 20) continue;
     const dimmed = (lassoSet && !lassoSet.has(i)) || (highlight && !highlight.has(i));
@@ -877,6 +907,18 @@ function activeSet(): number[] {
  * context rather than becoming targets, so sweeping through a highlighted
  * region cannot catch a neighbour and lose your place. Turn it off to hear what
  * is actually sitting around the matches.
+ */
+/**
+ * The voice under the cursor: nearest centre within a fixed radius.
+ *
+ * Fixed, deliberately - the drawn radius never enters this. Sizing dots by
+ * family size means some are four times the area of others, and if the target
+ * grew with them, the patches with forty near-copies would be easy to land on
+ * and the one-of-a-kind ones would be nearly unhittable. Those are exactly
+ * backwards: a sound nothing else in the corpus resembles is the more
+ * interesting thing to point at.
+ *
+ * Draw order does the other half of this; see `drawOrder`.
  */
 function pick(mx: number, my: number, radius = 18): number {
   const rect = canvas.getBoundingClientRect();
