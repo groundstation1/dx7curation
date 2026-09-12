@@ -694,7 +694,7 @@ function render(): void {
     return;
   }
 
-  const page = el('div', { class: 'stack' });
+  const page = el('div', { class: 'stack page-narrow' });
   page.appendChild(pageHead('Sources',
     `${fmtInt(store.voices.length)} patches in this browser, from ${fmtInt(sourceFileCount())} files.`));
 

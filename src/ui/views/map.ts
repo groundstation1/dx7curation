@@ -1999,7 +1999,11 @@ export const view: View = {
     splitEl = makeSplitter();
     const main = el('div', { class: 'map-main' }, controlsEl, plotEl, splitEl, listEl);
     const layout = el('div', { class: 'map-layout' }, main, sideEl);
-    layout.appendChild(sidebarSplitter(layout, { key: 'ui.mapSideWidth', defaultWidth: 300 }));
+    layout.appendChild(sidebarSplitter(layout, {
+      key: 'ui.mapSideWidth',
+      defaultWidth: 300,
+      onResize: () => draw(),
+    }));
     root.appendChild(layout);
 
     list = createListView(listEl, ctx.store, listState, {

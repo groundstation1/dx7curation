@@ -23,7 +23,7 @@ export interface View {
   flush?: boolean;
 }
 
-export type ViewId = 'corpus' | 'map' | 'rate' | 'faceoff' | 'build';
+export type ViewId = 'corpus' | 'map' | 'rate' | 'rank' | 'faceoff' | 'build';
 
 interface TabSpec {
   id: ViewId;
@@ -56,6 +56,20 @@ const TABS: TabSpec[] = [
     load: async () => (await import('./views/rate.ts')).view,
     enabled: () => store.clusters !== null,
     hint: 'import some patches first',
+  },
+  {
+    /*
+     * Ordering the top band, which is a different job from rating it.
+     *
+     * Enabled once there are two patches sharing the highest rating anyone has
+     * given - which is the moment the star scale stops separating them, and
+     * therefore the moment this becomes worth doing.
+     */
+    id: 'rank',
+    label: 'Rank',
+    load: async () => (await import('./views/rank.ts')).view,
+    enabled: () => store.rankableCount() >= 2,
+    hint: 'rate a few patches the same to have something to order',
   },
   {
     // Behind the advanced switch: at the merge threshold the app picks, the

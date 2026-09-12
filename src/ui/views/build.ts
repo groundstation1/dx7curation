@@ -253,14 +253,17 @@ function candidates(): Candidate[] {
   if (store.clusters) {
     for (let id = 0; id < store.clusters.clusters.length; id++) {
       const rep = store.representatives[id];
-      const rating = store.ratingOf(rep) ?? 0;
+      // The refined rating, so an order settled in the ranking pass decides
+      // which of two five-star patches gets the last slot. It never crosses a
+      // star boundary, so every threshold downstream still means what it says.
+      const rating = store.effectiveRating(rep) ?? 0;
       const chosen = store.faceoffExtras.get(id) ?? [rep];
       const familySize = store.clusters.clusters[id].length;
       for (const index of chosen) push(index, rating, store.voices[index]?.pinned ?? false, familySize);
     }
   }
   for (let i = 0; i < store.voices.length; i++) {
-    if (store.voices[i].pinned) push(i, store.ratingOf(i) ?? 5, true, 1);
+    if (store.voices[i].pinned) push(i, store.effectiveRating(i) ?? 5, true, 1);
   }
   return out;
 }

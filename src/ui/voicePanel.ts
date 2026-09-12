@@ -13,10 +13,11 @@
  * sense: the face-off is already a family comparison, so repeating the family
  * lists inside each side would say nothing.
  */
-import { el } from './dom.ts';
+import { downloadBytes, el } from './dom.ts';
 import { algorithmPanel } from './algorithmDiagram.ts';
 import { CATEGORIES, CATEGORY_LABELS, subcategoryLabel, type Category } from '../cluster/category.ts';
 import { P } from '../sysex/voice.ts';
+import { buildSingleVoice } from '../sysex/write.ts';
 import type { Store } from './state.ts';
 
 export interface VoicePanelOptions {
@@ -50,11 +51,26 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
   const changed = () => opts.onChange?.();
 
   if (opts.heading !== false) {
-    panel.appendChild(el('div', { class: 'mono', style: { fontSize: '17px' } }, v.name || '(unnamed)'));
-    panel.appendChild(el('div', { class: 'muted', style: { marginTop: '2px' } },
-      `algorithm ${(v.unpacked[P.algorithm] & 31) + 1}`,
-      `  ·  feedback ${v.unpacked[P.feedback] & 7}`,
-      v.pinned ? '  ·  pinned' : ''));
+    panel.appendChild(el('div', { class: 'voice-head' },
+      el('div', { style: { minWidth: '0' } },
+        el('div', { class: 'mono voice-name' }, v.name || '(unnamed)'),
+        el('div', { class: 'muted', style: { marginTop: '2px' } },
+          `algorithm ${(v.unpacked[P.algorithm] & 31) + 1}`,
+          `  ·  feedback ${v.unpacked[P.feedback] & 7}`,
+          v.pinned ? '  ·  pinned' : '')),
+      // One patch, as a single-voice dump. Every DX7 editor and every clone
+      // reads this, and wanting exactly the one you are looking at - to load
+      // on the device, to send to someone, to keep - is a good deal more
+      // common than wanting all forty thousand.
+      el('button', {
+        class: 'voice-dl',
+        title: 'Download this patch as a single-voice .syx',
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          const safe = (v.name || 'voice').trim().replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'voice';
+          downloadBytes(buildSingleVoice(v.unpacked), `${safe}.syx`);
+        },
+      }, '↓')));
   }
 
   // The algorithm, drawn. Two patches on the same algorithm are the same

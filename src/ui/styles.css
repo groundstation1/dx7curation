@@ -94,30 +94,39 @@ header.topbar {
   align-items: center;
   gap: 4px;
   padding: 0 16px;
-  height: 46px;
+  height: 54px;
   background: var(--bg);
   flex: none;
   position: relative;
   z-index: 10;
 }
 
+/*
+ * The wordmark, sized to the bar it sits in.
+ *
+ * It was 11.5px - the same size as the status counts beside it and smaller
+ * than the tabs - so the app had no name, only a label. A wordmark that fills
+ * its bar is the top of the reading order, and everything else can then be
+ * small without the screen looking uniformly small.
+ */
 .topbar .brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-family: var(--mono);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   text-transform: uppercase;
-  margin-right: 18px;
+  margin-right: 22px;
   white-space: nowrap;
   color: var(--text);
+  line-height: 1;
 }
 /* The power lamp. Every piece of eighties hardware has one - flat, though. */
 .topbar .brand::before {
   content: '';
-  width: 6px; height: 6px; border-radius: 50%;
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
   background: var(--accent-2);
 }
 
@@ -130,10 +139,11 @@ nav.tabs button {
   background: none;
   border: none;
   color: var(--muted);
-  padding: 6px 12px;
+  padding: 8px 15px;
   border-radius: var(--pill);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 14.5px;
+  font-weight: 500;
   cursor: pointer;
   transition: color 0.12s, background 0.12s;
 }
@@ -231,6 +241,35 @@ details.disc > summary:hover { color: var(--text); }
 .disc-body { padding: 4px 0 12px; }
 
 /* ---------------------------------------------------------------- basics */
+
+/*
+ * The one thing on the screen that is allowed to be large.
+ *
+ * Sized against the column it sits in rather than set to a fixed number, so it
+ * fills the width it is given at any window size. Everything else in the app is
+ * between 10 and 15 pixels, which is correct for dense controls and useless as
+ * a reading order: with nothing large anywhere, the eye has nowhere to land
+ * and the whole page arrives at once.
+ */
+/*
+ * A column, not the whole window.
+ *
+ * Sources is a drop zone, a status line and a row of buttons. Stretched across
+ * a wide monitor those become three lonely objects at opposite ends of a very
+ * large empty rectangle, and the line lengths in between get unreadable.
+ */
+.page-narrow { max-width: 880px; margin: 0 auto; width: 100%; }
+
+.page-head { margin: 0 0 8px; }
+.page-title {
+  font-size: clamp(30px, 5.2vw, 54px);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text);
+}
+.page-sub { color: var(--muted); font-size: 13.5px; margin: 8px 0 0; max-width: 70ch; }
 
 h2 { font-size: 15px; margin: 0 0 6px; font-weight: 600; letter-spacing: -0.01em; }
 h3 {
@@ -444,7 +483,7 @@ kbd {
 
 /* The first screen, when there is nothing yet: the drop zone is the page. */
 .onboard { max-width: 640px; margin: 8vh auto 0; text-align: center; }
-.onboard h1 { font-size: 24px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.02em; }
+.onboard h1 { font-size: clamp(28px, 4.4vw, 44px); font-weight: 600; margin: 0 0 10px; letter-spacing: -0.03em; line-height: 1.05; }
 .onboard .lede { color: var(--muted); margin: 0 0 26px; font-size: 13.5px; }
 .onboard .dropzone { padding: 52px 30px; }
 .onboard .drop-big { font-size: 16px; color: var(--text); margin-bottom: 10px; }
@@ -618,6 +657,18 @@ kbd {
 .legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
+/* The patch heading, with its download tucked into the top right corner. */
+.voice-head { display: flex; align-items: flex-start; gap: 10px; }
+.voice-name { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-dl {
+  margin-left: auto; flex: none;
+  width: 26px; height: 26px; border: none; border-radius: var(--radius-sm);
+  background: var(--raise); color: var(--muted); cursor: pointer;
+  font-size: 14px; line-height: 1;
+  transition: background 0.12s, color 0.12s;
+}
+.voice-dl:hover { background: var(--raise-2); color: var(--text); }
+
 .detail dt { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; margin-top: 12px; }
 .detail dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
 
@@ -662,6 +713,29 @@ kbd {
 .ab .side.live { background: rgba(110, 168, 254, 0.16); }
 .ab .side .tag { color: var(--muted); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; }
 .ab .side .nm { font-family: var(--mono); font-size: 18px; margin-top: 6px; }
+
+/* ------------------------------------------------------------- ranking */
+
+/* The band as it stands. Dense, because the point is to read down it. */
+.rank-list { list-style: none; margin: 0; padding: 0; counter-reset: rank; }
+.rank-list li {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 8px; border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 12px; counter-increment: rank;
+}
+.rank-list li::before {
+  content: counter(rank);
+  min-width: 22px; text-align: right; color: var(--muted);
+  font-family: var(--mono); font-size: 11px; flex: none;
+}
+.rank-list li:hover { background: var(--raise); }
+.rank-list li.on { background: rgba(110, 168, 254, 0.16); }
+.rank-nm { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-sc { margin-left: auto; font-family: var(--mono); font-size: 11px; flex: none; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
+
+.ab .side { cursor: pointer; }
+.ab .side .dot { margin-right: 5px; vertical-align: middle; }
 
 /* --------------------------------------------------------------- build */
 

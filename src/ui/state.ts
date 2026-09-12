@@ -29,6 +29,7 @@ import type { StructuralFeatures } from '../features/structural.ts';
 import { analyzeAll, type PoolProgress } from '../workers/pool.ts';
 import { isZip, extractZip } from '../util/zip.ts';
 import { runTask, type TaskHandle } from './task.ts';
+import { applyResult, newStanding, ratingOffset, type Standing } from '../rank/elo.ts';
 
 /**
  * Let the browser paint before starting something that blocks the thread.
@@ -225,6 +226,8 @@ export class Store {
       this.categoryOverrides = new Map(overrides);
       const extras = (await kvGet<Array<[number, number[]]>>('faceoffExtras')) ?? [];
       this.faceoffExtras = new Map(extras);
+      const ranks = (await kvGet<Array<[number, number, number]>>('rankings')) ?? [];
+      this.rankings = new Map(ranks.map(([id, score, games]) => [id, { score, games }]));
 
       if (this.analysisComplete) {
         // Categories are a pure function of features that are already stored,
@@ -893,6 +896,111 @@ export class Store {
     await putRating(rec);
   }
 
+  // ------------------------------------------------------------- ranking
+
+  /**
+   * Pairwise ranking inside a star band.
+   *
+   * Five stars saturate. Rate a few thousand patches and the top band holds
+   * several hundred, which is both more than a bank can take and completely
+   * unordered - the star says "I would keep this" and nothing about which of
+   * two keepers you would rather have. No amount of rating fixes that, because
+   * the scale has run out of room at exactly the point where the decision gets
+   * hard.
+   *
+   * So the top band is ordered by comparison instead. Elo, because it wants
+   * pairs rather than a total ordering, converges without ever showing every
+   * pair (which at three hundred patches would be forty-five thousand), and
+   * handles the fact that your judgement is noisy and occasionally cyclic.
+   *
+   * Deliberately a *sub*-rating. The score moves the patch within its star and
+   * can never push it out of it, so a five that loses every comparison still
+   * outranks every four. The stars are your judgement about quality; this is
+   * only your judgement about order, and it should not be able to overrule the
+   * first one.
+   */
+  rankings = new Map<number, Standing>();
+
+  rankOf(index: number): Standing {
+    const v = this.voices[index];
+    return (v && this.rankings.get(v.id)) ?? newStanding();
+  }
+
+  /**
+   * The rating a patch is actually worth, stars plus its standing.
+   *
+   * The offset is capped at 0.45 of a star, so the bands can never overlap:
+   * ordering within a band is the only thing this is allowed to change.
+   */
+  effectiveRating(index: number): number | null {
+    const stars = this.ratingOf(index);
+    if (stars === null) return null;
+    return stars + ratingOffset(this.rankOf(index));
+  }
+
+  /** Record one comparison, and settle both scores. */
+  async recordWin(winner: number, loser: number): Promise<void> {
+    const a = this.voices[winner];
+    const b = this.voices[loser];
+    if (!a || !b || a.id === b.id) return;
+
+    const [won, lost] = applyResult(this.rankOf(winner), this.rankOf(loser));
+    this.rankings.set(a.id, won);
+    this.rankings.set(b.id, lost);
+    this.emit();
+    await this.saveRankings();
+  }
+
+  /** Forget one patch's standing, for when a comparison was a mis-click. */
+  async clearRank(index: number): Promise<void> {
+    const v = this.voices[index];
+    if (!v) return;
+    this.rankings.delete(v.id);
+    this.emit();
+    await this.saveRankings();
+  }
+
+  async resetRankings(): Promise<void> {
+    this.rankings.clear();
+    this.emit();
+    await this.saveRankings();
+  }
+
+  private async saveRankings(): Promise<void> {
+    await kvSet('rankings', [...this.rankings].map(([id, r]) => [id, r.score, r.games]));
+  }
+
+  /**
+   * How many patches share the top rating anyone has given.
+   *
+   * Two is enough to have something to compare, and is also exactly when the
+   * star scale has stopped telling those two apart.
+   */
+  rankableCount(): number {
+    let top = 0;
+    const counts = new Map<number, number>();
+    for (const r of this.ratings.values()) {
+      counts.set(r.rating, (counts.get(r.rating) ?? 0) + 1);
+      if (r.rating > top) top = r.rating;
+    }
+    return counts.get(top) ?? 0;
+  }
+
+  /**
+   * Everything in one star band, best first.
+   *
+   * The band is a rating, not a range: comparing a five against a four is a
+   * question you have already answered with the stars.
+   */
+  rankedBand(stars: number): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < this.voices.length; i++) {
+      if (this.ratingOf(i) === stars) out.push(i);
+    }
+    out.sort((x, y) => this.rankOf(y).score - this.rankOf(x).score);
+    return out;
+  }
+
   /** Remove a rating, so a mis-key can be undone without leaving the map. */
   async clearRating(index: number): Promise<void> {
     const v = this.voices[index];
@@ -977,6 +1085,11 @@ export class Store {
       if (o) overrides.push([key, o]);
       if (v.pinned) pinned.push(key);
     }
+    const ranks: Array<[string, number, number]> = [];
+    for (let i = 0; i < this.voices.length; i++) {
+      const r = this.rankings.get(this.voices[i].id);
+      if (r) ranks.push([packedKeyOf(this.voices[i].packed), Math.round(r.score * 100) / 100, r.games]);
+    }
     const faceoff: Array<[string, string[]]> = [];
     for (const [clusterId, indices] of this.faceoffExtras) {
       const rep = this.representatives[clusterId];
@@ -997,6 +1110,7 @@ export class Store {
       overrides,
       pinned,
       faceoff,
+      ranks,
     });
   }
 
@@ -1007,6 +1121,7 @@ export class Store {
       overrides?: Array<[string, string]>;
       pinned?: string[];
       faceoff?: Array<[string, string[]]>;
+      ranks?: Array<[string, number, number]>;
       threshold?: number;
       mergeThreshold?: number;
     };
@@ -1052,6 +1167,13 @@ export class Store {
       await setPinned(this.voices[ix].id, true);
       pinned++;
     }
+
+    for (const [key, score, games] of data.ranks ?? []) {
+      const ix = byKey.get(key);
+      if (ix === undefined) continue;
+      this.rankings.set(this.voices[ix].id, { score, games });
+    }
+    if (data.ranks?.length) await this.saveRankings();
 
     if (typeof data.threshold === 'number') {
       this.applyThreshold(data.threshold, data.mergeThreshold ?? this.mergeThreshold);
@@ -1179,9 +1301,11 @@ export class Store {
   async resetRatings(): Promise<void> {
     this.ratings.clear();
     this.faceoffExtras.clear();
+    this.rankings.clear();
     this.emit();
     await clearRatings();
     await kvSet('faceoffExtras', []);
+    await kvSet('rankings', []);
   }
 
   async reset(): Promise<void> {

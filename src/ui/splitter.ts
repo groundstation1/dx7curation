@@ -18,6 +18,15 @@ export interface SplitterOptions {
   defaultWidth?: number;
   min?: number;
   max?: number;
+  /**
+   * Called on every move, not only on release.
+   *
+   * A canvas does not re-render when its box changes: the bitmap is simply
+   * scaled to the new size, so dragging this handle squeezed the plot like a
+   * photograph and only redrew when something else happened to call `draw`.
+   * Anything that paints its own pixels has to be told.
+   */
+  onResize?: () => void;
 }
 
 /**
@@ -47,7 +56,10 @@ export function sidebarSplitter(layout: HTMLElement, opts: SplitterOptions): HTM
     handle.classList.add('dragging');
     const right = layout.getBoundingClientRect().right;
 
-    const move = (ev: PointerEvent) => apply(right - ev.clientX);
+    const move = (ev: PointerEvent) => {
+      apply(right - ev.clientX);
+      opts.onResize?.();
+    };
     const up = (ev: PointerEvent) => {
       handle.releasePointerCapture(ev.pointerId);
       handle.classList.remove('dragging');
@@ -63,6 +75,7 @@ export function sidebarSplitter(layout: HTMLElement, opts: SplitterOptions): HTM
   handle.addEventListener('dblclick', () => {
     apply(def);
     setSetting(opts.key, def);
+    opts.onResize?.();
   });
 
   return handle;

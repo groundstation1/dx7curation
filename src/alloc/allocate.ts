@@ -16,7 +16,14 @@ import { CATEGORIES, type Category } from '../cluster/category.ts';
 export interface Candidate {
   id: number;
   category: Category;
-  /** User rating, 1-5. Unrated candidates should be filtered out beforehand. */
+  /**
+   * User rating, 1-5, plus up to half a star of ranking offset.
+   *
+   * Fractional because the ranking pass orders within a band; the offset is
+   * capped below half a star so `Math.round` always recovers the star the user
+   * actually gave. Every threshold here rounds before comparing, so "five or
+   * better" still admits a five that lost every comparison it was in.
+   */
   rating: number;
   pinned: boolean;
   /** Tie-break within a rating, higher first. Defaults to 0. */
@@ -119,7 +126,7 @@ export function allocate(candidates: Candidate[], opts: AllocationOptions = {}):
   const pool = new Map<Category, Candidate[]>();
   for (const c of CATEGORIES) pool.set(c, []);
   for (const cand of candidates) {
-    if (!cand.pinned && cand.rating < minRating) continue;
+    if (!cand.pinned && Math.round(cand.rating) < minRating) continue;
     pool.get(cand.category)?.push(cand);
   }
   for (const c of CATEGORIES) pool.get(c)!.sort(rank);
@@ -245,7 +252,7 @@ export function allocate(candidates: Candidate[], opts: AllocationOptions = {}):
     for (const s of selected) perCategory.set(s.category, (perCategory.get(s.category) ?? 0) + 1);
 
     const leftovers = candidates
-      .filter((c) => !seated.has(c.id) && c.rating >= backfillMinRating)
+      .filter((c) => !seated.has(c.id) && Math.round(c.rating) >= backfillMinRating)
       .sort(rank);
 
     // Two passes: first respecting ceilings, then ignoring them, so a lopsided
@@ -269,7 +276,8 @@ export function allocate(candidates: Candidate[], opts: AllocationOptions = {}):
 
   let lowestRating = 0;
   for (const s of selected) {
-    if (lowestRating === 0 || s.rating < lowestRating) lowestRating = s.rating;
+    const star = Math.round(s.rating);
+    if (lowestRating === 0 || star < lowestRating) lowestRating = star;
   }
 
   const unfilled = total - selected.length;
