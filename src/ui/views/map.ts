@@ -22,7 +22,7 @@ import { createListView, sortIndices, type ListState, type ListView, type SortKe
 import { categoryColour, focusedSubcategoryColour, oklch, ratingColour, subcategoryColour as subColour } from '../colour.ts';
 import { DEMO_PHRASE, HOVER_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
-import { matchesQuery, parseQuery, isActiveQuery, type SearchQuery } from '../search.ts';
+import { matchesQuery, parseQuery, isActiveQuery, type SearchQuery, type SearchScope } from '../search.ts';
 import { getSetting, setSetting } from '../settings.ts';
 import { adv, isAdvanced } from '../advanced.ts';
 import { loopPhrase, usePhrase } from '../soundBar.ts';
@@ -1347,6 +1347,19 @@ function renderSide(): void {
   }));
 }
 
+/**
+ * Open Browse with a search already typed in.
+ *
+ * Set rather than applied: the caller is on another screen and this module may
+ * not be mounted, and mounting runs the filter anyway.
+ */
+export function presetSearch(text: string, scope: SearchScope = 'all'): void {
+  searchText = text;
+  searchScope = scope;
+  searchMode = 'only';
+  searchOpen = true;
+}
+
 // ---------------------------------------------------------------- controls
 
 function applyFilters(): void {
@@ -2345,8 +2358,14 @@ export const view: View = {
     applyMode();
 
     // The second control row is inserted after controlsEl by renderControls.
-    computeLayout();
-    renderControls();
+    //
+    // Through applyFilters rather than straight to the layout: the filters are
+    // module state that outlives the mount, so arriving here with a search
+    // already set - from the source table, or from the last time this screen
+    // was open while ratings changed underneath it - has to recompute what
+    // matches. Skipping it left the search box holding a query that had never
+    // been run.
+    applyFilters();
     renderLegend();
     renderSide();
     attachCanvasEvents();

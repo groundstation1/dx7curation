@@ -784,7 +784,8 @@ kbd {
 .search-pop input.text { width: 100%; font-size: 13px; padding: 8px 10px; background: var(--bg); }
 .search-pop select { background: var(--raise-2); }
 .search-pop .row { gap: 8px; font-size: 11.5px; }
-.search-pop .note { color: var(--muted); font-size: 11px; line-height: 1.5; }
+/* A line of explanation under a control or a table. */
+.note { color: var(--muted); font-size: 11px; line-height: 1.5; }
 
 /* ---------------------------------------------------------------- list */
 
@@ -1180,3 +1181,14 @@ table.sweep .zone-label {
 .op-mark { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .empty-state { color: var(--muted); text-align: center; padding: 60px 20px; }
+
+/* The source table.
+
+   Fixed layout because the first column holds paths a hundred characters long
+   and auto layout will widen a table past its panel rather than truncate: the
+   numbers then hang off the right edge where nobody sees them. Fixed means the
+   declared widths hold and the path is the thing that gives. */
+table.data.fixed { table-layout: fixed; }
+.src-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.src-num { width: 66px; }
+.src-bar { width: 84px; }
