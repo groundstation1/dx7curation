@@ -207,6 +207,15 @@ export interface ListView {
   update(indices: number[]): void;
   /** Repaint the visible rows only - after a rating, say. */
   refresh(): void;
+  /**
+   * Move the highlight without rebuilding anything.
+   *
+   * Rebuilding on hover destroys the row under the cursor, and a row that is
+   * replaced between pointerdown and pointerup produces no click event at all -
+   * so clicking a row did nothing, intermittently and then reliably, depending
+   * on whether the mouse twitched. Marking touches two class lists.
+   */
+  mark(): void;
   /** Put a voice on screen and mark it. */
   reveal(index: number): void;
 }
@@ -291,7 +300,18 @@ export function createListView(
 
   renderHeader();
 
+  const mark = () => {
+    const current = handlers.current();
+    const held = handlers.pinned();
+    for (const row of Array.from(rows.children) as HTMLElement[]) {
+      const index = Number(row.dataset.index);
+      row.classList.toggle('on', index === current);
+      row.classList.toggle('held', index === held);
+    }
+  };
+
   return {
+    mark,
     update(next) {
       indices = next;
       spacer.style.height = `${indices.length * ROW_HEIGHT}px`;

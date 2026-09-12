@@ -1591,8 +1591,15 @@ export const view: View = {
         hovered = i;
         armKeyboard();
         renderSide();
-        void audition(i, true, 'hover');
-        list?.refresh();
+        list?.mark();
+        // The same rate limit the map uses for a sweep: without it, running the
+        // cursor down the list queues one full render per row and the sound
+        // arrives seconds after the cursor has gone.
+        const now = performance.now();
+        if (now - lastAuditionAt > HOVER_INTERVAL_MS) {
+          lastAuditionAt = now;
+          void audition(i, true, 'hover');
+        }
       },
       onOpen: (i) => {
         selected = selected === i ? -1 : i;
@@ -1600,7 +1607,7 @@ export const view: View = {
         armKeyboard();
         renderSide();
         void audition(i, false, 'click');
-        list?.refresh();
+        list?.mark();
       },
       onRate: (i, value) => {
         void ctx.store.rate(i, value, 'round1').then(() => list?.refresh());
