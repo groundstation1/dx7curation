@@ -48,17 +48,17 @@ const r = renderPhrase(ep, DEMO_PHRASE, { sampleRate: sr });
 check('length matches the phrase', Math.abs(r.samples.length / sr - DEMO_PHRASE.totalSec) < 0.05,
   `${(r.samples.length / sr).toFixed(2)}s`);
 
-const firstNote = rms(r.samples, 0.01 * sr, 0.30 * sr);
-const gapAfterFirst = rms(r.samples, 0.55 * sr, 0.69 * sr);
+const firstNote = rms(r.samples, 0.01 * sr, 0.40 * sr);
+const gapAfterFirst = rms(r.samples, 0.60 * sr, 0.69 * sr);
 check('first note sounds', firstNote > 1e-3, `rms ${firstNote.toFixed(4)}`);
 check('a gap follows the first note', gapAfterFirst < firstNote, `${gapAfterFirst.toFixed(4)} < ${firstNote.toFixed(4)}`);
 
-const singleRms = rms(r.samples, 0.02 * sr, 0.30 * sr);
-const chordRms = rms(r.samples, 1.35 * sr, 2.10 * sr);
+const singleRms = rms(r.samples, 0.02 * sr, 0.40 * sr);
+const chordRms = rms(r.samples, 1.40 * sr, 2.10 * sr);
 check('the triad is louder than one note', chordRms > singleRms, `${chordRms.toFixed(4)} vs ${singleRms.toFixed(4)}`);
 
-const softVel = rms(r.samples, 2.72 * sr, 2.83 * sr);
-const hardVel = rms(r.samples, 3.36 * sr, 3.47 * sr);
+const softVel = rms(r.samples, 2.67 * sr, 2.78 * sr);
+const hardVel = rms(r.samples, 3.35 * sr, 3.49 * sr);
 check('the velocity ramp rises', hardVel > softVel, `${hardVel.toFixed(4)} vs ${softVel.toFixed(4)}`);
 
 const tail = rms(r.samples, 7.10 * sr, 7.45 * sr);

@@ -41,6 +41,7 @@ export interface Phrase {
 }
 
 const C2 = 36;
+const F3 = 53;
 const A3 = 57;
 const C4 = 60;
 const E4 = 64;
@@ -69,7 +70,7 @@ const MID = 45;
  * 0.7 s, so even a slow sweep still gives one note per patch.
  */
 export const DEMO_PHRASE: Phrase = {
-  id: 'demo-v8',
+  id: 'demo-v9',
   label: 'demo phrase',
   notes: [
     // Everything that is not explicitly demonstrating velocity sits at a mid
@@ -82,26 +83,39 @@ export const DEMO_PHRASE: Phrase = {
     // One note, alone, with a clear gap after it: brushing across the map cuts
     // the phrase almost immediately, and what you want to have heard in that
     // moment is one clean note.
-    { at: 0.0, note: C4, velocity: MID, dur: 0.35 },
-    // Bottom and top of the keyboard: level and brightness scaling.
-    { at: 0.7, note: C2, velocity: MID, dur: 0.24 },
-    { at: 0.99, note: C6, velocity: MID, dur: 0.24 },
+    { at: 0.0, note: C4, velocity: MID, dur: 0.45 },
+    // Bottom and top of the keyboard: level and brightness scaling. Long then
+    // short rather than two of the same length, which is the difference between
+    // a rhythm and a metronome.
+    { at: 0.7, note: C2, velocity: MID, dur: 0.3 },
+    { at: 1.05, note: C6, velocity: MID, dur: 0.18 },
     // A triad: how it stacks. Three notes rather than four, because the DX7's
     // own output stage clips on a loud four-note chord for about one patch in
     // seven, and that distortion is baked into the render.
-    { at: 1.28, note: C4, velocity: MID, dur: 1.2 },
-    { at: 1.28, note: E4, velocity: MID, dur: 1.2 },
-    { at: 1.28, note: G4, velocity: MID, dur: 1.2 },
-    // A velocity ramp on short notes, which shows the whole response curve
-    // rather than just its two ends. Last of the short material, so it leads
-    // straight into the held note.
-    { at: 2.7, note: C4, velocity: 20, dur: 0.13 },
-    { at: 2.86, note: C4, velocity: 45, dur: 0.13 },
-    { at: 3.02, note: C4, velocity: 70, dur: 0.13 },
-    { at: 3.18, note: C4, velocity: 95, dur: 0.13 },
-    { at: 3.34, note: C4, velocity: 120, dur: 0.13 },
+    //
+    // F major rather than another C chord, spread over twenty milliseconds like
+    // a hand rather than a MIDI file. The spread is also diagnostic: a patch
+    // with a slow attack smears the three notes into one swell, and you can
+    // hear that it did.
+    { at: 1.3, note: F3, velocity: MID, dur: 1.12 },
+    { at: 1.32, note: A3, velocity: MID, dur: 1.1 },
+    { at: 1.34, note: C4, velocity: MID, dur: 1.08 },
+    // A velocity ramp, which shows the whole response curve rather than just
+    // its two ends. One pitch, because the point is to hear velocity and
+    // nothing else - but not one rhythm: three even, then a longer gap and two
+    // that land late, which is enough to stop it sounding like a test tone.
+    //
+    // On G, so the phrase reads as a dominant leading back to the tonic it
+    // started on.
+    { at: 2.65, note: G4, velocity: 20, dur: 0.11 },
+    { at: 2.8, note: G4, velocity: 45, dur: 0.11 },
+    { at: 2.95, note: G4, velocity: 70, dur: 0.11 },
+    { at: 3.18, note: G4, velocity: 95, dur: 0.11 },
+    { at: 3.33, note: G4, velocity: 120, dur: 0.18 },
     // A long held note under a mod wheel sweep: what the LFO is set up to do.
-    { at: 3.7, note: A3, velocity: MID, dur: 2.2 },
+    // E, a third above the note it opened on, so the end is a resolution rather
+    // than a fifth repeat of middle C.
+    { at: 3.7, note: E4, velocity: MID, dur: 2.2 },
   ],
   mod: [
     { at: 0.0, value: 0 },
@@ -115,18 +129,19 @@ export const DEMO_PHRASE: Phrase = {
 /**
  * The opening of the demo phrase, for hovering.
  *
- * Byte-identical to the first 2.0 seconds of DEMO_PHRASE, so brushing a point
- * and then clicking it gives the same attack twice rather than two different
- * impressions of the patch. It renders in a fifth of the time, which is what
- * keeps a sweep across the map ahead of the mouse.
+ * The same three notes at the same moments as the first part of DEMO_PHRASE, so
+ * brushing a point and then clicking it gives the same attack twice rather than
+ * two different impressions of the patch. Only the last note is allowed to ring
+ * on, since nothing follows it here. It renders in a fifth of the time, which
+ * is what keeps a sweep across the map ahead of the mouse.
  */
 export const HOVER_PHRASE: Phrase = {
-  id: 'hover-v6',
+  id: 'hover-v7',
   label: 'hover taste',
   notes: [
-    { at: 0.0, note: C4, velocity: MID, dur: 0.35 },
-    { at: 0.7, note: C2, velocity: MID, dur: 0.24 },
-    { at: 0.99, note: C6, velocity: MID, dur: 0.4 },
+    { at: 0.0, note: C4, velocity: MID, dur: 0.45 },
+    { at: 0.7, note: C2, velocity: MID, dur: 0.3 },
+    { at: 1.05, note: C6, velocity: MID, dur: 0.4 },
   ],
   mod: [{ at: 0, value: 0 }],
   totalSec: 2.0,
