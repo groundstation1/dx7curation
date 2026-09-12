@@ -25,8 +25,21 @@ import { oklch } from './colour.ts';
 /** Piano range, A0 to C8, which is what the strip maps across its width. */
 const LOW = 21;
 const HIGH = 108;
-const HEIGHT = 184;
-/** Pixels a second of history takes. Four seconds fit in the strip. */
+/*
+ * How far up the window the strip reaches.
+ *
+ * Most of this is the fade. The bottom fifth or so is solid, which is where
+ * you read what is being played now, and everything above it is the tail
+ * getting quieter - at 184px that tail had run out by the time a note was two
+ * seconds old, so a phrase vanished while you were still playing it. Seven
+ * seconds of history at the same scrolling speed is about the length of the
+ * demo phrase, which is the span worth being able to look back over.
+ *
+ * It costs nothing to draw: the canvas is transparent wherever a note is not,
+ * and it passes no clicks.
+ */
+const HEIGHT = 320;
+/** Pixels a second of history takes. Seven seconds fit in the strip. */
 const SPEED = 46;
 /** Silence for this long after key-up and the note has stopped sounding. */
 const QUIET_SEC = 0.12;

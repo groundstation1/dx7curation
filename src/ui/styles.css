@@ -608,11 +608,17 @@ kbd {
    * Below the operator tooltip on purpose: that is a card you are reading, and
    * nothing should paint across it.
    */
-  position: fixed; left: 0; right: 0; bottom: 0; height: 184px;
+  position: fixed; left: 0; right: 0; bottom: 0; height: 320px;
   width: 100%; pointer-events: none; z-index: 55;
   opacity: 0; transition: opacity 0.5s ease-out;
-  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 35%, rgba(0, 0, 0, 0.6) 68%, transparent 100%);
-  mask-image: linear-gradient(to top, #000 0%, #000 35%, rgba(0, 0, 0, 0.6) 68%, transparent 100%);
+  /*
+   * The solid part stays where it was - 20% of 320 is the same 64px as 35% of
+   * 184 - and everything above it fades far more slowly, so the faintest end
+   * of a phrase is still there near the top of the strip instead of having
+   * been cut off a third of the way up.
+   */
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 20%, rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.22) 70%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 0%, #000 20%, rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.22) 70%, transparent 100%);
 }
 
 /* ------------------------------------------------------------ drop zone */
