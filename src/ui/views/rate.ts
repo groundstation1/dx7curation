@@ -424,6 +424,17 @@ function render(): void {
 
   const i = queue[position];
   const v = store.voices[i];
+  /*
+   * Whatever is on screen is what the keyboard plays.
+   *
+   * Arming used to happen only inside `play`, which returns early while you
+   * are holding notes - the audition would be in the way - and also returns
+   * early when the queue is empty. Between those two, arriving on this screen
+   * mid-phrase left the keyboard pointed at the patch from the screen before,
+   * so the first thing you played was the wrong sound. Doing it here ties the
+   * armed patch to the drawn one, whatever route brought you to it.
+   */
+  keyboard.setPatch(v?.unpacked ?? null);
   const a = store.analysis[i];
   const cat = store.categoryOf(i) as Category | null;
   const family = store.clusterMembers(i);
@@ -548,9 +559,15 @@ export const view: View = {
   mount(container, c) {
     ctx = c;
     root = container;
-    // Rendered empty first, so the screen exists while the queue is built.
+    // Rendered empty first, so the screen exists while the queue is built -
+    // then played once it exists. Unlocking and building used to race, and
+    // whichever finished last decided whether the first patch ever sounded.
     render();
-    void buildQueue().then(render);
+    void buildQueue().then(async () => {
+      render();
+      await ctx.player.unlock();
+      void play('click');
+    });
 
     keyHandler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -583,7 +600,6 @@ export const view: View = {
     };
     window.addEventListener('keydown', keyHandler);
     unsubKeyboard = keyboard.subscribe(() => render());
-    void ctx.player.unlock().then(() => play('click'));
   },
   unmount() {
     cancelAdvance();
