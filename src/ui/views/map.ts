@@ -1755,7 +1755,7 @@ function searchControl(): HTMLElement {
     ),
     el('div', { class: 'note' },
       'Every word has to match somewhere. ', el('b', {}, 'OR'), ' or a comma separates alternatives, ',
-      el('b', {}, '"quotes"'), ' keep a phrase together.'),
+      el('b', {}, '-word'), ' rules it out, ', el('b', {}, '"quotes"'), ' keep a phrase together.'),
   );
   wrap.appendChild(pop);
 
