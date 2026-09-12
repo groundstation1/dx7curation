@@ -48,21 +48,21 @@ const r = renderPhrase(ep, DEMO_PHRASE, { sampleRate: sr });
 check('length matches the phrase', Math.abs(r.samples.length / sr - DEMO_PHRASE.totalSec) < 0.05,
   `${(r.samples.length / sr).toFixed(2)}s`);
 
-const firstNote = rms(r.samples, 0.01 * sr, 0.40 * sr);
-const gapAfterFirst = rms(r.samples, 0.60 * sr, 0.69 * sr);
+const firstNote = rms(r.samples, 0.01 * sr, 0.38 * sr);
+const gapAfterFirst = rms(r.samples, 0.47 * sr, 0.53 * sr);
 check('first note sounds', firstNote > 1e-3, `rms ${firstNote.toFixed(4)}`);
 check('a gap follows the first note', gapAfterFirst < firstNote, `${gapAfterFirst.toFixed(4)} < ${firstNote.toFixed(4)}`);
 
-const singleRms = rms(r.samples, 0.02 * sr, 0.40 * sr);
-const chordRms = rms(r.samples, 1.40 * sr, 2.10 * sr);
+const singleRms = rms(r.samples, 0.02 * sr, 0.38 * sr);
+const chordRms = rms(r.samples, 2.86 * sr, 3.60 * sr);
 check('the triad is louder than one note', chordRms > singleRms, `${chordRms.toFixed(4)} vs ${singleRms.toFixed(4)}`);
 
-const softVel = rms(r.samples, 2.67 * sr, 2.78 * sr);
-const hardVel = rms(r.samples, 3.35 * sr, 3.49 * sr);
+const softVel = rms(r.samples, 3.97 * sr, 4.09 * sr);
+const hardVel = rms(r.samples, 4.61 * sr, 4.85 * sr);
 check('the velocity ramp rises', hardVel > softVel, `${hardVel.toFixed(4)} vs ${softVel.toFixed(4)}`);
 
-const tail = rms(r.samples, 7.10 * sr, 7.45 * sr);
-const held = rms(r.samples, 4.10 * sr, 5.60 * sr);
+const tail = rms(r.samples, 8.00 * sr, 8.35 * sr);
+const held = rms(r.samples, 5.10 * sr, 6.90 * sr);
 check('the tail decays after the last key-up', tail < held, `${tail.toFixed(4)} < ${held.toFixed(4)}`);
 
 // Mod wheel must actually change something on a patch with LFO depth.
@@ -74,8 +74,8 @@ withLfo[138] = 0;  // no delay
 const flat = renderPhrase(withLfo, { ...DEMO_PHRASE, mod: [{ at: 0, value: 0 }] }, { sampleRate: sr });
 const swept = renderPhrase(withLfo, { ...DEMO_PHRASE, mod: [{ at: 0, value: 1 }] }, { sampleRate: sr });
 let diff = 0;
-for (let i = Math.floor(4.2 * sr); i < Math.floor(5.8 * sr); i++) diff += Math.abs(flat.samples[i] - swept.samples[i]);
-check('the mod wheel changes the sound', diff / (1.5 * sr) > 1e-3, `mean |delta| ${(diff / (1.5 * sr)).toFixed(5)}`);
+for (let i = Math.floor(5.6 * sr); i < Math.floor(7.2 * sr); i++) diff += Math.abs(flat.samples[i] - swept.samples[i]);
+check('the mod wheel changes the sound', diff / (1.6 * sr) > 1e-3, `mean |delta| ${(diff / (1.6 * sr)).toFixed(5)}`);
 
 const single = renderPhrase(ep, singleNotePhrase(60, 100), { sampleRate: sr });
 check('single-note phrase still works', single.peak > 1e-3, `peak ${single.peak.toFixed(3)}`);
