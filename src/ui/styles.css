@@ -164,11 +164,13 @@ html, body {
 /* ---------------------------------------------------------------- chrome */
 
 /*
- * A card, like everything else, with black showing round it.
+ * Chrome, not a card: no surface under it, but held off the window edge by the
+ * same gutter every pane uses.
  *
- * It was the page colour, flush to the window edge, which made it the one
- * surface in the app that did not sit in the gutter grid - so the app started
- * hard against the top of the screen while every pane below it floated.
+ * The frame of the app should read as the space the cards sit in rather than
+ * as another card - giving it a surface made the wordmark and the tabs look
+ * like one more pane of content. What it does need is the gutter: flush to the
+ * window edge it was the one thing in the app not on the grid.
  */
 header.topbar {
   display: flex;
@@ -186,7 +188,7 @@ header.topbar {
    * either side of the 22px name, so the whole mark has one rhythm.
    */
   height: 38px;
-  background: var(--surface);
+  background: none;
   flex: none;
   position: relative;
   z-index: 10;
@@ -243,7 +245,16 @@ header.topbar {
 .brand-name { white-space: nowrap; }
 .brand-sp { display: inline-block; width: 0.14em; }
 
-nav.tabs { display: flex; gap: 3px; flex: none; }
+/*
+ * Nudged down as a whole, rather than the text inside the buttons.
+ *
+ * The tabs have to line up with the blocks in the wordmark, which sit about a
+ * pixel below the text beside them - but doing that with uneven padding moved
+ * the word inside its own button, so the hover and active pill ended up with
+ * more space above the word than below and looked like it was riding high.
+ * Moving the whole row keeps each pill square around its own label.
+ */
+nav.tabs { display: flex; gap: 3px; flex: none; position: relative; top: 1px; }
 
 /* A filled pill for the current tab: one shape and one fill, rather than an
    underline with a glow under it. */
@@ -252,20 +263,9 @@ nav.tabs button {
   background: none;
   border: none;
   color: var(--muted);
-  /*
-   * A pixel more above than below, which is not a fudge.
-   *
-   * Every box in this bar is centred, and measuring said so. The type is not:
-   * Chango inks 17px tall against Space Mono's 11, so their centres differ
-   * even when the boxes agree - and the blocks differ again, because their
-   * 0.1em top margin pushes them about a pixel below the text they sit beside.
-   *
-   * The eye lines the tabs up with the blocks, which are the heaviest thing in
-   * the bar, so that is what they are matched to. Measured at 0.98px out; this
-   * is what closes it. Only moving the text inside its box can, since the box
-   * is already centred.
-   */
-  padding: 7px 14px 4px;
+  /* Even, so the pill sits square around the word. The row above carries the
+     alignment against the wordmark. */
+  padding: 6px 14px;
   border-radius: var(--pill);
   font: inherit;
   font-size: 14.5px;
@@ -273,8 +273,8 @@ nav.tabs button {
   cursor: pointer;
   transition: color 0.12s, background 0.12s;
 }
-nav.tabs button:hover:not(:disabled) { color: var(--text); background: var(--raise); }
-nav.tabs button.active { color: var(--text); background: var(--raise-2); }
+nav.tabs button:hover:not(:disabled) { color: var(--text); background: var(--surface); }
+nav.tabs button.active { color: var(--text); background: var(--raise); }
 nav.tabs button:disabled { opacity: 0.32; cursor: not-allowed; }
 
 .topbar .spacer { flex: 1; }
@@ -523,12 +523,11 @@ kbd {
  * Fixed rather than in the flow so no view has to leave room for it; `#app`
  * carries the padding instead.
  */
+/* The same: chrome on the page, a gutter clear of the edge. */
 .sound-dock {
   position: fixed; z-index: 45;
   left: var(--gut); right: var(--gut); bottom: var(--gut);
-  background: var(--surface);
-  border-radius: var(--radius);
-  overflow: hidden;
+  background: none;
 }
 .sound-bar {
   display: flex; align-items: center; gap: 10px;
@@ -559,9 +558,13 @@ kbd {
 }
 .sound-midi:hover { color: var(--text); background: var(--raise-2); }
 .sound-midi.on { color: var(--good); background: rgba(123, 216, 143, 0.14); }
-/* Opens upward, so reaching for the bend range never moves the app. Inside the
-   dock's own card now, so it needs no surface of its own. */
-.sound-panel { padding: 16px 16px 8px; box-shadow: 0 1px 0 var(--hair); }
+/* Opens upward, so reaching for the bend range never moves the app. This one
+   does get a surface: it is a block of controls rather than a strip, and on
+   bare black the rows would have nothing to sit on. */
+.sound-panel {
+  padding: 16px 16px 8px; margin-bottom: var(--gut);
+  background: var(--surface); border-radius: var(--radius);
+}
 .sound-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; }
 
 /* The typing keyboard's legend: which letter is which note, and what is down.
