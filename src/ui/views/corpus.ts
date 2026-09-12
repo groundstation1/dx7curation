@@ -1,5 +1,5 @@
 /*
- * Corpus screen: bring files in, run the analysis pass, and choose the
+ * Sources screen: bring files in, run the analysis pass, and choose the
  * near-duplicate threshold.
  *
  * The threshold is deliberately not hard-coded. The sweep table shows what each
@@ -576,7 +576,7 @@ function render(): void {
   page.appendChild(devicePanel());
 
   page.appendChild(el('div', { class: 'panel' },
-    el('h2', {}, 'Corpus'),
+    el('h2', {}, 'Sources'),
     el('p', { class: 'hint' },
       'Everything here stays on this machine. Voices are deduplicated on the packed bytes with the name field excluded, ',
       'so the same patch under twenty different names collapses to one - and every name and source it arrived under is kept.'),

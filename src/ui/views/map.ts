@@ -18,6 +18,7 @@ import { P } from '../../sysex/voice.ts';
 import { algorithmPanel } from '../algorithmDiagram.ts';
 import { voiceDetails } from '../voicePanel.ts';
 import { sidebarSplitter } from '../splitter.ts';
+import { createListView, sortIndices, type ListState, type ListView, type SortKey } from '../listView.ts';
 import { categoryColour, focusedSubcategoryColour, oklch, ratingColour, subcategoryColour as subColour } from '../colour.ts';
 import { DEMO_PHRASE, HOVER_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
@@ -122,6 +123,20 @@ let ys = new Float32Array(0);
 let visible: number[] = [];
 let hovered = -1;
 let selected = -1;
+/**
+ * Scatter or table.
+ *
+ * The same voices, the same filters, the same sidebar - only the drawing
+ * differs. The map answers "what lives over here"; the list answers "what have
+ * I decided, and sorted by what".
+ */
+let mode: 'map' | 'list' = getSetting<'map' | 'list'>('map.mode', 'map');
+let listEl: HTMLElement | null = null;
+let list: ListView | null = null;
+const listState: ListState = {
+  sort: getSetting<SortKey>('map.listSort', 'rating'),
+  descending: getSetting('map.listDescending', true),
+};
 let lassoPoints: Array<[number, number]> = [];
 let lassoing = false;
 let panning = false;
@@ -351,6 +366,8 @@ function importantAxisIds(): Set<string> {
 // -------------------------------------------------------------- geometry
 
 function computeLayout(): void {
+  // The list is a view of `visible`, so it is rebuilt wherever that is.
+  queueMicrotask(refreshList);
   const store = ctx.store;
   const n = store.voices.length;
   const ax = axisById(xAxisId);
@@ -729,6 +746,7 @@ async function rateTarget(value: number): Promise<void> {
   else await ctx.store.rate(i, value, 'round1');
   renderSide();
   draw();
+  list?.refresh();
 }
 
 /**
@@ -1046,6 +1064,21 @@ function applyFilters(): void {
   draw();
 }
 
+/** Hand the list the same set the canvas is drawing, in its own order. */
+function refreshList(): void {
+  if (!list) return;
+  list.update(sortIndices(ctx.store, visible, listState));
+}
+
+function applyMode(): void {
+  if (!listEl || !canvas) return;
+  const showList = mode === 'list';
+  listEl.hidden = !showList;
+  const wrap = canvas.parentElement;
+  if (wrap) wrap.hidden = showList;
+  if (showList) refreshList();
+}
+
 function renderControls(): void {
   clear(controlsEl);
   const groups = groupedAxes();
@@ -1083,20 +1116,37 @@ function renderControls(): void {
     },
   }) as HTMLInputElement;
 
+  // Axes, colour and size describe a plot. In the list they would be controls
+  // with nothing to control, which is worse than not being there.
+  const plot = mode === 'map';
+
   append(controlsEl, [
-    el('label', { class: 'field' }, 'x', axisSelect(xAxisId, (id) => {
+    el('label', { class: 'field', title: 'The same voices and the same filters, drawn as a scatter or as a table.' }, 'as',
+      el('select', {
+        onchange: (e: Event) => {
+          mode = (e.target as HTMLSelectElement).value as typeof mode;
+          setSetting('map.mode', mode);
+          renderControls();
+          applyMode();
+          draw();
+        },
+      },
+        el('option', { value: 'map', selected: mode === 'map' }, 'map'),
+        el('option', { value: 'list', selected: mode === 'list' }, 'list'),
+      )),
+    plot ? el('label', { class: 'field' }, 'x', axisSelect(xAxisId, (id) => {
       xAxisId = id;
       setSetting('map.xAxis', id);
       computeLayout();
       draw();
-    })),
-    el('label', { class: 'field' }, 'y', axisSelect(yAxisId, (id) => {
+    })) : null,
+    plot ? el('label', { class: 'field' }, 'y', axisSelect(yAxisId, (id) => {
       yAxisId = id;
       setSetting('map.yAxis', id);
       computeLayout();
       draw();
-    })),
-    el('label', { class: 'field' }, 'colour',
+    })) : null,
+    plot ? el('label', { class: 'field' }, 'colour',
       el('select', {
         onchange: (e: Event) => {
           colourBy = (e.target as HTMLSelectElement).value as typeof colourBy;
@@ -1106,7 +1156,7 @@ function renderControls(): void {
         },
       }, ...(['category', 'subcategory', 'rating', 'predicted', 'cluster', 'source', 'algorithm'] as const).map((c) =>
         el('option', { value: c, selected: c === colourBy }, c))),
-    ),
+    ) : null,
     el('label', { class: 'field' },
       el('input', {
         type: 'checkbox',
@@ -1118,7 +1168,7 @@ function renderControls(): void {
           draw();
         },
       }), 'collapse near-identical'),
-    el('label', {
+    plot ? el('label', {
       class: 'field',
       title: 'Play a patch blended from the voices nearest the cursor, rather than the nearest single patch. Only ever uses what is currently shown.',
     },
@@ -1134,8 +1184,8 @@ function renderControls(): void {
           renderSide();
           draw();
         },
-      }), 'interpolate'),
-    interpolateMode ? el('label', { class: 'field' }, 'blend of',
+      }), 'interpolate') : null,
+    plot && interpolateMode ? el('label', { class: 'field' }, 'blend of',
       el('input', {
         type: 'number', min: 2, max: 32, value: interpNeighbours,
         style: { width: '54px' },
@@ -1174,13 +1224,13 @@ function renderControls(): void {
         checked: loopPhrase,
         onchange: (e: Event) => { loopPhrase = (e.target as HTMLInputElement).checked; setSetting('audition.loop', loopPhrase); },
       }), 'loop'),
-    el('label', { class: 'field' }, 'size', axisSelect(sizeAxisId, (id) => {
+    plot ? el('label', { class: 'field' }, 'size', axisSelect(sizeAxisId, (id) => {
       sizeAxisId = id;
       setSetting('map.sizeAxis', id);
       computeSizes();
       draw();
-    }, { value: '', label: 'uniform' })),
-    el('button', {
+    }, { value: '', label: 'uniform' })) : null,
+    plot ? el('button', {
       class: 'btn',
       onclick: () => {
         scale = 1;
@@ -1188,7 +1238,7 @@ function renderControls(): void {
         offsetY = 0;
         draw();
       },
-    }, 'Reset view'),
+    }, 'Reset view') : null,
   ]);
 
   // ---- second row: search, volume, keyboard ----
@@ -1522,10 +1572,40 @@ export const view: View = {
     controlsEl = el('div', { class: 'map-controls' });
 
     const wrap = el('div', { class: 'map-canvas-wrap' }, canvas, overlay);
-    const main = el('div', { class: 'map-main' }, controlsEl, wrap, legendEl);
+    listEl = el('div', { class: 'list-pane', hidden: true });
+    const main = el('div', { class: 'map-main' }, controlsEl, wrap, listEl, legendEl);
     const layout = el('div', { class: 'map-layout' }, main, sideEl);
     layout.appendChild(sidebarSplitter(layout, { key: 'ui.mapSideWidth', defaultWidth: 300 }));
     root.appendChild(layout);
+
+    list = createListView(listEl, ctx.store, listState, {
+      onHover: (i) => {
+        if (selected >= 0) return;
+        hovered = i;
+        armKeyboard();
+        renderSide();
+        void audition(i, true, 'hover');
+        list?.refresh();
+      },
+      onOpen: (i) => {
+        selected = selected === i ? -1 : i;
+        hovered = i;
+        armKeyboard();
+        renderSide();
+        void audition(i, false, 'click');
+        list?.refresh();
+      },
+      onRate: (i, value) => {
+        void ctx.store.rate(i, value, 'round1').then(() => list?.refresh());
+      },
+      current: () => (selected >= 0 ? selected : hovered),
+      matched: () => (searchMode === 'highlight' ? matched : null),
+    }, () => {
+      setSetting('map.listSort', listState.sort);
+      setSetting('map.listDescending', listState.descending);
+      refreshList();
+    });
+    applyMode();
 
     // The second control row is inserted after controlsEl by renderControls.
     computeLayout();
@@ -1578,6 +1658,8 @@ export const view: View = {
     });
   },
   unmount() {
+    list = null;
+    listEl = null;
     unsubscribe?.();
     unsubscribe = null;
     ctx?.player.stop();

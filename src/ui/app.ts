@@ -34,14 +34,14 @@ interface TabSpec {
 const TABS: TabSpec[] = [
   {
     id: 'corpus',
-    label: 'Corpus',
+    label: 'Sources',
     load: async () => (await import('./views/corpus.ts')).view,
     enabled: () => true,
     hint: '',
   },
   {
     id: 'map',
-    label: 'Map',
+    label: 'Browse',
     load: async () => (await import('./views/map.ts')).view,
     enabled: () => store.projection !== null,
     hint: 'run the analysis pass first',

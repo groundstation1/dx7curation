@@ -280,6 +280,44 @@ kbd {
 .map-canvas-wrap { position: relative; flex: 1; min-height: 0; }
 .map-canvas-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .map-side { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 14px; }
+/* ---------------------------------------------------------------- list */
+
+.list-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.list-head {
+  display: grid; gap: 10px; padding: 0 12px;
+  border-bottom: 1px solid var(--line); background: var(--panel); flex: none;
+}
+.list-th {
+  background: none; border: none; padding: 7px 0; text-align: left;
+  font: inherit; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted); cursor: pointer; white-space: nowrap;
+}
+.list-th.num { text-align: right; }
+.list-th:hover:not(:disabled) { color: var(--text); }
+.list-th.on { color: var(--accent); }
+.list-arrow { font-size: 9px; }
+
+/* The scroller holds a spacer the full height of the set; the rows are a
+   window translated into place, so thirty thousand voices cost forty rows. */
+.list-scroll { flex: 1; min-height: 0; overflow-y: auto; position: relative; }
+.list-spacer { width: 1px; }
+.list-rows { position: absolute; top: 0; left: 0; right: 0; will-change: transform; }
+.list-row {
+  display: grid; gap: 10px; padding: 0 12px; height: 26px; align-items: center;
+  cursor: pointer; font-size: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+.list-row:hover { background: var(--panel-2); }
+.list-row.on { background: rgba(110, 168, 254, 0.14); }
+/* A search miss, when the search is highlighting rather than filtering. */
+.list-row.dim { opacity: 0.32; }
+.list-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-cell.num { text-align: right; font-variant-numeric: tabular-nums; }
+.list-name { display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 11.5px; }
+.list-name i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.list-from { color: var(--muted); font-size: 11px; }
+.rating-on { color: var(--accent-2); letter-spacing: -1px; }
+.list-count { padding: 5px 12px; font-size: 11px; border-top: 1px solid var(--line); flex: none; }
+
 .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; }
 .legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
 .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }

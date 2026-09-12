@@ -18,7 +18,7 @@ features and the ratings all live in IndexedDB.
 
 ## The pipeline
 
-1. **Ingest** — drop `.syx` files, folders or a `.zip`. Bulk 32-voice dumps,
+1. **Sources** — drop `.syx` files, folders or a `.zip`. Bulk 32-voice dumps,
    single voices, headerless banks, concatenated banks and raw packed streams
    are all read; DX7II supplements and performance data are skipped. Voices are
    deduplicated on the packed bytes *with the name field excluded*, so the same
@@ -30,8 +30,11 @@ features and the ratings all live in IndexedDB.
 3. **Cluster** — two thresholds. Below the *merge* threshold voices are treated
    as the same patch; below the looser *family* threshold they are similar but
    audibly different, and go to the face-off.
-4. **Map** — a scatter of the whole corpus where hovering plays what is under
-   the cursor. Any of the sixty-odd axes can drive x, y or dot size. Also the diagnostic for the clustering and the categoriser.
+4. **Browse** — the corpus either as a scatter, where hovering plays what is
+   under the cursor and any of the sixty-odd axes can drive x, y or dot size,
+   or as a sorted table of what you have decided. Same search, same filters,
+   same sidebar; the plot answers "what lives over here", the table answers
+   "what have I rated, sorted by what". Also the diagnostic for the clustering and the categoriser.
 5. **Rate** — one representative per family, keyboard-driven, ordered so that
    each next patch is the furthest from everything already covered.
 6. **Face-off** — A/B between the distinct sounds inside a surviving family,
