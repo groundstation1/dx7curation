@@ -6,7 +6,7 @@
  * because the floors and ceilings are the main thing the user will want to
  * argue with after seeing the first result.
  */
-import { clear, downloadBytes, el, fmtInt } from '../dom.ts';
+import { clear, downloadBytes, el, fmtInt, pageHead } from '../dom.ts';
 import type { View, ViewContext } from '../app.ts';
 import { CATEGORIES, CATEGORY_LABELS, type Category } from '../../cluster/category.ts';
 import { allocate, DEFAULT_CEILINGS, DEFAULT_FLOORS, type Candidate, type AllocationResult } from '../../alloc/allocate.ts';
@@ -588,7 +588,7 @@ function midiPanel(): HTMLElement {
     const filled = Math.min(32, Math.max(0, ordered.length - b * 32));
     const sent = sentBanks.get(label);
     row.appendChild(el('button', {
-      class: sent ? 'btn on' : 'btn primary',
+      class: sent ? 'btn on' : 'btn',
       disabled: !midiOutputId,
       title: `${filled} voices, ${fmtInt(banks[b].length)} bytes${sent ? `. Sent ${ago(sent)}.` : ''}`,
       onclick: () => {
@@ -604,7 +604,7 @@ function midiPanel(): HTMLElement {
     }, `Bank ${label}`, sent ? el('span', { class: 'muted' }, ' ✓') : null));
   }
   row.appendChild(el('button', {
-    class: 'btn',
+    class: buildIsCurrent() ? 'btn primary' : 'btn',
     disabled: !midiOutputId || banks.length === 0,
     title: 'Only useful if the unit advances to the next bank by itself.',
     onclick: async () => {
@@ -692,12 +692,8 @@ function buildStatePanel(): HTMLElement | null {
       el('b', {}, reasons.length ? 'This build is out of date' : 'Build is current'),
       el('span', { class: 'muted' }, `  ·  ${fmtInt(ordered.length)} voices, built ${ago(builtAt)}`),
     ),
-    reasons.length
-      ? el('button', {
-        class: 'btn primary',
-        onclick: () => buildAll(),
-      }, 'Rebuild')
-      : el('span', { class: 'good' }, 'matches your ratings'),
+    el('span', { class: reasons.length ? 'warn' : 'good' },
+      reasons.length ? 'rebuild below' : 'matches your ratings'),
   ));
   if (reasons.length) {
     panel.appendChild(el('p', { class: 'hint', style: { margin: '8px 0 0' } },
@@ -711,6 +707,8 @@ function render(): void {
   clear(root);
   const store = ctx.store;
   const page = el('div', { class: 'stack' });
+  page.appendChild(pageHead('Build',
+    'Choose the best 128, put them in an order that flows, and send them to the device.'));
 
   const state = buildStatePanel();
   if (state) page.appendChild(state);
@@ -743,6 +741,17 @@ function render(): void {
 }
 
 /**
+ * Whether the four banks on screen match the corpus as it stands.
+ *
+ * Decides which button on the page is the loud one: while there is building to
+ * do, that is Build; once the banks are current, the thing you came here to do
+ * is send them.
+ */
+function buildIsCurrent(): boolean {
+  return ordered.length > 0 && staleReasons().length === 0;
+}
+
+/**
  * One button, and what it is about to do.
  *
  * Everything that used to be asked before it - how many slots, the minimum
@@ -758,7 +767,7 @@ function heroPanel(): HTMLElement {
 
   panel.appendChild(el('div', { class: 'build-hero' },
     el('button', {
-      class: 'btn primary big',
+      class: buildIsCurrent() ? 'btn big' : 'btn primary big',
       disabled: ready === 0,
       onclick: () => buildAll(),
     }, ordered.length ? 'Build again' : `Build ${total}`),

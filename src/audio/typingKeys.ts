@@ -7,9 +7,10 @@
  * keyboard and having it plugged in, which is a high price for "what does this
  * bass do an octave down".
  *
- * Two rows, chromatic, in the arrangement every tracker and DAW has used for
- * thirty years: the bottom row is the white keys, the row above it carries the
- * black keys in the gaps, and it runs an octave and a bit before you shift.
+ * Two rows, chromatic: the home row is the white keys and the row above carries
+ * the black keys in the gaps, so the two rows sit the way the two rows of a
+ * piano do and your hands are already on them. It runs an octave and a tone
+ * before you shift.
  *
  * Keys are read by physical position (`KeyboardEvent.code`), never by the
  * character they produce. That is not a shortcut - it is the only mapping that
@@ -26,17 +27,29 @@ import { getSetting, setSetting } from '../ui/settings.ts';
 /**
  * Physical key to semitone, relative to the current base octave.
  *
- * Deliberately stops short of the number row and the top letter row. Those
- * would add a second octave, and they would also take 1-5 (rate), P (pin) and
- * space (audition) away from the app - and rating the patch you are playing is
- * the entire point of the screens this sits on. An octave shift costs one key
- * press and no shortcuts.
+ * Whites on the home row, blacks in the gaps on the row above - which is where
+ * your hands already are, and which maps the two rows onto the two rows of a
+ * piano the way they actually sit. The first version had it an octave lower,
+ * whites on the bottom row, which is what trackers do and which means reaching
+ * down for every note you play.
+ *
+ * It stops at L rather than running on to the apostrophe, which costs a tone at
+ * the top and keeps P free. P pins the patch you are listening to, and pinning
+ * the thing you are playing is half the reason to be playing it. The digits
+ * stay clear for the same reason: they are the ratings.
+ *
+ *     W  E     T  Y  U          blacks
+ *   A  S  D  F  G  H  J  K  L   whites
  */
 const NOTES: Record<string, number> = {
-  KeyZ: 0, KeyS: 1, KeyX: 2, KeyD: 3, KeyC: 4,
-  KeyV: 5, KeyG: 6, KeyB: 7, KeyH: 8, KeyN: 9, KeyJ: 10, KeyM: 11,
-  Comma: 12, KeyL: 13, Period: 14, Semicolon: 15, Slash: 16,
+  KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4,
+  KeyF: 5, KeyT: 6, KeyG: 7, KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11,
+  KeyK: 12, KeyO: 13, KeyL: 14,
 };
+
+/** The two physical rows, in order, so the legend can be drawn as a keyboard. */
+const WHITE_ROW = ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL'];
+const BLACK_ROW = ['KeyW', 'KeyE', null, 'KeyT', 'KeyY', 'KeyU', null, 'KeyO', null];
 
 /** Physical keys that shift the octave, either side of the number row's end. */
 const OCTAVE_DOWN = 'Minus';
@@ -51,28 +64,34 @@ const OCTAVE_UP = 'Equal';
 export interface KeyLayout {
   id: string;
   label: string;
+  /** KeyQ row, eleven keys from Q to BracketLeft. */
+  top: string[];
   /** KeyA row, eleven keys from A to Quote. */
   home: string[];
   /** KeyZ row, ten keys from Z to Slash. */
   bottom: string[];
 }
 
+const ROW_TOP = ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyO', 'KeyP', 'BracketLeft'];
 const ROW_HOME = ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL', 'Semicolon', 'Quote'];
 const ROW_BOTTOM = ['KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'Comma', 'Period', 'Slash'];
 
 export const LAYOUTS: KeyLayout[] = [
   {
     id: 'qwerty', label: 'QWERTY',
+    top: [...'qwertyuiop['],
     home: [...'asdfghjkl;\''],
     bottom: [...'zxcvbnm,./'],
   },
   {
     id: 'qwertz', label: 'QWERTZ (German)',
+    top: [...'qwertzuiop', 'ü'],
     home: [...'asdfghjkl', 'ö', 'ä'],
     bottom: [...'yxcvbnm,.-'],
   },
   {
     id: 'azerty', label: 'AZERTY (French)',
+    top: [...'azertyuiop', '^'],
     home: [...'qsdfghjklm', 'ù'],
     bottom: [...'wxcvbn,;:!'],
   },
@@ -81,6 +100,7 @@ export const LAYOUTS: KeyLayout[] = [
     // nothing where any other layout expects it, which is exactly the case
     // that makes reading `code` rather than `key` non-negotiable.
     id: 'neo2', label: 'Neo 2',
+    top: [...'xvlcwkhgfq', 'ß'],
     home: [...'uiaeosnrtdy'],
     bottom: ['ü', 'ö', 'ä', 'p', 'z', 'b', 'm', ',', '.', 'j'],
   },
@@ -92,6 +112,8 @@ export function layoutById(id: string): KeyLayout {
 
 /** The character printed on a physical key, under the chosen layout. */
 export function keyLabel(code: string, layout: KeyLayout): string {
+  const t = ROW_TOP.indexOf(code);
+  if (t >= 0) return layout.top[t] ?? '';
   const h = ROW_HOME.indexOf(code);
   if (h >= 0) return layout.home[h] ?? '';
   const b = ROW_BOTTOM.indexOf(code);
@@ -99,19 +121,42 @@ export function keyLabel(code: string, layout: KeyLayout): string {
   return '';
 }
 
-/** The mapping as an ordered list, for drawing a legend. */
-export function keyMapping(layout: KeyLayout, baseNote: number): Array<{ label: string; note: number; sharp: boolean }> {
-  return Object.entries(NOTES)
-    .sort((a, b) => a[1] - b[1])
-    .map(([code, offset]) => ({
-      label: keyLabel(code, layout),
-      note: baseNote + offset,
-      sharp: [1, 3, 6, 8, 10].includes(offset % 12),
-    }));
+export interface KeyCap {
+  label: string;
+  note: number;
+  /** Absent where the piano has no black key between two whites. */
+  empty?: boolean;
+}
+
+/**
+ * The mapping as two rows that line up, for drawing a legend.
+ *
+ * The black row carries holes where a piano has none - between E and F, and
+ * between B and C - which is the whole reason a keyboard is recognisable at a
+ * glance. A sorted flat list of every key loses exactly that.
+ */
+export function keyRows(layout: KeyLayout, baseNote: number): { black: KeyCap[]; white: KeyCap[] } {
+  const cap = (code: string | null): KeyCap => (code === null
+    ? { label: '', note: -1, empty: true }
+    : { label: keyLabel(code, layout), note: baseNote + NOTES[code] });
+  return {
+    black: BLACK_ROW.map(cap),
+    white: WHITE_ROW.map(cap),
+  };
 }
 
 export class TypingKeys {
   enabled = false;
+  /**
+   * Whether to switch on as soon as there is something to play.
+   *
+   * On by default: the cost is that the letter keys are piano keys, and the
+   * mapping is chosen so that costs nothing the app actually uses - the digits
+   * are still the ratings, P still pins, space still auditions. The benefit is
+   * that you can play any patch you are looking at without first finding a
+   * setting that says you are allowed to.
+   */
+  wanted = getSetting('typing.enabled', true);
   /** MIDI note the leftmost key sounds. C3 by default. */
   base = getSetting('typing.base', 48);
   velocity = getSetting('typing.velocity', 96);
@@ -159,6 +204,8 @@ export class TypingKeys {
   toggle(keyboard: Keyboard, player: Player): void {
     if (this.enabled) this.disable(keyboard);
     else this.enable(keyboard, player);
+    this.wanted = this.enabled;
+    setSetting('typing.enabled', this.wanted);
   }
 
   enable(keyboard: Keyboard, player: Player): void {

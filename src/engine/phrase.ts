@@ -40,20 +40,26 @@ export interface Phrase {
   totalSec: number;
 }
 
-const F2 = 41;
+const D2 = 38;
+const A2 = 45;
+const Bb2 = 46;
 const D3 = 50;
-const F3 = 53;
 const A3 = 57;
 const C4 = 60;
+const Cs4 = 61;
 const D4 = 62;
 const E4 = 64;
 const F4 = 65;
 const G4 = 67;
 const A4 = 69;
+const Bb4 = 70;
 const C5 = 72;
+const Cs5 = 73;
 const D5 = 74;
-const C6 = 84;
-const F6 = 89;
+const E5 = 76;
+const F5 = 77;
+const A5 = 81;
+const D6 = 86;
 
 /**
  * The velocity everything not demonstrating velocity is played at.
@@ -69,107 +75,123 @@ const MID = 45;
 /**
  * The audition phrase.
  *
- * Everything here has to earn its place twice: once as a measurement, and once
- * as music. The measurement half is fixed - you cannot judge an FM patch
- * without hearing it low and high, alone and stacked, soft and hard, and with
- * the mod wheel up - and an earlier version of this satisfied that list
- * literally: one note, a low note, a high note, a triad, the same note five
- * times getting louder, a long note. It covered everything and sounded like a
- * hearing test, which matters more than it looks. You are going to hear this
- * several thousand times, and a phrase you cannot stand is a phrase you stop
- * listening to properly.
+ * Four bars in D minor at 112 BPM, on i - VI - V - i. Everything here has to
+ * work twice: as a measurement, and as music.
  *
- * So it is now an actual eight-second phrase in D minor, and the diagnostics
- * are carried by the music rather than laid out beside it:
+ * The measurement half is fixed. You cannot judge an FM patch without hearing
+ * it low and high, alone and stacked, soft and hard, and with the mod wheel up.
+ * Three earlier versions satisfied that list and still sounded wrong, for
+ * reasons worth writing down, because they are the easy mistakes:
  *
- *   the opening note      one clean strike, alone, because a sweep across the
- *                         map cuts within half a second
- *   a rising line         C-D-E up to F, which is the keyboard scaling you
- *                         would hear while playing rather than a step function
- *   F2 under the arrival  the low register, landing with the phrase rather
- *                         than sitting on its own like a test tone
- *   two high notes        the top of the keyboard, as a flick rather than a beep
- *   a spread Dm triad     how it stacks, and - because it is spread over 30 ms
- *                         like a hand - whether a slow attack smears it
- *   a Dm7 arpeggio        the velocity ramp. Rising pitch and rising velocity
- *                         together, which is what a crescendo actually is; the
- *                         dynamic range is still the full 24 to 120
- *   a held F4             the release tail, and the mod wheel sweep under it
+ *   the first laid the tests out in order - one note, a low note, a high note,
+ *   a triad, the same note five times getting louder, a long note. Complete,
+ *   and a hearing test.
  *
- * Nothing is played at the same pitch twice in a row, no two adjacent notes are
- * the same length, and the whole thing resolves. It is still a measurement.
+ *   the second wrapped them in melody but kept a grid underneath: every run was
+ *   evenly spaced, so it still ticked, and the seams between the tests were
+ *   half-second holes that made it four exercises in a row.
+ *
+ *   the third fixed the rhythm and stayed on one chord for eight seconds, which
+ *   is the thing that separates a phrase from a lick. Nothing moved underneath
+ *   it, so nothing arrived.
+ *
+ * This one moves: D minor, down to the flat sixth, up to a major dominant - the
+ * C# is the whole point, it is the one note outside the scale and it is what
+ * makes the last bar sound like a return rather than a stop - and home. One
+ * chord per bar, each anticipated by its bass note half a beat early, which is
+ * what makes a change feel played rather than programmed.
+ *
+ * What each part still measures:
+ *
+ *   A-F-E-D falling         keyboard scaling across the middle, in a line
+ *   Bb2 before bar 2        the bottom of the keyboard, anticipating rather
+ *                           than sitting on its own
+ *   C5-Bb-A-F5-D5-D6        the top, reached by leap
+ *   spread A major triad    how it stacks, and the harmonic event at once; the
+ *                           30 ms spread is diagnostic too, since a slow attack
+ *                           smears three notes into one swell
+ *   the rising figure       velocity, 28 through 120, as a crescendo up the
+ *                           dominant rather than one pitch struck five times
+ *   the held Dm triad       the release tail, under the mod wheel sweep
+ *
+ * Never more than three notes at once: the DX7's output stage clips on a loud
+ * four-note chord for about one patch in seven, and that distortion would be
+ * baked into every measurement taken from the render. Velocities sit in the
+ * 45-75 range except where the crescendo deliberately leaves it, because the
+ * velocity lookup is heavily compressed at the top and a phrase played at 100
+ * throughout gives a bright, hard impression of every patch in the corpus.
  */
 export const DEMO_PHRASE: Phrase = {
-  id: 'demo-v10',
+  id: 'demo-v12',
   label: 'demo phrase',
   notes: [
-    // One note, alone, with a gap after it: brushing across the map cuts the
-    // phrase almost immediately, and what you want to have heard in that
-    // moment is one clean note.
-    { at: 0.0, note: F4, velocity: MID, dur: 0.42 },
-    // The line in. Short, short, longer - a shape rather than a pulse.
-    { at: 0.54, note: C4, velocity: 62, dur: 0.2 },
-    { at: 0.76, note: D4, velocity: 68, dur: 0.2 },
-    { at: 0.98, note: E4, velocity: 76, dur: 0.28 },
-    // The arrival, accented, with the bottom of the keyboard underneath it.
-    // Level and brightness scaling at both extremes, in a phrase rather than
-    // as two isolated notes.
-    { at: 1.3, note: F4, velocity: 92, dur: 0.46 },
-    { at: 1.3, note: F2, velocity: 84, dur: 0.82 },
-    { at: 1.82, note: A4, velocity: 70, dur: 0.18 },
-    { at: 2.04, note: G4, velocity: 64, dur: 0.22 },
-    // The top of the keyboard, as a flick.
-    { at: 2.32, note: F6, velocity: 58, dur: 0.14 },
-    { at: 2.5, note: C6, velocity: 72, dur: 0.16 },
-    // A triad: how it stacks. Three notes rather than four, because the DX7's
-    // own output stage clips on a loud four-note chord for about one patch in
-    // seven, and that distortion is baked into the render. Spread over thirty
-    // milliseconds like a hand rather than a MIDI file, which is also
-    // diagnostic: a slow attack smears the three into one swell.
-    { at: 2.78, note: D3, velocity: MID, dur: 0.95 },
-    { at: 2.81, note: F3, velocity: MID, dur: 0.92 },
-    { at: 2.84, note: A3, velocity: MID, dur: 0.9 },
-    // The velocity ramp, as a crescendo up a Dm7 rather than one pitch struck
-    // five times. Same full range - 24 to 120 covers the whole response curve
-    // - but it arrives as a phrase, and the rising pitch is what a player
-    // would do to get louder anyway.
-    { at: 3.95, note: D4, velocity: 24, dur: 0.15 },
-    { at: 4.11, note: F4, velocity: 48, dur: 0.15 },
-    { at: 4.27, note: A4, velocity: 72, dur: 0.15 },
-    { at: 4.43, note: C5, velocity: 96, dur: 0.15 },
-    { at: 4.59, note: D5, velocity: 120, dur: 0.3 },
-    // The resolution, held long: the release tail, and the mod wheel sweep.
-    { at: 5.05, note: F4, velocity: 74, dur: 2.5 },
+    // Bar 1 - D minor. One note, alone, then the answer entering off the beat.
+    // No bass here: bar 1 being thin is what makes bar 2 arrive.
+    { at: 0.0, note: A4, velocity: 62, dur: 0.46 },
+    { at: 0.804, note: F4, velocity: 52, dur: 0.25 },
+    { at: 1.072, note: E4, velocity: 58, dur: 0.25 },
+    { at: 1.339, note: D4, velocity: 70, dur: 0.54 },
+
+    // Bar 2 - B flat, the flat sixth. The bass gets there half a beat early,
+    // which is the difference between a phrase and a grid.
+    { at: 1.875, note: Bb2, velocity: 66, dur: 0.78 },
+    { at: 2.143, note: C5, velocity: 60, dur: 0.25 },
+    { at: 2.411, note: A4, velocity: 50, dur: 0.25 },
+    { at: 2.679, note: Bb4, velocity: 68, dur: 0.4 },
+    { at: 3.08, note: A4, velocity: 54, dur: 0.13 },
+    { at: 3.214, note: F5, velocity: 74, dur: 0.13 },
+    { at: 3.348, note: D5, velocity: 62, dur: 0.13 },
+    { at: 3.482, note: D6, velocity: 48, dur: 0.2 },
+
+    // Bar 3 - A major. The dominant, and the only accidental in the piece: that
+    // C# is what the whole phrase has been leaning towards.
+    { at: 3.75, note: A2, velocity: 64, dur: 0.52 },
+    { at: 4.286, note: A3, velocity: 58, dur: 0.88 },
+    { at: 4.316, note: Cs4, velocity: 58, dur: 0.86 },
+    { at: 4.346, note: E4, velocity: 58, dur: 0.84 },
+    // A breath, then the crescendo climbs the dominant: three sixteenths and an
+    // eighth, twice. The whole velocity curve, with a shape.
+    { at: 5.357, note: E4, velocity: 28, dur: 0.13 },
+    { at: 5.491, note: G4, velocity: 45, dur: 0.13 },
+    { at: 5.625, note: A4, velocity: 62, dur: 0.13 },
+    { at: 5.759, note: Cs5, velocity: 82, dur: 0.26 },
+    { at: 6.027, note: E5, velocity: 100, dur: 0.13 },
+    { at: 6.161, note: A5, velocity: 120, dur: 0.26 },
+
+    // Bar 4 - home. The full triad, held under the mod wheel.
+    { at: 6.429, note: D3, velocity: 58, dur: 2.2 },
+    { at: 6.459, note: A3, velocity: 54, dur: 2.2 },
+    { at: 6.489, note: F4, velocity: 62, dur: 2.2 },
   ],
   mod: [
     { at: 0.0, value: 0 },
-    { at: 5.2, value: 0 },
-    { at: 6.6, value: 1 },
-    { at: 7.4, value: 0.15 },
+    { at: 6.6, value: 0 },
+    { at: 8.0, value: 1 },
+    { at: 8.8, value: 0.15 },
   ],
-  totalSec: 8.4,
+  totalSec: 9.2,
 };
 
 /**
  * The opening of the demo phrase, for hovering.
  *
- * The same notes at the same moments as the start of DEMO_PHRASE, so brushing
- * a point and then clicking it gives the same opening twice rather than two
- * different impressions of the patch. Only the last note is allowed to ring
- * on, since nothing follows it here. It renders in a fifth of the time, which
- * is what keeps a sweep across the map ahead of the mouse.
+ * Bar one, note for note, so brushing a point and then clicking it gives the
+ * same opening twice rather than two different impressions of the patch. Only
+ * the last note is allowed to ring on, since nothing follows it here. It
+ * renders in a fifth of the time, which is what keeps a sweep across the map
+ * ahead of the mouse.
  */
 export const HOVER_PHRASE: Phrase = {
-  id: 'hover-v8',
+  id: 'hover-v10',
   label: 'hover taste',
   notes: [
-    { at: 0.0, note: F4, velocity: MID, dur: 0.42 },
-    { at: 0.54, note: C4, velocity: 62, dur: 0.2 },
-    { at: 0.76, note: D4, velocity: 68, dur: 0.2 },
-    { at: 0.98, note: E4, velocity: 76, dur: 0.45 },
+    { at: 0.0, note: A4, velocity: 62, dur: 0.46 },
+    { at: 0.804, note: F4, velocity: 52, dur: 0.25 },
+    { at: 1.072, note: E4, velocity: 58, dur: 0.25 },
+    { at: 1.339, note: D4, velocity: 70, dur: 0.6 },
   ],
   mod: [{ at: 0, value: 0 }],
-  totalSec: 2.0,
+  totalSec: 2.3,
 };
 
 /** Just the opening strike, for a fast single-shot audition. */

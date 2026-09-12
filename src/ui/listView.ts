@@ -90,7 +90,7 @@ const COLUMNS: Column[] = [
       const v = store.voices[i];
       const cat = store.categoryOf(i);
       return el('span', { class: 'list-name' },
-        el('i', { style: { background: cat ? categoryColour(cat) : 'var(--line-2)' } }),
+        el('i', { style: { background: cat ? categoryColour(cat) : 'var(--raise-2)' } }),
         v.name || '(unnamed)',
         v.pinned ? el('span', { class: 'warn', title: 'pinned' }, ' ●') : null);
     },

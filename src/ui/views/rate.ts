@@ -20,6 +20,7 @@ import { keyboard } from '../../audio/keyboard.ts';
 import { voiceDetails } from '../voicePanel.ts';
 import { sidebarSplitter } from '../splitter.ts';
 import { getSetting, setSetting } from '../settings.ts';
+import { runTask } from '../task.ts';
 import { loopPhrase, usePhrase } from '../soundBar.ts';
 
 type Ordering = 'coverage' | 'predicted' | 'families' | 'given';
@@ -35,7 +36,26 @@ let ordering: Ordering = getSetting<Ordering>('rate.ordering', 'coverage');
 let auditionNote = getSetting('audition.note', 60);
 let auditionVel = getSetting('audition.velocity', 100);
 
-function buildQueue(): void {
+/**
+ * Work out what to rate, and in what order.
+ *
+ * Slow enough on a large corpus to need saying so: coverage ordering walks the
+ * whole set picking the point furthest from everything chosen so far, and
+ * ordering by prediction fills the model's cache for every representative on
+ * the first comparison. Both used to happen inside `mount`, synchronously,
+ * which meant the Rate tab simply did not appear for several seconds with no
+ * indication that anything was happening.
+ */
+async function buildQueue(): Promise<void> {
+  await runTask('preparing the rating queue', async (task) => {
+    task.set(null, `${fmtInt(ctx.store.representatives.length)} candidates`);
+    // Let the bar paint before the blocking part starts, or it never appears.
+    await new Promise((r) => setTimeout(r, 0));
+    buildQueueNow();
+  });
+}
+
+function buildQueueNow(): void {
   const store = ctx.store;
   const fromLasso = sessionStorage.getItem('rateQueue');
   let base: number[];
@@ -260,8 +280,9 @@ export const view: View = {
   mount(container, c) {
     ctx = c;
     root = container;
-    buildQueue();
+    // Rendered empty first, so the screen exists while the queue is built.
     render();
+    void buildQueue().then(render);
 
     keyHandler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;

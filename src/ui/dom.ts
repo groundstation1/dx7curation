@@ -32,6 +32,22 @@ export function append(parent: Node, children: Child[]): void {
   }
 }
 
+/**
+ * The title of a screen, and one line saying what it is for.
+ *
+ * Every view used to open at the same size as everything else in it: a 15px
+ * heading over 11px labels over 12px muted paragraphs, with no single element
+ * larger or heavier than its neighbours. That flattens the reading order
+ * completely - the eye has nowhere to land, so the whole page arrives at once
+ * and none of it looks important. One large, solid title per screen fixes more
+ * than any amount of spacing does.
+ */
+export function pageHead(title: string, sub?: string): HTMLElement {
+  return el('header', { class: 'page-head' },
+    el('h1', { class: 'page-title' }, title),
+    sub ? el('p', { class: 'page-sub' }, sub) : null);
+}
+
 export function clear(node: Node): void {
   while (node.firstChild) node.removeChild(node.firstChild);
 }

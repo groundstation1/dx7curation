@@ -37,6 +37,60 @@ interface Axis {
 }
 
 /**
+ * What the two ends of an axis mean, in words.
+ *
+ * "brightness (oct above f0)" tells you what is being measured and nothing at
+ * all about which way is which, so reading a scatter meant hovering a point at
+ * each end to work out the direction. A pair of adjectives either side of the
+ * name answers it before you have to ask.
+ *
+ * Only the axes worth plotting are listed. Everything else falls back to low
+ * and high, which is honest and still better than nothing.
+ */
+const AXIS_ENDS: Record<string, [string, string]> = {
+  attack: ['sharper', 'slower'],
+  decay: ['shorter', 'longer'],
+  release: ['shorter', 'longer'],
+  sustain: ['plucked', 'sustained'],
+  brightness: ['darker', 'brighter'],
+  absBrightness: ['darker', 'brighter'],
+  attackBrightness: ['soft edge', 'hard edge'],
+  brightnessSlope: ['closes down', 'opens up'],
+  inharmonicity: ['harmonic', 'clangy'],
+  oddEven: ['even harmonics', 'odd harmonics'],
+  flatness: ['tonal', 'noisy'],
+  spread: ['narrow', 'wide'],
+  register: ['low', 'high'],
+  loudness: ['quiet', 'loud'],
+  velLevel: ['velocity does little', 'velocity does a lot'],
+  velBrightness: ['tone stays put', 'tone opens with force'],
+  velAttack: ['attack fixed', 'attack follows force'],
+  keyBrightness: ['even across the keys', 'brighter up top'],
+  keyLevel: ['even across the keys', 'louder up top'],
+  keyDecay: ['even across the keys', 'shorter up top'],
+  modResponse: ['wheel does nothing', 'wheel does a lot'],
+  modVibrato: ['no vibrato', 'deep vibrato'],
+  modTremolo: ['no tremolo', 'deep tremolo'],
+  modTimbre: ['tone fixed', 'wheel opens the tone'],
+  modBrightness: ['no change', 'brightens'],
+  predicted: ['you would not', 'you would'],
+  familySize: ['one of a kind', 'many near-copies'],
+  algorithm: ['algorithm 1', 'algorithm 32'],
+  carriers: ['one carrier', 'many carriers'],
+  feedback: ['none', 'strong'],
+  activeOps: ['few operators', 'all six'],
+  lfoSpeed: ['slow', 'fast'],
+  pca1: ['', ''],
+  pca2: ['', ''],
+  lda1: ['', ''],
+  lda2: ['', ''],
+};
+
+function axisEnds(id: AxisId): [string, string] {
+  return AXIS_ENDS[id] ?? ['low', 'high'];
+}
+
+/**
  * Every category at the same perceived lightness and chroma, evenly spaced
  * around the hue wheel. See colour.ts for why that is not the same thing as
  * picking nine hex values that look nice individually.
@@ -140,6 +194,7 @@ let mode: Mode = getSetting<Mode>('map.mode', 'split');
 /** How tall the plot is in split mode, dragged by the divider. */
 let plotHeight = getSetting('map.plotHeight', 340);
 let splitEl: HTMLElement | null = null;
+let plotEl: HTMLElement | null = null;
 let resetEl: HTMLElement | null = null;
 let listEl: HTMLElement | null = null;
 let list: ListView | null = null;
@@ -669,15 +724,102 @@ function drawOverlay(w: number, h: number, dpr: number): void {
     g.setLineDash([]);
   }
 
-  g.fillStyle = '#939aa6';
-  g.font = '11px system-ui, sans-serif';
-  g.fillText(axisById(xAxisId).label, 10, h - 8);
+  drawAxisLabels(g, w, h);
+}
+
+/**
+ * What the two axes are, said plainly.
+ *
+ * Centred on each edge rather than tucked into the bottom-left corner, at a
+ * size you can read without leaning in, and with a dark halo so they survive
+ * being drawn over a dense patch of dots. These are the only thing on the plot
+ * that says what you are looking at - a scatter with no axis labels is a
+ * picture of nothing - and they were 11px grey in the corner, where the
+ * y-axis one could run off the bottom of a short plot in split mode.
+ */
+function drawAxisLabels(g: CanvasRenderingContext2D, w: number, h: number): void {
   g.save();
-  g.translate(12, h - 24);
+  g.shadowColor = 'rgba(0, 0, 0, 0.9)';
+  g.shadowBlur = 6;
+  g.textBaseline = 'alphabetic';
+
+  /*
+   * One line reading `softer <- attack -> harder`, centred on its axis.
+   *
+   * The name is set brighter and heavier than the two ends, so the eye gets
+   * "attack" first and the direction second - which is the order you want them
+   * in. Drawn in three pieces around the centre rather than as one string,
+   * because the name has to be centred whether or not the two ends are the
+   * same length.
+   */
+  const measure = (parts: Array<[string, boolean]>): number => {
+    let width = 0;
+    for (const [text, strong] of parts) {
+      g.font = strong ? AXIS_FONT_STRONG : AXIS_FONT;
+      width += g.measureText(text).width;
+    }
+    return width;
+  };
+
+  /**
+   * The line for one axis, dropped back to the bare name when the full one
+   * will not fit along that edge.
+   *
+   * Worth doing rather than letting it overflow: the y-axis label is rotated,
+   * so a line too long for a short plot does not truncate at the edge - it
+   * runs off the top of the canvas and takes the axis name with it, which is
+   * the one word that had to survive.
+   */
+  const line = (id: AxisId, room: number): { parts: Array<[string, boolean]>; width: number } => {
+    const [lo, hi] = axisEnds(id);
+    const name = axisById(id).label;
+    if (lo) {
+      const full: Array<[string, boolean]> = [
+        [`${lo}  ←  `, false], [name, true], [`  →  ${hi}`, false],
+      ];
+      const width = measure(full);
+      if (width <= room) return { parts: full, width };
+    }
+    // Even the name alone can be longer than a short edge, and a rotated label
+    // does not truncate at the edge - it runs off it.
+    g.font = AXIS_FONT_STRONG;
+    let text = name;
+    while (text.length > 4 && g.measureText(`${text}…`).width > room) {
+      text = text.slice(0, -1);
+    }
+    const bare: Array<[string, boolean]> = [[text === name ? name : `${text}…`, true]];
+    return { parts: bare, width: measure(bare) };
+  };
+
+  const put = (parts: Array<[string, boolean]>, startX: number) => {
+    let at = startX;
+    for (const [text, strong] of parts) {
+      g.font = strong ? AXIS_FONT_STRONG : AXIS_FONT;
+      g.fillStyle = strong ? '#c9d0dc' : '#8d95a3';
+      g.fillText(text, at, 0);
+      at += g.measureText(text).width;
+    }
+  };
+
+  // Each label is centred along its own edge, minus a margin at both ends.
+  const x = line(xAxisId, w - 40);
+  g.save();
+  g.translate(0, h - 9);
+  put(x.parts, Math.max(10, (w - x.width) / 2));
+  g.restore();
+
+  const y = line(yAxisId, h - 40);
+  g.save();
+  g.translate(16, (h + Math.min(y.width, h - 20)) / 2);
   g.rotate(-Math.PI / 2);
-  g.fillText(axisById(yAxisId).label, 0, 0);
+  put(y.parts, 0);
+  g.restore();
+
   g.restore();
 }
+
+const AXIS_FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
+const AXIS_FONT_STRONG = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
 
 // -------------------------------------------------------------- hit test
 
@@ -906,7 +1048,7 @@ function interpolationPanel(): HTMLElement | null {
 
   panel.appendChild(el('div', { class: 'row', style: { marginBottom: '8px' } },
     el('button', {
-      class: interpFrozen ? 'btn primary' : 'btn',
+      class: interpFrozen ? 'btn on' : 'btn',
       style: { padding: '3px 10px' },
       onclick: () => {
         interpFrozen = !interpFrozen;
@@ -967,7 +1109,7 @@ function interpolationPanel(): HTMLElement | null {
       },
     }, 'Play in full'),
     el('button', {
-      class: 'btn primary',
+      class: 'btn',
       onclick: async () => {
         if (!interpResult) return;
         const names = interpResult.contributions
@@ -1101,14 +1243,12 @@ function refreshList(): void {
  */
 function applyMode(): void {
   if (!listEl || !canvas) return;
-  const wrap = canvas.parentElement as HTMLElement | null;
   listEl.hidden = mode === 'map';
   if (splitEl) splitEl.hidden = mode !== 'split';
-  if (legendEl) legendEl.hidden = mode === 'list';
-  if (wrap) {
-    wrap.hidden = mode === 'list';
-    wrap.style.flex = mode === 'split' ? '0 0 auto' : '1';
-    wrap.style.height = mode === 'split' ? `${plotHeight}px` : '';
+  if (plotEl) {
+    plotEl.hidden = mode === 'list';
+    plotEl.style.flex = mode === 'split' ? '0 0 auto' : '1';
+    plotEl.style.height = mode === 'split' ? `${fittedPlotHeight()}px` : '';
   }
   if (mode !== 'map') refreshList();
   if (mode !== 'list') draw();
@@ -1126,7 +1266,7 @@ function makeSplitter(): HTMLElement {
     e.preventDefault();
     handle.setPointerCapture(e.pointerId);
     handle.classList.add('dragging');
-    const top = (canvas?.parentElement as HTMLElement).getBoundingClientRect().top;
+    const top = plotEl ? plotEl.getBoundingClientRect().top : 0;
 
     const move = (ev: PointerEvent) => setPlotHeight(ev.clientY - top);
     const up = (ev: PointerEvent) => {
@@ -1140,20 +1280,40 @@ function makeSplitter(): HTMLElement {
     handle.addEventListener('pointerup', up);
   });
   handle.addEventListener('dblclick', () => {
-    const main = canvas?.parentElement?.parentElement;
-    setPlotHeight(main ? main.clientHeight / 2 : 340);
+    setPlotHeight(plotRoom() / 2);
     setSetting('map.plotHeight', plotHeight);
   });
   return handle;
 }
 
+/**
+ * How much room is left for the plot once the controls have had theirs.
+ *
+ * The stored height is a preference, not a promise: a window shorter than the
+ * last one, or a control bar that has wrapped onto a second row, can leave less
+ * room than the number that was saved. Without clamping on every layout - not
+ * only on drag - the plot simply overflows the column and the table underneath
+ * it gets nothing, which looks exactly like split mode being broken.
+ */
+function plotRoom(): number {
+  const main = plotEl?.parentElement;
+  if (!main) return window.innerHeight;
+  // Two gutters, and enough left over for a usable handful of rows.
+  return main.clientHeight - controlsEl.offsetHeight - 24 - MIN_LIST_HEIGHT;
+}
+
+function fittedPlotHeight(): number {
+  return Math.round(Math.max(MIN_PLOT_HEIGHT, Math.min(plotRoom(), plotHeight)));
+}
+
 /** Clamp the plot band so neither half can be dragged out of existence. */
 function setPlotHeight(px: number): void {
-  const main = canvas?.parentElement?.parentElement;
-  const room = main ? main.clientHeight : window.innerHeight;
-  plotHeight = Math.round(Math.max(120, Math.min(room - 170, px)));
+  plotHeight = Math.round(Math.max(MIN_PLOT_HEIGHT, Math.min(plotRoom(), px)));
   applyMode();
 }
+
+const MIN_PLOT_HEIGHT = 120;
+const MIN_LIST_HEIGHT = 110;
 
 /**
  * Ready-made pairs of axes.
@@ -1380,9 +1540,21 @@ function renderControls(): void {
 
   const preset = PRESETS.find((item) => item.id === presetId);
 
+  /**
+   * One group of related controls, behind a small caps label.
+   *
+   * Without the grouping this bar was eight equal-weight widgets in a row, all
+   * the same size, all the same colour, in no particular order - so finding the
+   * one you wanted meant reading every one of them. Three groups with a rule
+   * between them and a label on each is the difference between a control panel
+   * and a toolbar.
+   */
+  const group = (label: string | null, ...items: Array<Node | null>) =>
+    el('div', { class: 'ctl' }, label ? el('span', { class: 'ctl-label' }, label) : null, ...items);
+
   append(controlsEl, [
     // Both drawings, and the fact that there are two of them, in one control.
-    el('div', { class: 'seg', title: 'The same voices and the same filters, drawn as a scatter, a table, or both.' },
+    group(null, el('div', { class: 'seg', title: 'The same voices and the same filters, drawn as a scatter, a table, or both.' },
       ...(['map', 'split', 'list'] as const).map((m) => el('button', {
         class: m === mode ? 'on' : '',
         onclick: () => {
@@ -1391,28 +1563,32 @@ function renderControls(): void {
           renderControls();
           applyMode();
         },
-      }, m === 'split' ? 'both' : m))),
+      }, m === 'split' ? 'both' : m)))),
 
-    plot ? el('label', { class: 'field', title: preset ? preset.note : 'a pair of axes you chose yourself' }, 'view',
+    plot ? el('span', { class: 'bar-sep' }) : null,
+
+    // The caption belongs to the pulldown it describes, so it sits beside it
+    // and truncates rather than being exiled to the end of the bar where it is
+    // no longer obviously about anything.
+    plot ? group('view',
       el('select', {
         onchange: (e: Event) => applyPreset((e.target as HTMLSelectElement).value),
       },
         ...PRESETS.map((item) => el('option', { value: item.id, selected: item.id === presetId }, item.label)),
         presetId === 'custom' ? el('option', { value: 'custom', selected: true }, 'custom') : null,
-      )) : null,
+      ),
+      preset && !isAdvanced() ? el('span', { class: 'preset-note' }, preset.note) : null,
+    ) : null,
 
-    el('label', { class: 'field' }, 'show', showSelect()),
-    focusCategory ? subSelect() : null,
+    el('span', { class: 'bar-sep' }),
+
+    group('show', showSelect(), focusCategory ? subSelect() : null),
 
     searchControl(),
 
-    // Last, and allowed to shrink to nothing: a caption should never be what
-    // pushes the controls onto a second row.
-    plot && preset && !isAdvanced()
-      ? el('span', { class: 'muted preset-note' }, preset.note)
-      : null,
-
     // ---- everything below is advanced ----
+    adv(el('span', { class: 'bar-sep' })),
+    adv(plot ? el('span', { class: 'ctl-label' }, 'axes') : null),
     adv(plot ? el('label', { class: 'field' }, 'x', axisSelect(xAxisId, (id) => {
       xAxisId = id;
       setSetting('map.xAxis', id);
@@ -1446,6 +1622,7 @@ function renderControls(): void {
       computeSizes();
       draw();
     }, { value: '', label: 'uniform' })) : null),
+    adv(el('span', { class: 'bar-sep' })),
     adv(el('label', { class: 'field', title: 'Show one point per distinct sound rather than one per copy.' },
       el('input', {
         type: 'checkbox',
@@ -1551,16 +1728,15 @@ function showSelect(): HTMLElement {
 
 function subSelect(): HTMLElement {
   const subDefs = focusCategory ? SUBCATEGORIES[focusCategory] ?? [] : [];
-  return el('label', { class: 'field' },
-    el('select', {
-      onchange: (e: Event) => {
-        focusSub = (e.target as HTMLSelectElement).value;
-        applyFilters();
-      },
+  return el('select', {
+    onchange: (e: Event) => {
+      focusSub = (e.target as HTMLSelectElement).value;
+      applyFilters();
     },
-      el('option', { value: '', selected: focusSub === '' }, 'all subcategories'),
-      ...subDefs.map((d) => el('option', { value: d.id, selected: d.id === focusSub }, d.label)),
-    ));
+  },
+    el('option', { value: '', selected: focusSub === '' }, 'all subcategories'),
+    ...subDefs.map((d) => el('option', { value: d.id, selected: d.id === focusSub }, d.label)),
+  );
 }
 
 function renderLegend(): void {
@@ -1798,7 +1974,7 @@ export const view: View = {
 
     canvas = el('canvas') as HTMLCanvasElement;
     overlay = el('canvas', { style: { pointerEvents: 'none' } }) as HTMLCanvasElement;
-    legendEl = el('div', { class: 'legend', style: { padding: '8px 12px', boxShadow: '0 -1px 0 var(--line)' } });
+    legendEl = el('div', { class: 'legend' });
     sideEl = el('aside', { class: 'map-side' });
     controlsEl = el('div', { class: 'map-controls' });
 
@@ -1815,12 +1991,13 @@ export const view: View = {
       },
     }, 'Reset view');
     const wrap = el('div', { class: 'map-canvas-wrap' }, canvas, overlay, resetEl);
+    // The plot and its legend are one card: the legend says what the colours on
+    // the plot mean, so putting a gutter between them would be separating a
+    // thing from its own caption.
+    plotEl = el('div', { class: 'map-plot' }, wrap, legendEl);
     listEl = el('div', { class: 'list-pane', hidden: true });
     splitEl = makeSplitter();
-    // The legend belongs to the plot, so it sits under the plot rather than at
-    // the foot of the whole column - which in split mode put it below a table
-    // it says nothing about.
-    const main = el('div', { class: 'map-main' }, controlsEl, wrap, legendEl, splitEl, listEl);
+    const main = el('div', { class: 'map-main' }, controlsEl, plotEl, splitEl, listEl);
     const layout = el('div', { class: 'map-layout' }, main, sideEl);
     layout.appendChild(sidebarSplitter(layout, { key: 'ui.mapSideWidth', defaultWidth: 300 }));
     root.appendChild(layout);
@@ -1870,7 +2047,7 @@ export const view: View = {
     attachCanvasEvents();
     draw();
 
-    const onResize = () => draw();
+    const onResize = () => applyMode();
     window.addEventListener('resize', onResize);
 
     const onKey = (e: KeyboardEvent) => {
@@ -1916,6 +2093,7 @@ export const view: View = {
     list = null;
     listEl = null;
     splitEl = null;
+    plotEl = null;
     resetEl = null;
     unsubscribe?.();
     unsubscribe = null;

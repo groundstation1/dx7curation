@@ -212,7 +212,7 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
         const by = cy - br - 2.5;
         root.appendChild(svg('circle', {
           cx: bx, cy: by, r: br,
-          fill: 'var(--panel)', stroke: 'var(--accent-2)',
+          fill: 'var(--surface)', stroke: 'var(--accent-2)',
           'stroke-width': 0.9, opacity: amount === 0 ? 0.45 : 0.95,
         }));
         const label = svg('text', {
@@ -282,8 +282,8 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
     if (!v) {
       cell.appendChild(svg('rect', {
         x, y, width: box, height: box, rx: 4,
-        fill: n.carrier ? 'var(--accent)' : 'var(--panel-2)',
-        stroke: n.carrier ? 'var(--accent)' : 'var(--line)',
+        fill: n.carrier ? 'var(--accent)' : 'var(--raise)',
+        stroke: n.carrier ? 'var(--accent)' : 'var(--raise-2)',
         'stroke-width': 1.4,
       }));
       const label = svg('text', {
@@ -309,7 +309,7 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
     cell.appendChild(svg('rect', {
       x, y, width: box, height: box, rx: 4,
       fill: 'var(--bg)',
-      stroke: silent ? 'var(--line)' : rim,
+      stroke: silent ? 'var(--raise-2)' : rim,
       'stroke-width': silent ? 1 : n.carrier ? 2.4 : 1.8,
       'stroke-dasharray': silent ? '3 3' : 'none',
       opacity: silent ? 0.45 : 1,
@@ -440,7 +440,7 @@ function envelopePlot(v: Uint8Array, op: number, colour: string, w = 252, h = 10
   const root = svg('svg', { viewBox: `0 0 ${w} ${h}`, class: 'op-env' });
   root.appendChild(svg('rect', {
     x: padL, y: padT, width: plotW, height: plotH, rx: 3,
-    fill: 'var(--bg)', stroke: 'var(--line)',
+    fill: 'var(--bg)', stroke: 'var(--raise-2)',
   }));
   // The ceiling a level-99 operator would reach, so the squash reads as one.
   root.appendChild(svg('line', {
@@ -468,7 +468,7 @@ function envelopePlot(v: Uint8Array, op: number, colour: string, w = 252, h = 10
   for (const i of [1, 2, 3, 5]) {
     root.appendChild(svg('line', {
       x1: xs[i], y1: ys[i], x2: xs[i], y2: floor,
-      stroke: 'var(--line)', 'stroke-width': 1, opacity: 0.8,
+      stroke: 'var(--raise-2)', 'stroke-width': 1, opacity: 0.8,
     }));
   }
 
@@ -495,7 +495,7 @@ function envelopePlot(v: Uint8Array, op: number, colour: string, w = 252, h = 10
 
   for (const i of [1, 2, 3, 5]) {
     root.appendChild(svg('circle', {
-      cx: xs[i], cy: ys[i], r: 3, fill: colour, stroke: 'var(--panel)', 'stroke-width': 1.4,
+      cx: xs[i], cy: ys[i], r: 3, fill: colour, stroke: 'var(--surface)', 'stroke-width': 1.4,
     }));
   }
 
@@ -503,7 +503,7 @@ function envelopePlot(v: Uint8Array, op: number, colour: string, w = 252, h = 10
   const bx = w - 7;
   root.appendChild(svg('line', {
     x1: bx, y1: padT, x2: bx, y2: floor,
-    stroke: 'var(--panel-2)', 'stroke-width': 5, 'stroke-linecap': 'round',
+    stroke: 'var(--raise)', 'stroke-width': 5, 'stroke-linecap': 'round',
   }));
   if (level > 0) {
     root.appendChild(svg('line', {
@@ -537,10 +537,10 @@ function pitchRuler(ratio: number, fixed: boolean, detune: number, colour: strin
   const pos = (r: number) => padL + ((Math.log2(Math.max(r, 0.05)) + 1) / 6) * plotW;
 
   root.appendChild(svg('line', {
-    x1: padL, y1: y, x2: padL + plotW, y2: y, stroke: 'var(--line)', 'stroke-width': 2,
+    x1: padL, y1: y, x2: padL + plotW, y2: y, stroke: 'var(--raise-2)', 'stroke-width': 2,
   }));
   for (const r of [3, 5, 6, 7, 10, 12, 14, 20, 24, 28]) {
-    root.appendChild(svg('line', { x1: pos(r), y1: y - 3, x2: pos(r), y2: y + 3, stroke: 'var(--line)', 'stroke-width': 1.5 }));
+    root.appendChild(svg('line', { x1: pos(r), y1: y - 3, x2: pos(r), y2: y + 3, stroke: 'var(--raise-2)', 'stroke-width': 1.5 }));
   }
   for (const [r, label] of [[0.5, '\u00bd'], [1, '1'], [2, '2'], [4, '4'], [8, '8'], [16, '16'], [32, '32']] as const) {
     const x = pos(r);
@@ -567,13 +567,13 @@ function pitchRuler(ratio: number, fixed: boolean, detune: number, colour: strin
   const half = 46;
   const cxx = w / 2;
   root.appendChild(svg('line', {
-    x1: cxx - half, y1: dy, x2: cxx + half, y2: dy, stroke: 'var(--line)', 'stroke-width': 2, 'stroke-linecap': 'round',
+    x1: cxx - half, y1: dy, x2: cxx + half, y2: dy, stroke: 'var(--raise-2)', 'stroke-width': 2, 'stroke-linecap': 'round',
   }));
   root.appendChild(svg('line', { x1: cxx, y1: dy - 5, x2: cxx, y2: dy + 5, stroke: 'var(--muted)', 'stroke-width': 1.5 }));
   const needle = cxx + (detune / 7) * half;
   root.appendChild(svg('circle', {
     cx: needle, cy: dy, r: 4, fill: detune === 0 ? 'var(--muted)' : 'var(--accent-2)',
-    stroke: 'var(--panel)', 'stroke-width': 1.4,
+    stroke: 'var(--surface)', 'stroke-width': 1.4,
   }));
   if (detune !== 0) {
     root.appendChild(svg('line', {

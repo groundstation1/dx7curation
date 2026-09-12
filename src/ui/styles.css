@@ -1,47 +1,51 @@
 :root {
   /*
-   * A dark ramp with a little warmth in it rather than a neutral grey.
+   * Four tones and an accent. That is the whole visual system.
    *
-   * The whole app is a dark field with a few thousand coloured dots on it, and
-   * a perfectly neutral background makes those dots look like they are floating
-   * rather than sitting on a surface. Every step of the ramp is the same hue,
-   * so panels read as elevation rather than as different materials.
+   * The app is a dark field with a few thousand coloured dots on it, so the
+   * chrome has to stay out of the way of the only colour that carries meaning.
+   * Every surface is a flat step on one ramp, with a little warmth in it rather
+   * than a neutral grey - a perfectly neutral background makes the dots look
+   * like they are floating rather than sitting on something.
+   *
+   * There are no gradients, no bevels and no drop shadows on anything that sits
+   * in the page. An earlier pass had all three: a hairline of light along the
+   * top of every panel, a soft shadow under it, and a gradient in every button.
+   * That reads as a stack of physical cards, which is a dated idea of depth.
+   * Difference in tone and difference in space say the same thing without
+   * pretending the screen has a light source.
+   *
+   * The one exception is something that genuinely floats over content - a
+   * popover, a tooltip - which has to be told apart from what it covers.
    */
-  --bg: #101216;
-  --bg-2: #0b0d10;
-  --panel: #171a20;
-  --panel-2: #1e222a;
-  --panel-3: #262b34;
+  --bg: #08090c;
+  --surface: #181c24;
+  --raise: #222732;
+  --raise-2: #2e3440;
   /*
-   * Dividers, and nothing else.
+   * The only line in the app, and it is a rule, never a box.
    *
-   * This used to be a border colour, and every group in the app was a rounded
-   * rectangle drawn in it: six of them stacked down the Sources page, five down
-   * Build, some nested inside others. Outlining everything is what made the app
-   * look assembled rather than designed - a box says "these things are
-   * separate" in the loudest possible way, and almost nothing needs to say it
-   * that loudly. Elevation and space say it better, so surfaces are now shaded
-   * and `--line` is reserved for the places where a real edge is meant: between
-   * a header and what it heads, between two columns.
+   * Separating rows in a dense table is information. Drawing a rectangle around
+   * a group of controls is decoration standing in for layout.
    */
-  --line: #252a33;
-  --line-2: #343b47;
-  --text: #e7e9ee;
-  --muted: #8c94a3;
+  --hair: rgba(255, 255, 255, 0.055);
+  --text: #e8eaf0;
+  --muted: #868e9e;
   --accent: #6ea8fe;
   --accent-2: #ffca6a;
   --good: #7bd88f;
   --bad: #f2777a;
   --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
-  --radius: 6px;
-  --radius-sm: 4px;
-  /* One hairline of light along the top of a raised surface, one soft shadow
-     under it. Two lines of CSS, and the difference between "a div with a
-     border" and something that looks made. */
-  --lift: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 26px rgba(0, 0, 0, 0.2);
+  --radius: 8px;
+  --radius-sm: 6px;
+  --pill: 999px;
+  /* Overlays only. Nothing in the page flow uses this. */
+  --float: 0 16px 40px rgba(0, 0, 0, 0.6);
+  /* The gutter between cards. Black shows through it, which is what makes a
+     card a card without drawing a line around one. */
+  --gut: 10px;
   /* How much room the sound dock takes along the bottom edge. */
-  --dock-h: 34px;
+  --dock-h: 36px;
   color-scheme: dark;
 }
 
@@ -61,21 +65,21 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
 
-::selection { background: rgba(110, 168, 254, 0.28); }
+::selection { background: rgba(110, 168, 254, 0.3); }
 
 /* Thin scrollbars, in the app's own colours rather than the platform's. */
-* { scrollbar-width: thin; scrollbar-color: var(--panel-3) transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--raise-2) transparent; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: var(--panel-3); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
-*::-webkit-scrollbar-thumb:hover { background: var(--line-2); background-clip: content-box; }
+*::-webkit-scrollbar-thumb { background: var(--raise-2); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: #3a4150; background-clip: content-box; }
 
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
 #app {
   display: flex; flex-direction: column;
@@ -89,10 +93,9 @@ header.topbar {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 14px;
-  height: 44px;
-  background: linear-gradient(180deg, #1b1f26 0%, #15181e 100%);
-  box-shadow: var(--lift), 0 1px 0 #05070a, 0 2px 10px rgba(0, 0, 0, 0.3);
+  padding: 0 16px;
+  height: 46px;
+  background: var(--bg);
   flex: none;
   position: relative;
   z-index: 10;
@@ -103,55 +106,50 @@ header.topbar {
   align-items: center;
   gap: 8px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  margin-right: 14px;
+  margin-right: 18px;
   white-space: nowrap;
+  color: var(--text);
 }
-/* The power lamp. Every piece of eighties hardware has one. */
+/* The power lamp. Every piece of eighties hardware has one - flat, though. */
 .topbar .brand::before {
   content: '';
-  width: 7px; height: 7px; border-radius: 50%;
+  width: 6px; height: 6px; border-radius: 50%;
   background: var(--accent-2);
-  box-shadow: 0 0 6px rgba(255, 202, 106, 0.7);
 }
 
-nav.tabs { display: flex; gap: 2px; flex: none; }
+nav.tabs { display: flex; gap: 3px; flex: none; }
 
+/* A filled pill for the current tab: one shape and one fill, rather than an
+   underline with a glow under it. */
 nav.tabs button {
-  position: relative;
   white-space: nowrap;
   background: none;
   border: none;
   color: var(--muted);
-  padding: 13px 12px 11px;
+  padding: 6px 12px;
+  border-radius: var(--pill);
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
-  transition: color 0.12s;
+  transition: color 0.12s, background 0.12s;
 }
-nav.tabs button::after {
-  content: '';
-  position: absolute; left: 8px; right: 8px; bottom: 7px; height: 2px;
-  border-radius: 2px; background: transparent;
-  transition: background 0.12s;
-}
-nav.tabs button:hover:not(:disabled) { color: var(--text); }
-nav.tabs button.active { color: var(--text); }
-nav.tabs button.active::after { background: var(--accent); box-shadow: 0 0 10px rgba(110, 168, 254, 0.5); }
-nav.tabs button:disabled { opacity: 0.3; cursor: not-allowed; }
+nav.tabs button:hover:not(:disabled) { color: var(--text); background: var(--surface); }
+nav.tabs button.active { color: var(--text); background: var(--raise); }
+nav.tabs button:disabled { opacity: 0.32; cursor: not-allowed; }
 
 .topbar .spacer { flex: 1; }
 .topbar .status {
   color: var(--muted); font-size: 11.5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
-  margin-left: 14px;
+  margin-left: 16px;
 }
 .topbar .status b { color: var(--text); font-weight: 600; }
 
-main.view { flex: 1; overflow: auto; padding: 18px 20px 30px; }
+main.view { flex: 1; overflow: auto; padding: 24px 26px 36px; }
 main.view.flush { padding: 0; overflow: hidden; }
 
 /* ------------------------------------------------------------- task bar */
@@ -159,18 +157,18 @@ main.view.flush { padding: 0; overflow: hidden; }
 /* One bar for every slow thing, so a job with no progress is conspicuous
    rather than quietly absent. */
 .taskbar {
-  display: flex; align-items: center; gap: 9px;
+  display: flex; align-items: center; gap: 10px;
   font-size: 11.5px; white-space: nowrap; min-width: 0;
 }
 .task-label { color: var(--text); }
 .task-bar {
-  position: relative; display: block; width: 130px; height: 4px; flex: none;
-  border-radius: 2px; background: rgba(255, 255, 255, 0.07); overflow: hidden;
+  position: relative; display: block; width: 140px; height: 3px; flex: none;
+  border-radius: var(--pill); background: var(--raise-2); overflow: hidden;
 }
 .task-bar i {
   position: absolute; inset: 0 auto 0 0; display: block; width: 0;
-  background: linear-gradient(90deg, var(--accent) 0%, #9ec5ff 100%);
-  border-radius: 2px; transition: width 0.18s linear;
+  background: var(--accent); border-radius: var(--pill);
+  transition: width 0.18s linear;
 }
 /* Work whose end cannot be known: a sweep rather than a lie about a fraction. */
 .task-bar.indeterminate i { width: 38%; animation: task-sweep 1.15s ease-in-out infinite; }
@@ -181,33 +179,31 @@ main.view.flush { padding: 0; overflow: hidden; }
 .task-detail { font-size: 11px; }
 .task-stop {
   background: none; border: none; color: var(--muted); cursor: pointer;
-  font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: var(--radius-sm);
+  font-size: 15px; line-height: 1; padding: 2px 6px; border-radius: var(--radius-sm);
 }
-.task-stop:hover { color: var(--bad); background: rgba(255, 255, 255, 0.06); }
+.task-stop:hover { color: var(--bad); background: var(--raise); }
 
 /* --------------------------------------------------- the advanced switch */
 
 .adv-switch {
-  display: flex; align-items: center; gap: 7px; flex: none;
-  margin-left: 14px; padding-left: 14px;
-  border-left: 1px solid var(--line);
+  display: flex; align-items: center; gap: 8px; flex: none;
+  margin-left: 16px;
   color: var(--muted); font-size: 11.5px; cursor: pointer; user-select: none;
 }
 .adv-switch:hover { color: var(--text); }
 .adv-switch input { position: absolute; opacity: 0; pointer-events: none; }
 .adv-track {
-  position: relative; width: 26px; height: 14px; border-radius: 7px; flex: none;
-  background: var(--panel-3); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
-  transition: background 0.14s;
+  position: relative; width: 28px; height: 16px; border-radius: var(--pill); flex: none;
+  background: var(--raise-2); transition: background 0.14s;
 }
 .adv-track::after {
-  content: ''; position: absolute; top: 2px; left: 2px;
+  content: ''; position: absolute; top: 3px; left: 3px;
   width: 10px; height: 10px; border-radius: 50%;
   background: var(--muted); transition: transform 0.14s, background 0.14s;
 }
-.adv-switch input:checked + .adv-track { background: rgba(110, 168, 254, 0.35); }
-.adv-switch input:checked + .adv-track::after { transform: translateX(12px); background: var(--accent); }
-.adv-switch input:focus-visible + .adv-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.adv-switch input:checked + .adv-track { background: var(--accent); }
+.adv-switch input:checked + .adv-track::after { transform: translateX(12px); background: #08090c; }
+.adv-switch input:focus-visible + .adv-track { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 /* ------------------------------------------------ progressive disclosure */
 
@@ -215,9 +211,10 @@ details.disc { margin: 0; }
 details.disc > summary {
   list-style: none; cursor: pointer; user-select: none;
   display: flex; align-items: center; gap: 8px;
-  padding: 7px 0;
-  font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+  padding: 8px 0;
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--muted);
+  transition: color 0.12s;
 }
 details.disc > summary::-webkit-details-marker { display: none; }
 details.disc > summary::before {
@@ -231,106 +228,104 @@ details.disc > summary::before {
 details.disc[open] > summary::before { transform: rotate(90deg); }
 details.disc > summary:hover { color: var(--text); }
 .disc-note { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; }
-.disc-body { padding: 2px 0 10px; }
+.disc-body { padding: 4px 0 12px; }
 
 /* ---------------------------------------------------------------- basics */
 
-h2 { font-size: 14.5px; margin: 0 0 4px; font-weight: 600; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 0 0 6px; font-weight: 600; letter-spacing: -0.01em; }
 h3 {
-  font-size: 11px; margin: 20px 0 8px; font-weight: 600; color: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.07em;
+  font-size: 10.5px; margin: 20px 0 8px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
 }
-p.hint { color: var(--muted); margin: 0 0 12px; max-width: 72ch; font-size: 12px; }
+p.hint { color: var(--muted); margin: 0 0 14px; max-width: 74ch; font-size: 12px; line-height: 1.55; }
 
 button.btn {
-  background: var(--panel-2);
+  background: var(--raise);
   color: var(--text);
   border: none;
   border-radius: var(--radius-sm);
-  padding: 6px 12px;
+  padding: 7px 13px;
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
-  box-shadow: var(--lift);
   transition: background 0.12s, color 0.12s;
 }
-button.btn:hover:not(:disabled) { background: var(--panel-3); }
-button.btn:active:not(:disabled) { background: #15181e; box-shadow: none; }
-button.btn:disabled { opacity: 0.38; cursor: not-allowed; }
-button.btn.primary {
-  background: linear-gradient(180deg, #7cb1ff 0%, var(--accent) 100%);
-  color: #0b1017; font-weight: 600;
-}
-button.btn.primary:hover:not(:disabled) { background: #8ab9ff; }
+button.btn:hover:not(:disabled) { background: var(--raise-2); }
+button.btn:active:not(:disabled) { background: #1b1f28; }
+button.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+/* Solid accent, no gradient: one flat fill is louder than a shaded one. */
+button.btn.primary { background: var(--accent); color: #0b1017; font-weight: 600; }
+button.btn.primary:hover:not(:disabled) { background: #86b8ff; }
 button.btn.danger { color: var(--bad); }
 /* A toggle that is currently engaged. */
-button.btn.on { color: var(--accent); background: rgba(110, 168, 254, 0.14); }
+button.btn.on { color: var(--accent); background: rgba(110, 168, 254, 0.15); }
 button.btn.off { color: var(--muted); }
 /* The one button a screen is actually about. */
-button.btn.big { padding: 9px 20px; font-size: 13.5px; }
+button.btn.big { padding: 10px 22px; font-size: 13.5px; border-radius: var(--radius); }
 
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.stack { display: flex; flex-direction: column; gap: 18px; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
 
 /*
- * A shaded surface, not a box.
+ * A surface, not a card.
  *
- * The hairline along the top and the shadow beneath do the work a border used
- * to: it reads as raised off the page, which is the thing a border was only
- * ever standing in for.
+ * One flat step up from the page and nothing else - no border, no shadow, no
+ * highlight along the top. Every group in the app used to be a rounded
+ * rectangle outlined in grey, six of them stacked down one screen, some nested
+ * inside others. Tone and spacing separate things perfectly well.
  */
 .panel {
-  background: var(--panel);
+  background: var(--surface);
   border-radius: var(--radius);
-  padding: 15px 17px;
-  box-shadow: var(--lift), var(--shadow);
+  padding: 17px 19px;
 }
-/* A panel inside a panel is one box too many: same material, no elevation. */
-.panel .panel { background: var(--panel-2); box-shadow: var(--lift); }
-/* A quiet group - related controls that do not deserve a raised surface. */
-.sunk { background: rgba(0, 0, 0, 0.18); border-radius: var(--radius); padding: 12px 14px; }
+/* A panel inside a panel is one surface too many: same material, one step up. */
+.panel .panel { background: var(--raise); }
+/* A quiet group - related controls that do not deserve their own surface. */
+.sunk { background: rgba(0, 0, 0, 0.22); border-radius: var(--radius); padding: 13px 15px; }
 
 label.field { display: flex; align-items: center; gap: 7px; color: var(--muted); }
 label.field input[type="number"], label.field select, input.text, select {
-  background: var(--bg-2);
+  background: var(--raise);
   color: var(--text);
-  border: 1px solid transparent;
+  border: none;
   border-radius: var(--radius-sm);
-  padding: 5px 8px;
+  padding: 6px 9px;
   font: inherit;
   font-size: 12.5px;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
-  transition: border-color 0.12s;
+  transition: background 0.12s;
 }
 label.field input[type="number"]:hover, label.field select:hover, input.text:hover, select:hover {
-  border-color: var(--line-2);
+  background: var(--raise-2);
 }
 label.field input[type="number"] { width: 66px; }
 label.field input[type="checkbox"] { accent-color: var(--accent); }
 input[type="range"] { accent-color: var(--accent); }
 select.axis-select { max-width: 260px; }
-select optgroup { color: var(--muted); font-style: normal; font-weight: 600; background: var(--panel); }
-select option { color: var(--text); font-weight: 400; background: var(--panel); }
+select optgroup { color: var(--muted); font-style: normal; font-weight: 600; background: var(--surface); }
+select option { color: var(--text); font-weight: 400; background: var(--surface); }
 
-/* A segmented control: two or three exclusive choices, both visible. */
-.seg { display: inline-flex; background: var(--bg-2); border-radius: var(--radius-sm); padding: 2px; gap: 2px; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); }
+/* A segmented control: two or three exclusive choices, all of them visible. */
+.seg { display: inline-flex; background: var(--bg); border-radius: var(--pill); padding: 3px; gap: 2px; }
 .seg button {
   background: none; border: none; color: var(--muted); cursor: pointer;
-  font: inherit; font-size: 12px; padding: 3px 11px; border-radius: 3px;
+  font: inherit; font-size: 12px; padding: 3px 12px; border-radius: var(--pill);
   transition: background 0.12s, color 0.12s;
 }
 .seg button:hover { color: var(--text); }
-.seg button.on { background: var(--panel-3); color: var(--text); box-shadow: var(--lift); }
+.seg button.on { background: var(--raise-2); color: var(--text); }
 
+/* Rules between rows, never a box around the table. */
 table.data { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
-table.data th, table.data td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); }
+table.data th, table.data td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--hair); }
+table.data tr:last-child td { border-bottom: none; }
 table.data th {
-  color: var(--muted); font-weight: 600; font-size: 10.5px;
-  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); font-weight: 600; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.07em;
 }
 table.data td.num, table.data th.num { text-align: right; font-family: var(--mono); }
 table.data tr.clickable { cursor: pointer; }
-table.data tr.clickable:hover td { background: var(--panel-2); }
+table.data tr.clickable:hover td { background: var(--raise); }
 table.data tr.chosen td { background: rgba(110, 168, 254, 0.12); }
 
 .mono { font-family: var(--mono); }
@@ -339,21 +334,20 @@ table.data tr.chosen td { background: rgba(110, 168, 254, 0.12); }
 .bad { color: var(--bad); }
 .good { color: var(--good); }
 
-.stats { display: flex; gap: 26px; flex-wrap: wrap; }
-.stat .k { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
-.stat .v { font-size: 21px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.stats { display: flex; gap: 28px; flex-wrap: wrap; }
+.stat .k { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+.stat .v { font-size: 22px; font-variant-numeric: tabular-nums; letter-spacing: -0.015em; margin-top: 2px; }
 
 progress {
-  width: 320px; height: 5px; border: none; border-radius: 3px;
-  background: var(--panel-2); overflow: hidden;
+  width: 320px; height: 3px; border: none; border-radius: var(--pill);
+  background: var(--raise-2); overflow: hidden;
 }
-progress::-webkit-progress-bar { background: var(--panel-2); border-radius: 3px; }
-progress::-webkit-progress-value { background: linear-gradient(90deg, var(--accent) 0%, #9ec5ff 100%); border-radius: 3px; }
+progress::-webkit-progress-bar { background: var(--raise-2); border-radius: var(--pill); }
+progress::-webkit-progress-value { background: var(--accent); border-radius: var(--pill); }
 
 kbd {
   font-family: var(--mono); font-size: 10.5px;
-  background: var(--panel-2); box-shadow: var(--lift), 0 1px 0 rgba(0, 0, 0, 0.5);
-  border-radius: 4px; padding: 1px 5px; color: var(--text);
+  background: var(--raise-2); border-radius: 4px; padding: 2px 6px; color: var(--text);
 }
 
 /* ------------------------------------------------------------ sound dock */
@@ -366,51 +360,58 @@ kbd {
  */
 .sound-dock {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
-  background: linear-gradient(180deg, #15181e 0%, #101318 100%);
-  box-shadow: 0 -1px 0 #05070a, var(--lift), 0 -6px 20px rgba(0, 0, 0, 0.3);
+  background: var(--bg);
 }
 .sound-bar {
-  display: flex; align-items: center; gap: 9px;
-  height: var(--dock-h); padding: 0 12px;
+  display: flex; align-items: center; gap: 10px;
+  height: var(--dock-h); padding: 0 14px;
   white-space: nowrap; overflow-x: auto; scrollbar-width: none;
 }
 .sound-bar::-webkit-scrollbar { height: 0; }
-.sound-bar .field { gap: 5px; font-size: 11.5px; }
-.sound-bar .btn { padding: 3px 9px; font-size: 11.5px; }
+.sound-bar .field { gap: 6px; font-size: 11.5px; }
+.sound-bar .btn { padding: 4px 10px; font-size: 11.5px; }
+.sound-bar select { padding: 4px 8px; font-size: 11.5px; }
 .sound-label {
-  font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--muted); margin-right: 2px;
 }
 .sound-more {
   background: none; border: none; color: var(--muted); cursor: pointer;
-  font-size: 11px; line-height: 1; padding: 4px 5px; border-radius: var(--radius-sm);
+  font-size: 14px; line-height: 1; padding: 5px 7px; border-radius: var(--radius-sm);
+  flex: none;
 }
-.sound-more:hover, .sound-more.on { color: var(--accent); background: rgba(110, 168, 254, 0.12); }
-.sound-vol { width: 92px; flex: none; }
-.sound-sep { width: 1px; height: 15px; background: var(--line); flex: none; margin: 0 3px; }
+.sound-more:hover, .sound-more.on { color: var(--accent); background: var(--raise); }
+.sound-vol { width: 96px; flex: none; }
+.sound-sep { width: 1px; height: 16px; background: var(--hair); flex: none; margin: 0 4px; }
 .sound-midi {
-  background: var(--panel-2); border: none; color: var(--muted); cursor: pointer;
-  font: inherit; font-size: 11.5px; padding: 3px 9px; border-radius: var(--radius-sm);
-  box-shadow: var(--lift);
+  background: var(--raise); border: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 11.5px; padding: 4px 10px; border-radius: var(--radius-sm);
+  transition: background 0.12s, color 0.12s;
 }
-.sound-midi:hover { color: var(--text); }
-.sound-midi.on { color: var(--good); background: rgba(123, 216, 143, 0.12); }
+.sound-midi:hover { color: var(--text); background: var(--raise-2); }
+.sound-midi.on { color: var(--good); background: rgba(123, 216, 143, 0.14); }
 /* Opens upward, so reaching for the bend range never moves the app. */
-.sound-panel { padding: 12px 14px 6px; box-shadow: 0 1px 0 var(--line); }
-.sound-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 9px; font-size: 12px; }
+.sound-panel {
+  margin: var(--gut) var(--gut) 0; padding: 16px; border-radius: var(--radius);
+  background: var(--surface);
+}
+.sound-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; }
 
-/* The typing keyboard's legend: which letter is which note, and what is down. */
-.keymap { display: flex; gap: 3px; margin-top: 9px; flex-wrap: wrap; }
+/* The typing keyboard's legend: which letter is which note, and what is down.
+   Two rows offset by half a key, so it reads as a keyboard at a glance. */
+.keymap { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; }
+.keyrow { display: flex; gap: 3px; }
+.keyrow:first-child { margin-left: 13px; }
+.keycap.gap { background: none; }
 .keycap {
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 21px; height: 23px; padding: 0 4px; border-radius: 3px;
-  background: var(--panel-3); color: var(--text);
+  min-width: 22px; height: 24px; padding: 0 5px; border-radius: var(--radius-sm);
+  background: var(--raise-2); color: var(--text);
   font-family: var(--mono); font-size: 11px; text-transform: uppercase;
-  box-shadow: var(--lift), 0 1px 0 rgba(0, 0, 0, 0.5);
 }
 /* Black keys sit lower and darker, so the row reads as a keyboard rather than
    as seventeen identical buttons. */
-.keycap.sharp { background: #0e1014; color: var(--muted); margin-top: 5px; height: 18px; }
+.keycap.sharp { background: var(--bg); color: var(--muted); }
 .keycap.down { background: var(--accent); color: #0b1017; }
 
 /*
@@ -429,74 +430,113 @@ kbd {
 
 /* ------------------------------------------------------------ drop zone */
 
+/* A tinted area, not a dashed rectangle. The whole thing is the target, so the
+   fill is the affordance and an outline adds nothing to it. */
 .dropzone {
-  background: rgba(110, 168, 254, 0.04);
-  box-shadow: inset 0 0 0 1px var(--line);
-  border-radius: 9px;
-  padding: 30px;
+  background: var(--raise);
+  border-radius: var(--radius);
+  padding: 34px;
   text-align: center;
   color: var(--muted);
-  transition: box-shadow 0.12s, background 0.12s;
+  transition: background 0.12s, color 0.12s;
 }
-.dropzone.over { box-shadow: inset 0 0 0 2px var(--accent); background: rgba(110, 168, 254, 0.1); color: var(--text); }
+.dropzone.over { background: rgba(110, 168, 254, 0.16); color: var(--text); }
 
 /* The first screen, when there is nothing yet: the drop zone is the page. */
-.onboard { max-width: 620px; margin: 6vh auto 0; text-align: center; }
-.onboard h1 { font-size: 21px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
-.onboard .lede { color: var(--muted); margin: 0 0 22px; }
-.onboard .dropzone { padding: 46px 30px; }
-.onboard .drop-big { font-size: 16px; color: var(--text); margin-bottom: 8px; }
+.onboard { max-width: 640px; margin: 8vh auto 0; text-align: center; }
+.onboard h1 { font-size: 24px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.02em; }
+.onboard .lede { color: var(--muted); margin: 0 0 26px; font-size: 13.5px; }
+.onboard .dropzone { padding: 52px 30px; }
+.onboard .drop-big { font-size: 16px; color: var(--text); margin-bottom: 10px; }
 .onboard .tipoff {
-  margin-top: 18px; padding: 13px 16px; text-align: left;
-  background: var(--panel); border-radius: var(--radius); box-shadow: var(--lift), var(--shadow);
+  margin-top: 16px; padding: 15px 18px; text-align: left;
+  background: var(--surface); border-radius: var(--radius);
 }
 .onboard .tipoff b { color: var(--accent-2); }
 .onboard a { color: var(--accent); }
+.onboard .panel { margin-top: 8px; text-align: left; }
 
 /* ----------------------------------------------------------------- map */
 
+/*
+ * Cards on black, with the gutters showing through.
+ *
+ * The full-bleed panes this replaced were separated by hairlines, which meant
+ * the plot, the table and the sidebar read as one undivided surface with lines
+ * drawn on it. Rounded surfaces with black between them say where one thing
+ * ends and the next begins without drawing anything at all.
+ */
 .map-layout {
   display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w, 300px);
-  height: 100%; position: relative;
+  gap: var(--gut); padding: var(--gut);
+  height: 100%; position: relative; background: var(--bg);
 }
 /* min-height: 0 because a grid item defaults to min-height: auto, which means
    "never shrink below your content". With a canvas that was harmless; with a
    list whose content is forty thousand rows tall it made the column grow to
    forty thousand rows tall, and the virtual scroller - which renders what fits
    in its own height - dutifully rendered all of them. */
-.map-main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.map-main {
+  position: relative; display: flex; flex-direction: column; gap: var(--gut);
+  min-width: 0; min-height: 0;
+}
 .map-controls {
   display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-  padding: 7px 12px; background: var(--panel);
-  box-shadow: 0 1px 0 var(--line);
+  padding: 9px 14px; background: var(--surface); border-radius: var(--radius);
   flex: none; position: relative; z-index: 5;
 }
+/* The plot and the legend that explains it, as one card. */
+.map-plot {
+  display: flex; flex-direction: column; min-height: 0; flex: 1;
+  background: var(--surface); border-radius: var(--radius); overflow: hidden;
+}
+.map-plot .legend { padding: 9px 14px; flex: none; }
 .map-canvas-wrap { position: relative; flex: 1; min-height: 0; }
-/* Shrinks away rather than wrapping the control bar onto a second row. */
-/* flex-basis 0, not auto: wrapping is decided from the basis, so an `auto`
-   basis wraps the caption onto its own row before it ever shrinks. */
-.preset-note { font-size: 11px; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/*
+ * The control bar reads as groups, not as eight widgets in a row.
+ *
+ * A small caps label in front of each group, a rule between groups, and the
+ * controls themselves left at full size. Everything in this bar used to be the
+ * same size and weight in the same colour, which meant finding the one you
+ * wanted required reading all of them.
+ */
+.ctl { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ctl-label {
+  font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted); flex: none;
+}
+.bar-sep { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--hair); flex: none; }
+/* Beside the pulldown it describes, and the first thing to give up room.
+   Shrink-only (`0 1 auto`), so it never grows and pushes the rest along. */
+.preset-note {
+  font-size: 11px; color: var(--muted);
+  flex: 0 1 auto; min-width: 0; max-width: 30ch;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .map-canvas-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.map-side { box-shadow: inset 1px 0 0 var(--line); background: var(--panel); overflow: auto; padding: 14px; }
+.map-side { background: var(--surface); border-radius: var(--radius); overflow: auto; padding: 16px; }
 
 /* Floating over the plot rather than spending a control-bar slot on it. */
 .map-reset {
-  position: absolute; top: 10px; right: 10px; z-index: 4;
-  background: rgba(23, 26, 32, 0.85); color: var(--muted); border: none;
-  border-radius: var(--radius-sm); padding: 4px 10px; font: inherit; font-size: 11.5px;
-  cursor: pointer; backdrop-filter: blur(3px); box-shadow: var(--lift);
+  position: absolute; top: 12px; right: 12px; z-index: 4;
+  background: var(--raise); color: var(--muted); border: none;
+  border-radius: var(--radius-sm); padding: 5px 11px; font: inherit; font-size: 11.5px;
+  cursor: pointer;
 }
-.map-reset:hover { color: var(--text); }
+.map-reset:hover { color: var(--text); background: var(--raise-2); }
 
 /* The divider between plot and table in split mode. */
+/* Lives in the gutter, so it is black on black until you go near it. */
 .pane-split {
-  height: 7px; flex: none; cursor: row-resize; position: relative;
-  background: var(--panel); box-shadow: 0 1px 0 var(--line), 0 -1px 0 var(--line);
+  height: 2px; margin: -6px 0; flex: none; cursor: row-resize; position: relative;
+  background: none; z-index: 6;
   touch-action: none;
 }
 .pane-split::after {
-  content: ''; position: absolute; left: 50%; top: 3px;
-  width: 34px; height: 1px; margin-left: -17px; background: var(--line-2);
+  content: ''; position: absolute; left: 50%; top: 0;
+  width: 36px; height: 2px; margin-left: -18px; border-radius: var(--pill);
+  background: var(--raise-2);
   transition: background 0.12s;
 }
 .pane-split:hover::after, .pane-split.dragging::after { background: var(--accent); }
@@ -505,36 +545,42 @@ kbd {
 
 .search-wrap { position: relative; }
 .search-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--panel-2); border: none; color: var(--muted); cursor: pointer;
-  font: inherit; font-size: 12px; padding: 5px 10px; border-radius: var(--radius-sm);
-  box-shadow: var(--lift);
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--raise); border: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 12px; padding: 6px 11px; border-radius: var(--radius-sm);
+  transition: background 0.12s, color 0.12s;
 }
-.search-btn:hover { color: var(--text); background: var(--panel-3); }
+.search-btn:hover { color: var(--text); background: var(--raise-2); }
 /* A search that is filtering must never be invisible: the chip is the reminder. */
-.search-btn.on { color: var(--accent); background: rgba(110, 168, 254, 0.14); }
+.search-btn.on { color: var(--accent); background: rgba(110, 168, 254, 0.15); }
 .search-btn .q { font-family: var(--mono); font-size: 11.5px; color: var(--text); max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-btn .x { opacity: 0.6; }
+/* An overlay, so it gets one of the two shadows in the app: it has to be told
+   apart from whatever it is covering. */
 .search-pop {
-  position: absolute; top: calc(100% + 7px); left: 0; z-index: 30;
-  width: 380px; padding: 12px; border-radius: var(--radius);
-  background: var(--panel-2); box-shadow: var(--lift), 0 14px 34px rgba(0, 0, 0, 0.55);
-  display: flex; flex-direction: column; gap: 9px;
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 30;
+  width: 380px; padding: 14px; border-radius: var(--radius);
+  background: var(--raise); box-shadow: var(--float);
+  display: flex; flex-direction: column; gap: 10px;
 }
-.search-pop input.text { width: 100%; font-size: 13px; padding: 7px 9px; }
+.search-pop input.text { width: 100%; font-size: 13px; padding: 8px 10px; background: var(--bg); }
+.search-pop select { background: var(--raise-2); }
 .search-pop .row { gap: 8px; font-size: 11.5px; }
-.search-pop .note { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.search-pop .note { color: var(--muted); font-size: 11px; line-height: 1.5; }
 
 /* ---------------------------------------------------------------- list */
 
-.list-pane { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.list-pane {
+  flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column;
+  background: var(--surface); border-radius: var(--radius); overflow: hidden;
+}
 /* Clipped, and scrolled sideways by the rows, so wide columns cannot spill
    out over the sidebar sitting in the next grid column. */
-.list-head { overflow: hidden; box-shadow: 0 1px 0 var(--line); background: var(--panel); flex: none; }
-.list-head-grid { display: grid; gap: 10px; padding: 0 12px; min-width: 620px; }
+.list-head { overflow: hidden; background: var(--surface); flex: none; box-shadow: 0 1px 0 var(--hair); }
+.list-head-grid { display: grid; gap: 10px; padding: 0 14px; min-width: 620px; }
 .list-th {
-  background: none; border: none; padding: 7px 0; text-align: left;
-  font: inherit; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  background: none; border: none; padding: 8px 0; text-align: left;
+  font: inherit; font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase;
   color: var(--muted); cursor: pointer; white-space: nowrap;
 }
 .list-th.num { text-align: right; }
@@ -548,10 +594,10 @@ kbd {
 .list-spacer { width: 1px; }
 .list-rows { position: absolute; top: 0; left: 0; right: 0; min-width: 620px; will-change: transform; }
 .list-row {
-  display: grid; gap: 10px; padding: 0 12px; height: 26px; align-items: center;
-  cursor: pointer; font-size: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.025);
+  display: grid; gap: 10px; padding: 0 14px; height: 27px; align-items: center;
+  cursor: pointer; font-size: 12px;
 }
-.list-row:hover { background: var(--panel-2); }
+.list-row:hover { background: var(--raise); }
 .list-row.on { background: rgba(110, 168, 254, 0.14); }
 /* Clicked, and therefore pinned: the sidebar stays on this one until you click
    it again or press escape. Marked with a bar rather than more colour, so it
@@ -561,30 +607,30 @@ kbd {
 .list-row.dim { opacity: 0.32; }
 .list-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-cell.num { text-align: right; font-variant-numeric: tabular-nums; }
-.list-name { display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 11.5px; }
-.list-name i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.list-name { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11.5px; }
+.list-name i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
 .list-from { color: var(--muted); font-size: 11px; }
 .rating-on { color: var(--accent-2); letter-spacing: -1px; }
-.rating-guess { color: var(--accent-2); letter-spacing: -1px; opacity: 0.7; }
-.list-count { padding: 5px 12px; font-size: 11px; box-shadow: 0 -1px 0 var(--line); flex: none; }
+.rating-guess { color: var(--accent-2); letter-spacing: -1px; opacity: 0.65; }
+.list-count { padding: 7px 14px; font-size: 11px; flex: none; box-shadow: 0 -1px 0 var(--hair); }
 
-.legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; }
-.legend span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
-.legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
-.detail dt { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 9px; }
-.detail dd { margin: 1px 0 0; font-variant-numeric: tabular-nums; }
+.detail dt { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; margin-top: 12px; }
+.detail dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
 
 /* A main column with the voice detail panel beside it, as the map has. */
 .detail-layout {
   display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w, 300px);
-  gap: 20px; align-items: start; position: relative;
+  gap: 24px; align-items: start; position: relative;
 }
 .detail-side {
-  position: sticky; top: 0; max-height: calc(100vh - 110px); overflow: auto;
-  box-shadow: inset 1px 0 0 var(--line); padding-left: 16px;
+  position: sticky; top: 0; max-height: calc(100vh - 120px); overflow: auto;
+  background: var(--surface); border-radius: var(--radius); padding: 16px;
 }
-.detail-side .voice-panel > h3 { font-size: 12px; margin: 16px 0 4px; }
+.detail-side .voice-panel > h3 { font-size: 10.5px; margin: 18px 0 4px; }
 .ab .voice-panel { margin-top: 12px; }
 .ab .voice-panel .detail dd { font-size: 12px; }
 
@@ -592,42 +638,37 @@ kbd {
 
 .rate-wrap { max-width: 780px; margin: 0 auto; }
 .rate-card {
-  background: var(--panel); border-radius: 9px;
-  padding: 26px; text-align: center;
-  box-shadow: var(--lift), var(--shadow);
+  background: var(--surface); border-radius: var(--radius);
+  padding: 30px; text-align: center;
 }
 .rate-name { font-size: 30px; font-weight: 600; letter-spacing: 0.01em; font-family: var(--mono); }
-.rate-meta { color: var(--muted); margin-top: 6px; }
-.rate-keys { display: flex; gap: 8px; justify-content: center; margin-top: 22px; }
+.rate-meta { color: var(--muted); margin-top: 8px; }
+.rate-keys { display: flex; gap: 8px; justify-content: center; margin-top: 24px; }
 .rate-keys button {
-  width: 54px; height: 54px; border-radius: 8px; font-size: 19px; font-weight: 600;
-  background: var(--panel-2); color: var(--text); border: none; cursor: pointer;
-  box-shadow: var(--lift); transition: background 0.12s, color 0.12s;
+  width: 54px; height: 54px; border-radius: var(--radius); font-size: 19px; font-weight: 600;
+  background: var(--raise); color: var(--text); border: none; cursor: pointer;
+  transition: background 0.12s, color 0.12s;
 }
-.rate-keys button:hover { background: var(--panel-3); }
-.rate-keys button.on { background: var(--accent); color: #10131a; }
+.rate-keys button:hover { background: var(--raise-2); }
+.rate-keys button.on { background: var(--accent); color: #0b1017; }
 .rate-keys.map-rate { margin-top: 12px; gap: 6px; }
-.rate-keys.map-rate button { width: 40px; height: 34px; font-size: 15px; }
+.rate-keys.map-rate button { width: 40px; height: 34px; font-size: 15px; border-radius: var(--radius-sm); }
 
-.keyhelp { display: flex; gap: 18px; justify-content: center; color: var(--muted); margin-top: 18px; flex-wrap: wrap; }
+.keyhelp { display: flex; gap: 20px; justify-content: center; color: var(--muted); margin-top: 20px; flex-wrap: wrap; }
 
 .ab { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
-.ab .side {
-  border-radius: 9px; padding: 18px; background: var(--panel);
-  box-shadow: var(--lift), var(--shadow);
-}
-.ab .side.live { background: #1b2431; box-shadow: inset 0 0 0 1px var(--accent), var(--shadow); }
-.ab .side .tag { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
-.ab .side .nm { font-family: var(--mono); font-size: 18px; margin-top: 4px; }
+.ab .side { border-radius: var(--radius); padding: 20px; background: var(--surface); }
+/* Which side is sounding, said with fill rather than with a ring around it. */
+.ab .side.live { background: rgba(110, 168, 254, 0.16); }
+.ab .side .tag { color: var(--muted); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; }
+.ab .side .nm { font-family: var(--mono); font-size: 18px; margin-top: 6px; }
 
 /* --------------------------------------------------------------- build */
 
-/* Four banks side by side when there is room, and fewer when there is not -
-   rather than four columns so narrow that every patch name wraps. */
 .bank-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 12px; }
-.bank { background: var(--panel-2); border-radius: var(--radius); padding: 10px 12px; box-shadow: var(--lift); }
-.bank h4 { margin: 0 0 8px; font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
-.bank ol { margin: 0; padding-left: 0; font-family: var(--mono); font-size: 11.5px; line-height: 1.65; }
+.bank { background: var(--raise); border-radius: var(--radius); padding: 12px 14px; }
+.bank h4 { margin: 0 0 10px; font-size: 10px; color: var(--muted); letter-spacing: 0.09em; text-transform: uppercase; }
+.bank ol { margin: 0; padding-left: 0; font-family: var(--mono); font-size: 11.5px; line-height: 1.7; }
 .bank li::marker { color: var(--muted); }
 /*
  * A patch name is sixteen characters and never wraps; a wrapped slot list
@@ -641,19 +682,20 @@ kbd {
   list-style-position: inside;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.slot-cat { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.slot-cat { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
 /* A slot the cursor is on, and one clicked to keep. */
-.bank li.slot { cursor: pointer; border-radius: 4px; padding: 0 4px; margin-left: -4px; }
-.bank li.slot:hover { background: var(--panel-3); }
-.bank li.slot.on { background: rgba(110, 168, 254, 0.14); color: var(--text); }
-.bank li.slot.held { background: rgba(110, 168, 254, 0.22); box-shadow: inset 0 0 0 1px rgba(110, 168, 254, 0.45); }
+.bank li.slot { cursor: pointer; border-radius: 4px; padding: 0 5px; margin-left: -5px; }
+.bank li.slot:hover { background: var(--raise-2); }
+.bank li.slot.on { background: rgba(110, 168, 254, 0.16); color: var(--text); }
+.bank li.slot.held { background: rgba(110, 168, 254, 0.26); color: var(--text); }
 
-/* The build's own header: current, or out of date and why. */
-.build-state { box-shadow: inset 3px 0 0 var(--good), var(--lift), var(--shadow); }
-.build-state.stale { box-shadow: inset 3px 0 0 var(--accent-2), var(--lift), var(--shadow); }
+/* The build's own header: current, or out of date and why. A single accent bar
+   down one edge, which is a flat mark rather than a box. */
+.build-state { box-shadow: inset 3px 0 0 var(--good); }
+.build-state.stale { box-shadow: inset 3px 0 0 var(--accent-2); }
 
 /* The single button the Build page is about, and what it is about to do. */
-.build-hero { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.build-hero { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 .build-hero .sum { color: var(--muted); font-size: 12px; }
 .build-hero .sum b { color: var(--text); }
 
@@ -663,13 +705,13 @@ kbd {
  * cannot carry it off.
  */
 .side-handle {
-  position: absolute; top: 0; bottom: 0; right: var(--side-w, 300px);
-  width: 9px; margin-right: -4px; z-index: 6;
+  position: absolute; top: 0; bottom: 0; right: calc(var(--side-w, 300px) + var(--gut) / 2);
+  width: 11px; margin-right: -5px; z-index: 6;
   cursor: col-resize; touch-action: none;
 }
 .side-handle::after {
-  content: ''; position: absolute; top: 0; bottom: 0; left: 4px;
-  width: 1px; background: transparent; transition: background 0.12s;
+  content: ''; position: absolute; top: 0; bottom: 0; left: 5px;
+  width: 2px; border-radius: var(--pill); background: transparent; transition: background 0.12s;
 }
 .side-handle:hover::after, .side-handle.dragging::after { background: var(--accent); }
 
@@ -682,23 +724,23 @@ kbd {
  * sidebar is dragged.
  */
 /* No bullets and no indent: this list is dense on purpose. */
-.src-list { list-style: none; margin: 0; padding: 0; font-size: 11px; line-height: 1.35; }
-.src-list li + li { margin-top: 5px; }
+.src-list { list-style: none; margin: 0; padding: 0; font-size: 11px; line-height: 1.4; }
+.src-list li + li { margin-top: 6px; }
 .src-head { display: flex; align-items: baseline; gap: 6px; }
 .src-head b { color: var(--text); font-weight: 600; }
 .src-date { margin-left: auto; flex: none; font-size: 10px; }
-.src-path { display: flex; opacity: 0.72; }
+.src-path { display: flex; opacity: 0.7; }
 .src-dir { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .src-file { flex: none; white-space: nowrap; }
 
 /* Category offsets in the taste panel. */
 .taste-cats { display: flex; flex-direction: column; gap: 4px; max-width: 560px; }
 .taste-cat {
-  display: flex; align-items: center; gap: 9px;
-  padding: 5px 8px; border-radius: var(--radius-sm); background: var(--panel-2);
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border-radius: var(--radius-sm); background: var(--raise);
   font-variant-numeric: tabular-nums;
 }
-.taste-cat i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.taste-cat i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .taste-cat b { min-width: 150px; }
 .taste-cat span:nth-of-type(1) { min-width: 46px; font-weight: 600; }
 
@@ -707,30 +749,27 @@ kbd {
 /* Both thresholds are cut-offs: the shading runs from the top of the table
    down to the chosen row, so "this and everything closer" is visible rather
    than something the user has to infer from two numbers. */
-table.sweep td, table.sweep th { padding-top: 6px; padding-bottom: 6px; }
+table.sweep td, table.sweep th { padding-top: 7px; padding-bottom: 7px; }
 table.sweep .zone-cell { width: 150px; padding-right: 8px; position: relative; white-space: nowrap; }
 table.sweep .zone-bar {
-  display: inline-block; width: 5px; height: 20px; border-radius: 2px;
-  vertical-align: middle; background: transparent; margin-right: 8px;
+  display: inline-block; width: 4px; height: 20px; border-radius: var(--pill);
+  vertical-align: middle; background: transparent; margin-right: 9px;
 }
 table.sweep tr.zone-merged .zone-bar { background: #6ea8fe; }
 table.sweep tr.zone-family .zone-bar { background: #5fd0c5; }
 table.sweep tr.zone-apart .zone-bar { background: #2f343d; }
-table.sweep tr.zone-merged td { background: rgba(110, 168, 254, 0.11); }
-table.sweep tr.zone-family td { background: rgba(95, 208, 197, 0.09); }
-table.sweep tr.zone-edge td { border-bottom: 2px solid var(--text); }
+table.sweep tr.zone-merged td { background: rgba(110, 168, 254, 0.1); }
+table.sweep tr.zone-family td { background: rgba(95, 208, 197, 0.08); }
+table.sweep tr.zone-edge td { border-bottom: 1px solid var(--text); }
 table.sweep .zone-label {
-  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text);
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text);
 }
 
 .legend i.swatch-merged { background: #6ea8fe; }
 .legend i.swatch-family { background: #5fd0c5; }
 .legend i.swatch-apart { background: #2f343d; }
 
-.algo-diagram {
-  display: flex; justify-content: center; padding: 8px 0 2px;
-  position: relative;
-}
+.algo-diagram { display: flex; justify-content: center; padding: 10px 0 2px; position: relative; }
 .algo-diagram svg { display: block; width: 100%; height: auto; max-height: 260px; }
 .algo-diagram .op-cell { cursor: default; }
 
@@ -738,16 +777,16 @@ table.sweep .zone-label {
    across six operators and compare them, not to wait a second on each. */
 .op-tip {
   position: fixed; z-index: 60; width: 276px;
-  background: var(--panel-2); border-radius: 8px;
-  box-shadow: var(--lift), 0 14px 34px rgba(0, 0, 0, 0.6);
-  padding: 9px 10px 8px; pointer-events: none; font-size: 12px;
+  background: var(--raise); border-radius: var(--radius);
+  box-shadow: var(--float);
+  padding: 11px 12px 10px; pointer-events: none; font-size: 12px;
 }
-.op-head { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+.op-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .op-head i { width: 11px; height: 11px; border-radius: 3px; border: 1.5px solid; display: inline-block; }
 .op-head b { font-size: 14px; }
 .op-fb {
-  margin-left: auto; color: var(--accent-2); font-size: 10.5px;
-  text-transform: uppercase; letter-spacing: 0.06em;
+  margin-left: auto; color: var(--accent-2); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.07em;
 }
 .op-env, .op-ruler { display: block; width: 100%; }
 .op-t { font-size: 10.5px; fill: var(--muted); }

@@ -20,7 +20,7 @@ import { append, clear, el } from './dom.ts';
 import { getSetting, setSetting } from './settings.ts';
 import { keyboard } from '../audio/keyboard.ts';
 import { midiSupported } from '../midi/webmidi.ts';
-import { LAYOUTS, keyMapping, typingKeys } from '../audio/typingKeys.ts';
+import { LAYOUTS, keyRows, typingKeys, type KeyCap } from '../audio/typingKeys.ts';
 import { AUTO_PLAY_LABELS, type AutoPlay, type Player } from '../audio/player.ts';
 
 /**
@@ -165,15 +165,24 @@ function typingSection(): HTMLElement {
       })),
   ));
 
+  // Drawn as a keyboard: blacks on top with the gaps a piano has, whites below.
   const sounding = typingKeys.sounding;
-  const keys = el('div', { class: 'keymap' });
-  for (const k of keyMapping(typingKeys.layout, typingKeys.base)) {
-    keys.appendChild(el('span', {
-      class: `keycap${k.sharp ? ' sharp' : ''}${sounding.has(k.note) ? ' down' : ''}`,
-      title: noteName(k.note),
-    }, k.label));
-  }
-  section.appendChild(keys);
+  const rows = keyRows(typingKeys.layout, typingKeys.base);
+  const drawRow = (caps: KeyCap[], sharp: boolean) => {
+    const row = el('div', { class: 'keyrow' });
+    for (const k of caps) {
+      row.appendChild(k.empty
+        ? el('span', { class: 'keycap gap' })
+        : el('span', {
+          class: `keycap${sharp ? ' sharp' : ''}${sounding.has(k.note) ? ' down' : ''}`,
+          title: noteName(k.note),
+        }, k.label));
+    }
+    return row;
+  };
+  section.appendChild(el('div', { class: 'keymap' },
+    drawRow(rows.black, true),
+    drawRow(rows.white, false)));
   section.appendChild(el('div', { class: 'muted', style: { fontSize: '10.5px', marginTop: '4px' } },
     'Minus and equals shift the octave. Shift plays harder. ',
     'Rating (1-5), pinning (P) and space keep working.'));
@@ -191,15 +200,6 @@ function render(): void {
   clear(bar);
 
   append(bar, [
-    el('button', {
-      class: open ? 'sound-more on' : 'sound-more',
-      title: 'MIDI input, bend range, mod wheel dead zone',
-      onclick: () => {
-        open = !open;
-        render();
-      },
-    }, open ? '▾' : '▴'),
-
     el('span', { class: 'sound-label' }, 'sound'),
 
     el('input', {
@@ -255,7 +255,6 @@ function render(): void {
         : 'Play patches from the computer keyboard: bottom row white, row above black.',
       onclick: () => {
         typingKeys.toggle(keyboard, player);
-        if (typingKeys.enabled) open = true;
         render();
       },
     }, 'typing keys'),
@@ -270,7 +269,6 @@ function render(): void {
           : 'Play the patch under the cursor from a MIDI keyboard.',
         onclick: async () => {
           if (!keyboard.connected) await keyboard.connect(player);
-          else open = !open;
           render();
         },
       }, keyboard.connected ? `MIDI ${keyboard.inputs.length} in` : 'connect MIDI')
@@ -280,6 +278,16 @@ function render(): void {
       ? el('span', { class: 'warn mono', title: `raw CC ${Math.round(keyboard.modWheelRaw * 127)} of 127` },
         `mod ${Math.round(keyboard.modWheel * 100)}%`)
       : null,
+
+    el('span', { style: { flex: '1' } }),
+    el('button', {
+      class: open ? 'sound-more on' : 'sound-more',
+      title: 'Sound settings: MIDI input, bend range, mod wheel dead zone, typing keyboard',
+      onclick: () => {
+        open = !open;
+        render();
+      },
+    }, '⚙'),
   ]);
 
   renderPanel();
@@ -293,5 +301,9 @@ export function mountSoundBar(p: Player): void {
   document.body.appendChild(el('footer', { class: 'sound-dock' }, panel, bar));
   keyboard.subscribe(() => render());
   typingKeys.subscribe(() => render());
+  // On unless it was switched off last time. The audio context is still locked
+  // at this point, but `enable` only attaches listeners - the first key press
+  // is itself the gesture that unlocks it.
+  if (typingKeys.wanted) typingKeys.enable(keyboard, p);
   render();
 }

@@ -15,7 +15,7 @@
  * you want to disagree with the defaults - which is a thing worth doing, just
  * not a thing worth requiring.
  */
-import { clear, downloadBytes, el, fmtInt } from '../dom.ts';
+import { clear, downloadBytes, el, fmtInt, pageHead } from '../dom.ts';
 import type { View, ViewContext } from '../app.ts';
 import { adv, disclosure, isAdvanced } from '../advanced.ts';
 import { getSetting, setSetting } from '../settings.ts';
@@ -48,6 +48,13 @@ let deviceChannel = 1;
 let listening: (() => void) | null = null;
 let deviceLog: string[] = [];
 let deviceBanks: Array<{ bytes: Uint8Array; from: string; voices: number; at: number }> = [];
+
+/** How many distinct files the corpus was assembled from. */
+function sourceFileCount(): number {
+  const seen = new Set<string>();
+  for (const v of ctx.store.voices) for (const src of v.sources) seen.add(src.file);
+  return seen.size;
+}
 
 function statBlock(k: string, v: string): HTMLElement {
   return el('div', { class: 'stat' }, el('div', { class: 'k' }, k), el('div', { class: 'v' }, v));
@@ -213,6 +220,7 @@ function pipelinePanel(): HTMLElement {
   panel.appendChild(el('div', { class: 'row' },
     el('h2', { style: { margin: 0 } }, state === 'ready' ? 'Ready' : 'Getting ready'),
     el('div', { style: { flex: '1' } }),
+
     running
       ? el('button', {
         class: 'btn danger',
@@ -353,7 +361,7 @@ function devicePanel(): HTMLElement {
       onclick: () => (listening ? stopListening() : startListening()),
     }, listening ? 'Stop listening' : 'Listen'),
     el('button', {
-      class: 'btn primary',
+      class: 'btn',
       disabled: !deviceOutputId,
       onclick: () => {
         startListening();
@@ -372,7 +380,7 @@ function devicePanel(): HTMLElement {
     const voices = deviceBanks.reduce((n, b) => n + b.voices, 0);
     panel.appendChild(el('div', { class: 'row', style: { marginTop: '12px' } },
       el('b', {}, `${fmtInt(voices)} voices in ${fmtInt(deviceBanks.length)} dump${deviceBanks.length === 1 ? '' : 's'}`),
-      el('button', { class: 'btn primary', onclick: () => void keepDeviceBanks(false) }, 'Add to corpus'),
+      el('button', { class: 'btn', onclick: () => void keepDeviceBanks(false) }, 'Add to corpus'),
       el('button', {
         class: 'btn',
         onclick: () => {
@@ -450,7 +458,7 @@ function sweepTable(): HTMLElement {
       ...row.sizeBuckets.map((n) => el('td', { class: 'num muted' }, fmtInt(n))),
       el('td', { style: { whiteSpace: 'nowrap' } },
         el('button', {
-          class: isMergeEdge ? 'btn primary' : 'btn',
+          class: isMergeEdge ? 'btn on' : 'btn',
           style: { padding: '2px 8px', marginRight: '6px' },
           title: `Treat everything at or below ${row.threshold.toFixed(2)} as the same patch`,
           onclick: () => {
@@ -459,7 +467,7 @@ function sweepTable(): HTMLElement {
           },
         }, 'merge'),
         el('button', {
-          class: isFamilyEdge ? 'btn primary' : 'btn',
+          class: isFamilyEdge ? 'btn on' : 'btn',
           style: { padding: '2px 8px' },
           title: `Treat everything at or below ${row.threshold.toFixed(2)} as one face-off family`,
           onclick: () => {
@@ -687,6 +695,8 @@ function render(): void {
   }
 
   const page = el('div', { class: 'stack' });
+  page.appendChild(pageHead('Sources',
+    `${fmtInt(store.voices.length)} patches in this browser, from ${fmtInt(sourceFileCount())} files.`));
 
   if (lastNote) {
     page.appendChild(el('p', { class: 'bad' }, lastNote));
