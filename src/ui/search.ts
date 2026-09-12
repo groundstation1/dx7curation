@@ -86,6 +86,17 @@ export function parseQuery(raw: string): SearchQuery {
   return { terms, exclude, raw };
 }
 
+/**
+ * Whether a query asks for anything at all.
+ *
+ * Worth a function because the answer is not "did they type something": an
+ * exclusion on its own is a real query, and a caller that decides whether to
+ * filter by counting the wanted words will quietly ignore one.
+ */
+export function isActiveQuery(query: SearchQuery): boolean {
+  return query.terms.length > 0 || query.exclude.length > 0;
+}
+
 export type SearchScope = 'name' | 'all';
 
 /**
@@ -105,7 +116,7 @@ export function searchableText(voice: LoadedVoice, scope: SearchScope, extra = '
 }
 
 export function matchesQuery(voice: LoadedVoice, query: SearchQuery, scope: SearchScope, extra = ''): boolean {
-  if (query.terms.length === 0 && query.exclude.length === 0) return true;
+  if (!isActiveQuery(query)) return true;
   const text = searchableText(voice, scope, extra);
   // An excluded word rules a voice out whatever else matched.
   for (const word of query.exclude) {

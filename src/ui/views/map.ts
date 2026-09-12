@@ -22,7 +22,7 @@ import { createListView, sortIndices, type ListState, type ListView, type SortKe
 import { categoryColour, focusedSubcategoryColour, oklch, ratingColour, subcategoryColour as subColour } from '../colour.ts';
 import { DEMO_PHRASE, HOVER_PHRASE, singleNotePhrase } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
-import { matchesQuery, parseQuery, type SearchQuery } from '../search.ts';
+import { matchesQuery, parseQuery, isActiveQuery, type SearchQuery } from '../search.ts';
 import { getSetting, setSetting } from '../settings.ts';
 import { adv, isAdvanced } from '../advanced.ts';
 import { loopPhrase, usePhrase } from '../soundBar.ts';
@@ -1351,7 +1351,7 @@ function renderSide(): void {
 
 function applyFilters(): void {
   query = parseQuery(searchText);
-  const filtering = query.terms.length > 0 || focusCategory !== '' || focusRating !== '';
+  const filtering = isActiveQuery(query) || focusCategory !== '' || focusRating !== '';
   matched = filtering ? new Set<number>() : null;
   if (matched) {
     const store = ctx.store;
