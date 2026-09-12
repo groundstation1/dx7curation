@@ -79,6 +79,11 @@ const SOFT_ROW = ['KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'Comma
 
 /** How hard a soft-row note is played, against the set velocity. */
 const SOFT_SCALE = 0.5;
+/** Seconds for the held-key mod wheel to reach full, and to fall back. */
+const MOD_RISE_SEC = 0.9;
+const MOD_FALL_SEC = 0.35;
+/** Control rate for that ramp. Far finer than the ear needs for a swell. */
+const MOD_STEP_MS = 30;
 /** And how hard a shifted one is, since the two are a pair. */
 const ACCENT_ADD = 28;
 
@@ -263,6 +268,41 @@ export class TypingKeys {
   private modKeys = new Set<string>();
   /** Where the wheel was before a key took it, so it can be given back. */
   private modBefore = 0;
+  private modTarget = 0;
+  private modTimer: number | null = null;
+
+  /**
+   * Move the wheel towards a target rather than jumping to it.
+   *
+   * A wheel is a thing you roll. Snapping to full deflection the instant the
+   * second key lands is not what the gesture looks like and not what it sounds
+   * like either: on a patch with any vibrato depth the jump arrives as a click
+   * rather than as a swell, which is the opposite of what the control is for.
+   *
+   * Falling back is quicker than rising, the way a sprung wheel returns.
+   *
+   * On a timer rather than a frame callback because this is control rate, not
+   * video: thirty milliseconds is far finer than the ear needs for a swell and
+   * costs a fraction of what redrawing would.
+   */
+  private rampMod(keyboard: Keyboard, to: number): void {
+    this.modTarget = to;
+    if (this.modTimer !== null) return;
+    this.modTimer = window.setInterval(() => {
+      const from = keyboard.modWheel;
+      const rising = this.modTarget > from;
+      const per = MOD_STEP_MS / 1000 / (rising ? MOD_RISE_SEC : MOD_FALL_SEC);
+      const next = rising ? Math.min(this.modTarget, from + per) : Math.max(this.modTarget, from - per);
+      keyboard.setModWheel(next);
+      if (Math.abs(next - this.modTarget) < 1e-3) this.stopRamp();
+    }, MOD_STEP_MS);
+  }
+
+  private stopRamp(): void {
+    if (this.modTimer === null) return;
+    window.clearInterval(this.modTimer);
+    this.modTimer = null;
+  }
   private handler: ((e: KeyboardEvent) => void) | null = null;
   private upHandler: ((e: KeyboardEvent) => void) | null = null;
   private blurHandler: (() => void) | null = null;
@@ -383,7 +423,7 @@ export class TypingKeys {
          */
         if (this.modKeys.size === 0) this.modBefore = keyboard.modWheel;
         this.modKeys.add(char);
-        keyboard.setModWheel(1);
+        this.rampMod(keyboard, 1);
       }
       this.emit();
     };
@@ -397,7 +437,7 @@ export class TypingKeys {
       // A key that was holding the wheel gives it back rather than stopping a
       // note it never started.
       if (this.modKeys.delete(char)) {
-        if (this.modKeys.size === 0) keyboard.setModWheel(this.modBefore);
+        if (this.modKeys.size === 0) this.rampMod(keyboard, this.modBefore);
         this.emit();
         return;
       }
@@ -421,7 +461,7 @@ export class TypingKeys {
       this.held.clear();
       if (this.modKeys.size) {
         this.modKeys.clear();
-        keyboard.setModWheel(this.modBefore);
+        this.rampMod(keyboard, this.modBefore);
       }
       this.emit();
     };
@@ -443,6 +483,9 @@ export class TypingKeys {
     for (const note of this.voices.keys()) keyboard.noteOff(note);
     this.voices.clear();
     this.held.clear();
+    // Switching off is not a performance gesture, so the wheel goes straight
+    // back rather than gliding after the keyboard has gone.
+    this.stopRamp();
     if (this.modKeys.size) {
       this.modKeys.clear();
       keyboard.setModWheel(this.modBefore);
