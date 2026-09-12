@@ -177,7 +177,7 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
   actions.appendChild(el('div', { class: 'act-keys muted' },
     el('span', {}, el('kbd', {}, '1'), '–', el('kbd', {}, '5'), ' rate'),
     opts.onPlay ? el('span', {}, el('kbd', {}, 'space'), ' play') : null,
-    el('span', {}, el('kbd', {}, 'p'), ' pin'),
+    el('span', {}, el('kbd', {}, '6'), ' pin'),
     rating ? el('span', {}, 'same key again clears') : null,
   ));
   panel.appendChild(actions);

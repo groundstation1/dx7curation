@@ -186,8 +186,7 @@ function typingSection(): HTMLElement {
     drawRow(rows.soft, false, true)));
   section.appendChild(el('div', { class: 'muted', style: { fontSize: '10.5px', marginTop: '4px' } },
     'The bottom row plays the same notes softly; shift plays harder. ',
-    'Page up and page down shift the octave, as do minus and equals. ',
-    'Rating (1-5), pinning (P) and space keep working.'));
+    'The number row stays out of it: 1-5 rate, 6 pins, 9 and 0 shift the octave.'));
   return section;
 }
 

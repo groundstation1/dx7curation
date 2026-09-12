@@ -2363,7 +2363,7 @@ export const view: View = {
         if (i < 0) return;
         e.preventDefault();
         void rateTarget(Number(e.key));
-      } else if (e.key.toLowerCase() === 'p') {
+      } else if (e.key === '6' || e.code === 'Digit6' || e.key.toLowerCase() === 'p') {
         if (i < 0) return;
         e.preventDefault();
         void ctx.store.togglePin(i).then(() => {

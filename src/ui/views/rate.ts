@@ -477,7 +477,7 @@ function render(): void {
     el('span', {}, el('kbd', {}, '1'), '–', el('kbd', {}, '5'), ' rate and advance'),
     el('span', {}, el('kbd', {}, 'space'), ' replay'),
     el('span', {}, el('kbd', {}, '←'), ' ', el('kbd', {}, '→'), ' move without rating'),
-    el('span', {}, el('kbd', {}, 'p'), ' pin'),
+    el('span', {}, el('kbd', {}, '6'), ' pin'),
     el('span', {}, el('kbd', {}, 'u'), ' undo'),
     keyboard.connected
       ? el('span', { class: 'good' }, 'MIDI keyboard plays this patch')
@@ -572,7 +572,7 @@ export const view: View = {
       } else if (e.key.toLowerCase() === 'u') {
         e.preventDefault();
         void undoRating();
-      } else if (e.key.toLowerCase() === 'p') {
+      } else if (e.key === '6' || e.code === 'Digit6' || e.key.toLowerCase() === 'p') {
         e.preventDefault();
         const i = queue[position];
         if (i !== undefined) {

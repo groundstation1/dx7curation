@@ -113,20 +113,21 @@ export function charNotes(layout: KeyLayout): Map<string, KeyAction> {
 }
 
 /*
- * Shifting the octave, by every route that might exist on a given board.
+ * Shifting the octave: 9 and 0.
  *
- * The minus and equals keys are the obvious pair and cannot be the only one.
- * By position they are at the far end of the number row, which a compact
- * keyboard may not have; by character they need a modifier on several layouts,
- * and on those the unmodified key produces something else entirely.
+ * The number row is where this app already puts its utility keys - 1 to 5 rate
+ * - so the rest of that row is the obvious home for the others, and the digits
+ * are the same keys on every board. Minus and equals, which these replace, are
+ * at the far end of a number row a compact keyboard may not have, and on
+ * several layouts need a modifier to type at all.
  *
- * So: those two by position, those two by character, and Page Up and Page Down
- * - which are the same gesture, exist on effectively every keyboard, and are
- * unambiguous because they cannot be confused with a note. The octave field in
- * the sound panel does the same job for anyone who has none of them.
+ * Matched by character and by position, because on a layout whose top row is
+ * unshifted punctuation - AZERTY, say - the character is not a digit but the
+ * key still is. Page Up and Page Down come along for free: the same gesture,
+ * present everywhere, impossible to confuse with a note.
  */
-const OCTAVE_DOWN_CODES = ['Minus', 'PageDown'];
-const OCTAVE_UP_CODES = ['Equal', 'PageUp'];
+const OCTAVE_DOWN_CODES = ['Digit9', 'PageDown'];
+const OCTAVE_UP_CODES = ['Digit0', 'PageUp'];
 
 /**
  * What is printed on those keys, per layout.
@@ -309,8 +310,8 @@ export class TypingKeys {
       // The octave keys are taken by position as well as by character: they
       // are not notes, and on a layout that puts the minus sign somewhere
       // unexpected the key beside the digits is still the obvious place.
-      const down = e.key === '-' || OCTAVE_DOWN_CODES.includes(e.code);
-      const up = e.key === '=' || OCTAVE_UP_CODES.includes(e.code);
+      const down = e.key === '9' || OCTAVE_DOWN_CODES.includes(e.code);
+      const up = e.key === '0' || OCTAVE_UP_CODES.includes(e.code);
       if (down || up) {
         e.preventDefault();
         e.stopPropagation();
