@@ -364,31 +364,6 @@ function axes(): Axis[] {
     list.push({ id: 'lda1', label: `category axis 1 (${pct(0)}% of separation)`, short: 'category axis 1', value: (i) => p[i * 2] });
     list.push({ id: 'lda2', label: `category axis 2 (${pct(1)}% of separation)`, short: 'category axis 2', value: (i) => p[i * 2 + 1] });
   }
-  /*
-   * What the names say, as axes.
-   *
-   * The components come out of the words in the patch names, so each one has a
-   * readable name of its own - "organ, hammond / bass, sub" - and plotting one
-   * against a measured feature is the direct way to see where what a patch is
-   * called and what it sounds like agree, and where they do not.
-   */
-  const named = store.nameSpace;
-  if (named) {
-    for (let d = 0; d < named.dims; d++) {
-      const pct = (named.explained[d] * 100).toFixed(0);
-      // The label is already an axis - "organ, hammond / bass, sub" - so its
-      // two halves are the two ends, and the plot says so instead of
-      // repeating the whole thing and then adding "low" and "high".
-      const [up, down] = named.labels[d].split(' / ');
-      list.push({
-        id: `name${d + 1}`,
-        label: `named: ${named.labels[d]} (${pct}%)`,
-        short: 'what it is called',
-        ends: [down ?? 'less', up ?? 'more'],
-        value: (i) => named.coords[i * named.dims + d],
-      });
-    }
-  }
   for (let d = 0; d < FEATURE_COUNT; d++) {
     const def = FEATURE_DEFS[d];
     list.push({ id: def.name, label: def.label, value: (i) => store.analysis[i]?.vector[d] ?? 0 });
@@ -1642,10 +1617,6 @@ const PRESETS: MapPreset[] = [
     note: 'the model against timbre, so you can see whether it just likes one sound',
   },
   {
-    id: 'naming', label: 'Name against sound', x: 'name1', y: 'brightness', colour: 'category',
-    note: 'what the patch is called, against what it measures - the disagreements are the interesting ones',
-  },
-  {
     id: 'dynamics', label: 'How it plays', x: 'velLevel', y: 'velBrightness', colour: 'category',
     note: 'how much velocity changes the level, and how much it changes the tone',
   },
@@ -2399,6 +2370,36 @@ export const view: View = {
       refreshList();
     });
     applyMode();
+
+    /*
+     * Drop any saved axis that no longer exists.
+     *
+     * Settings outlive builds, and an axis can go away - a feature renamed, a
+     * projection that needs data this corpus has not got, a whole family of
+     * axes removed. axisById falls back to the first axis in the list, which
+     * is fine for one axis and catastrophic for two: x and y both land on
+     * variation axis 1 and the map draws every patch on a perfect diagonal,
+     * which looks like the projection has broken rather than like a stale
+     * setting. So they are checked against what actually exists, and a missing
+     * one goes back to its default.
+     */
+    const available = new Set(axes().map((a) => a.id));
+    if (!available.has(xAxisId)) {
+      xAxisId = 'pca1';
+      setSetting('map.xAxis', xAxisId);
+    }
+    if (!available.has(yAxisId)) {
+      yAxisId = available.has('pca2') ? 'pca2' : 'brightness';
+      setSetting('map.yAxis', yAxisId);
+    }
+    if (xAxisId === yAxisId) {
+      yAxisId = xAxisId === 'pca1' && available.has('pca2') ? 'pca2' : 'brightness';
+      setSetting('map.yAxis', yAxisId);
+    }
+    if (sizeAxisId && !available.has(sizeAxisId)) {
+      sizeAxisId = '';
+      setSetting('map.sizeAxis', sizeAxisId);
+    }
 
     // The second control row is inserted after controlsEl by renderControls.
     //
