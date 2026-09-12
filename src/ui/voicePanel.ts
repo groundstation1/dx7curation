@@ -23,6 +23,13 @@ import type { Store } from './state.ts';
 export interface VoicePanelOptions {
   /** Replay this voice. Omitted, the Play button is left out. */
   onPlay?: (index: number) => void;
+  /**
+   * What is allowed to start playing on its own.
+   *
+   * Only 'never' earns a Play button: on click or on hover the patch is
+   * already sounding by the time you could reach for one.
+   */
+  autoPlay?: 'hover' | 'click' | 'never';
   /** Rate the voice. Omitted, the rating row is left out. */
   onRate?: (value: number) => void;
   /** Jump to a related voice. Omitted, the lists are shown but not clickable. */
@@ -37,6 +44,36 @@ export interface VoicePanelOptions {
   related?: boolean;
   /** Which files this voice arrived in. On by default. */
   sources?: boolean;
+}
+
+/**
+ * A drawn pin, filled when it is stuck in.
+ *
+ * Drawn rather than a glyph for the same reason as the magnifier: the pushpin
+ * characters are emoji on most systems, so they arrive in someone else's
+ * colours at someone else's weight and cannot be told to match anything.
+ */
+function pinIcon(stuck: boolean): SVGElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('class', 'ico');
+  svg.setAttribute('aria-hidden', 'true');
+  const head = document.createElementNS(ns, 'path');
+  // A pin seen from the side: a slanted head, a shaft, and a point.
+  head.setAttribute('d', 'M9.6 1.5 14.5 6.4 12.3 7.1 11.1 10.5 5.5 4.9 8.9 3.7 Z');
+  head.setAttribute('fill', stuck ? 'currentColor' : 'none');
+  head.setAttribute('stroke', 'currentColor');
+  head.setAttribute('stroke-width', '1.3');
+  head.setAttribute('stroke-linejoin', 'round');
+  const shaft = document.createElementNS(ns, 'path');
+  shaft.setAttribute('d', 'M5.5 10.5 1.6 14.4');
+  shaft.setAttribute('stroke', 'currentColor');
+  shaft.setAttribute('stroke-width', '1.3');
+  shaft.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(head);
+  svg.appendChild(shaft);
+  return svg;
 }
 
 export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = {}): HTMLElement {
@@ -70,7 +107,7 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
           const safe = (v.name || 'voice').trim().replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'voice';
           downloadBytes(buildSingleVoice(v.unpacked), `${safe}.syx`);
         },
-      }, '↓')));
+      }, '↓ .syx')));
   }
 
   // The algorithm, drawn. Two patches on the same algorithm are the same
@@ -78,66 +115,163 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
   // picture than as a number between 1 and 32.
   panel.appendChild(algorithmPanel(v.unpacked[P.algorithm] & 31, v.unpacked));
 
+  /*
+   * The three things you actually do to a patch, in one block.
+   *
+   * They were three separate rows - five numbered buttons, a sentence about
+   * what the numbers meant, then Play and Pin on a line of their own - which
+   * made the one part of the sidebar you interact with look like three more
+   * paragraphs of read-only detail in a panel already full of them.
+   *
+   * Stars rather than digits: a rating is drawn as stars everywhere else in
+   * the app, on the map, in the table and in the banks, so a row of numbers
+   * here made you translate between two notations for one thing. The digits
+   * are still how you rate quickly, which is what the legend underneath is
+   * for - it says which keys do this, rather than being the control itself.
+   */
+  const actions = el('div', { class: 'voice-actions' });
+  const row = el('div', { class: 'act-row' });
+
   if (opts.onRate) {
-    const keys = el('div', { class: 'rate-keys map-rate' });
+    const stars = el('div', {
+      class: 'stars',
+      title: rating ? `Rated ${rating}. Click the same star again to clear.` : 'Click to rate',
+    });
     for (let r = 1; r <= 5; r++) {
-      keys.appendChild(el('button', {
-        class: rating === r ? 'on' : '',
+      stars.appendChild(el('button', {
+        class: `star${rating !== null && r <= rating ? ' on' : ''}`,
         title: `Rate ${r}`,
         onclick: () => opts.onRate?.(r),
-      }, String(r)));
+      }, '★'));
     }
-    panel.appendChild(keys);
-    panel.appendChild(el('div', { class: 'muted', style: { textAlign: 'center', fontSize: '11px', marginTop: '4px' } },
-      rating ? el('span', {}, 'rated ', el('b', {}, String(rating)), ' — press the same number again to clear')
-        : el('span', {}, 'press ', el('kbd', {}, '1'), '–', el('kbd', {}, '5'), ' to rate, ', el('kbd', {}, 'p'), ' to pin')));
+    row.appendChild(stars);
   }
 
-  const buttons = el('div', { class: 'row', style: { marginTop: '12px' } });
-  if (opts.onPlay) buttons.appendChild(el('button', { class: 'btn', onclick: () => opts.onPlay?.(i) }, 'Play'));
-  buttons.appendChild(el('button', {
-    class: 'btn',
+  // Only worth a button when something has to ask for it. With autoplay on
+  // click or on hover the patch in front of you is already sounding, and a
+  // Play button then means "do again what just happened by itself".
+  if (opts.onPlay && opts.autoPlay === 'never') {
+    row.appendChild(el('button', {
+      class: 'act-btn',
+      title: 'Play the demo phrase',
+      onclick: () => opts.onPlay?.(i),
+    }, '▶ Play'));
+  }
+  row.appendChild(el('button', {
+    class: v.pinned ? 'act-pin on' : 'act-pin',
+    title: v.pinned ? 'Pinned into the final 128. Click to release.' : 'Pin into the final 128 regardless of rating',
     onclick: () => {
       void store.togglePin(i).then(changed);
     },
-  }, v.pinned ? 'Unpin' : 'Pin'));
-  panel.appendChild(buttons);
+  }, pinIcon(v.pinned)));
+  actions.appendChild(row);
 
-  const dl = el('dl', { class: 'detail' });
-  const add = (k: string, value: string) => {
-    dl.appendChild(el('dt', {}, k));
-    dl.appendChild(el('dd', {}, value));
+  // A legend, not a control: what the keys do, once, quietly.
+  actions.appendChild(el('div', { class: 'act-keys muted' },
+    el('span', {}, el('kbd', {}, '1'), '–', el('kbd', {}, '5'), ' rate'),
+    opts.onPlay ? el('span', {}, el('kbd', {}, 'space'), ' play') : null,
+    el('span', {}, el('kbd', {}, 'p'), ' pin'),
+    rating ? el('span', {}, 'same key again clears') : null,
+  ));
+  panel.appendChild(actions);
+
+  /*
+   * The measurements, two to a row, with a bar wherever a bar means something.
+   *
+   * This was one column of eleven label-and-number pairs running off the bottom
+   * of the sidebar - a lot of scrolling to answer "is this one bright or not".
+   * Two columns halve the height, and a bar against the range the corpus
+   * actually occupies answers the question without arithmetic: "1.57 octaves
+   * above f0" means nothing by itself, and means "fairly dark" the moment you
+   * can see where it falls on the scale.
+   *
+   * Only quantities with a meaningful range get a bar. Category is a choice,
+   * and the rating is already drawn as stars in the block above.
+   */
+  const grid = el('div', { class: 'stat-grid' });
+
+  /** One cell: a label, a value, and optionally a bar under the pair. */
+  const cell = (
+    label: string, value: string,
+    bar?: { at: number; of: number; from?: number; hint?: string },
+  ) => {
+    const box = el('div', { class: 'stat-cell', title: bar?.hint ?? '' },
+      el('div', { class: 'stat-k' }, label),
+      el('div', { class: 'stat-v' }, value));
+    if (bar) {
+      const frac = Math.max(0, Math.min(1, bar.of === 0 ? 0 : bar.at / bar.of));
+      // A signed quantity grows out of its zero point in whichever direction it
+      // went; an unsigned one just fills from the left.
+      const zero = Math.max(0, Math.min(1, bar.from ?? 0));
+      box.appendChild(el('div', { class: 'stat-bar' }, el('i', {
+        style: {
+          left: `${Math.min(frac, zero) * 100}%`,
+          width: `${Math.max(1.5, Math.abs(frac - zero) * 100)}%`,
+        },
+      })));
+    }
+    grid.appendChild(box);
   };
 
-  dl.appendChild(el('dt', {}, 'category'));
-  dl.appendChild(el('dd', {}, el('select', {
-    onchange: (e: Event) => {
-      const value = (e.target as HTMLSelectElement).value;
-      void store.setCategoryOverride(i, value === 'auto' ? null : (value as Category)).then(changed);
+  // Category spans both columns: it is the one editable thing down here.
+  grid.appendChild(el('div', { class: 'stat-cell wide' },
+    el('div', { class: 'stat-k' }, 'category'),
+    el('select', {
+      onchange: (e: Event) => {
+        const value = (e.target as HTMLSelectElement).value;
+        void store.setCategoryOverride(i, value === 'auto' ? null : (value as Category)).then(changed);
+      },
     },
-  },
-    el('option', { value: 'auto', selected: !store.categoryOverrides.has(v.id) }, `auto: ${cat ?? '-'}`),
-    ...CATEGORIES.map((c) => el('option', {
-      value: c,
-      selected: store.categoryOverrides.get(v.id) === c,
-    }, CATEGORY_LABELS[c])),
-  )));
+      el('option', { value: 'auto', selected: !store.categoryOverrides.has(v.id) }, `auto: ${cat ?? '-'}`),
+      ...CATEGORIES.map((c) => el('option', {
+        value: c,
+        selected: store.categoryOverrides.get(v.id) === c,
+      }, CATEGORY_LABELS[c])),
+    )));
 
   const sub = store.subcategoryOf(i);
-  if (cat && sub) add('subcategory', subcategoryLabel(cat, sub));
-  add('rating', rating ? '★'.repeat(rating) : 'not rated');
+  if (cat && sub) cell('subcategory', subcategoryLabel(cat, sub));
+
   const predicted = store.predictedRating(i);
-  if (predicted !== null) add('predicted rating', predicted.toFixed(2));
-  if (a) {
-    add('attack', `${(Math.pow(10, a.acoustic.logAttackTime) * 1000).toFixed(0)} ms`);
-    add('release', `${Math.pow(10, a.acoustic.logReleaseTime).toFixed(2)} s${a.acoustic.releaseCensored ? ' (extrapolated)' : ''}`);
-    add('sustain', a.acoustic.sustainRatio.toFixed(2));
-    add('brightness', `${a.acoustic.centroidOct.toFixed(2)} octaves above f0`);
-    add('register', `${a.acoustic.registerOct >= 0 ? '+' : ''}${a.acoustic.registerOct.toFixed(2)} octaves vs the note played`);
-    add('inharmonicity', a.acoustic.inharmonicity.toFixed(3));
-    add('velocity range', `${a.acoustic.velLevelDb.toFixed(1)} dB, ${a.acoustic.velBrightnessOct.toFixed(2)} oct brighter`);
+  if (predicted !== null) {
+    cell('predicted rating', predicted.toFixed(2),
+      { at: predicted, of: 5, hint: 'what the model expects you would rate this' });
   }
-  panel.appendChild(dl);
+
+  if (a) {
+    const attackMs = Math.pow(10, a.acoustic.logAttackTime) * 1000;
+    const releaseS = Math.pow(10, a.acoustic.logReleaseTime);
+    // Scaled to what the corpus actually spans rather than what is
+    // theoretically possible: a bar sized for the widest outlier leaves every
+    // ordinary patch pinned to the left of it. Times are logarithmic, because
+    // the difference between 5 and 50 ms matters and 400 and 450 does not.
+    cell('attack', `${attackMs.toFixed(0)} ms`,
+      { at: Math.log10(1 + attackMs), of: Math.log10(401), hint: '0 to 400 ms, logarithmic' });
+    cell('release', `${releaseS.toFixed(2)} s${a.acoustic.releaseCensored ? '*' : ''}`, {
+      at: Math.log10(1 + releaseS),
+      of: Math.log10(9),
+      hint: a.acoustic.releaseCensored
+        ? 'extrapolated: still sounding when the probe ended'
+        : '0 to 8 s, logarithmic',
+    });
+    cell('sustain', a.acoustic.sustainRatio.toFixed(2),
+      { at: a.acoustic.sustainRatio, of: 1, hint: '0 plucks and dies, 1 holds' });
+    cell('brightness', `${a.acoustic.centroidOct.toFixed(2)} oct`,
+      { at: a.acoustic.centroidOct, of: 5, hint: 'octaves above the fundamental' });
+    cell('register', `${a.acoustic.registerOct >= 0 ? '+' : ''}${a.acoustic.registerOct.toFixed(2)} oct`,
+      { at: (a.acoustic.registerOct + 2) / 4, of: 1, from: 0.5, hint: 'octaves away from the note played' });
+    cell('inharmonicity', a.acoustic.inharmonicity.toFixed(3),
+      { at: a.acoustic.inharmonicity, of: 0.1, hint: '0 is a harmonic tone; high is bell-like' });
+    cell('velocity', `${a.acoustic.velLevelDb.toFixed(1)} dB`,
+      { at: a.acoustic.velLevelDb, of: 30, hint: 'how much louder a hard note is' });
+    cell('vel. brightness', `${a.acoustic.velBrightnessOct.toFixed(2)} oct`,
+      { at: a.acoustic.velBrightnessOct, of: 2, hint: 'how much brighter a hard note is' });
+  }
+  panel.appendChild(grid);
+  if (a?.acoustic.releaseCensored) {
+    panel.appendChild(el('div', { class: 'muted', style: { fontSize: '10.5px', marginTop: '6px' } },
+      '* release extrapolated: it was still sounding when the probe ended'));
+  }
 
   // ---- duplicates, in three distinct tiers ----
   //

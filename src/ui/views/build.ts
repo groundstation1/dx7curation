@@ -519,6 +519,7 @@ function renderSide(): void {
       const v = ctx.store.voices[n];
       if (v) void ctx.player.audition(v.id, v.unpacked, DEMO_PHRASE);
     },
+    autoPlay: ctx.player.autoPlay,
     onRate: (r) => void rateTarget(r),
     onChange: () => {
       renderSide();

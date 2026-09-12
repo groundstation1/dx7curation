@@ -327,9 +327,17 @@ export function createListView(
       const at = indices.indexOf(index);
       if (at < 0) return;
       const top = at * ROW_HEIGHT;
-      if (top < scroller.scrollTop || top + ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight) {
-        scroller.scrollTop = top - scroller.clientHeight / 2;
+      const above = top < scroller.scrollTop;
+      const below = top + ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight;
+      if (!above && !below) {
+        // Already on screen. Marking touches two class lists; painting rebuilds
+        // every row, which destroys the one under the cursor - and a row
+        // replaced between pointerdown and pointerup produces no click at all.
+        // This runs on every hover of the plot next door, so it matters.
+        mark();
+        return;
       }
+      scroller.scrollTop = top - scroller.clientHeight / 2;
       paint();
     },
   };

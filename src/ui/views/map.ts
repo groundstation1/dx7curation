@@ -576,7 +576,9 @@ function draw(): void {
   }
   const g = canvas.getContext('2d')!;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.fillStyle = '#14161a';
+  // From the stylesheet, so the legend fading out over the bottom of the plot
+  // is fading into exactly this colour and not one near it.
+  g.fillStyle = plotBackground();
   g.fillRect(0, 0, w, h);
 
   const store = ctx.store;
@@ -685,7 +687,7 @@ function drawOverlay(w: number, h: number, dpr: number): void {
     // Label the strongest contributors. Three when pinned and there is time to
     // read them, just the dominant one while the cursor is still moving.
     const labelled = interpFrozen ? interpResult.contributions.slice(0, 3) : interpResult.contributions.slice(0, 1);
-    g.font = '600 12px system-ui, sans-serif';
+    g.font = AXIS_FONT_STRONG;
     for (const c of labelled) {
       const name = ctx.store.voices[c.index]?.name.trim();
       if (!name || xs[c.index] === undefined) continue;
@@ -724,7 +726,18 @@ function drawOverlay(w: number, h: number, dpr: number): void {
     g.setLineDash([]);
   }
 
-  drawAxisLabels(g, w, h);
+  // The legend floats over the bottom of the plot, so the axis label sits
+  // above it rather than underneath it.
+  drawAxisLabels(g, w, h - (legendEl?.offsetHeight ?? 0));
+}
+
+let plotBg = '';
+
+function plotBackground(): string {
+  if (!plotBg) {
+    plotBg = getComputedStyle(document.documentElement).getPropertyValue('--plot-bg').trim() || '#14161a';
+  }
+  return plotBg;
 }
 
 /**
@@ -818,8 +831,9 @@ function drawAxisLabels(g: CanvasRenderingContext2D, w: number, h: number): void
   g.restore();
 }
 
-const AXIS_FONT = '12px system-ui, -apple-system, "Segoe UI", sans-serif';
-const AXIS_FONT_STRONG = '600 13px system-ui, -apple-system, "Segoe UI", sans-serif';
+// Canvas text does not inherit, so the plot has to name the face itself.
+const AXIS_FONT = "11.5px 'Space Mono', ui-monospace, monospace";
+const AXIS_FONT_STRONG = "700 12.5px 'Space Mono', ui-monospace, monospace";
 
 // -------------------------------------------------------------- hit test
 
@@ -1176,6 +1190,7 @@ function renderSide(): void {
 
   sideEl.appendChild(voiceDetails(store, i, {
     onPlay: (n) => void audition(n),
+    autoPlay: ctx.player.autoPlay,
     onRate: (r) => void rateTarget(r),
     onOpen: (n) => {
       selected = n;
@@ -1187,6 +1202,10 @@ function renderSide(): void {
     onChange: () => {
       renderSide();
       draw();
+      // The table draws the pin and the rating too, so a change made in the
+      // sidebar has to reach it or the row sits there contradicting the panel
+      // right next to it.
+      list?.refresh();
     },
   }));
 }
@@ -1241,6 +1260,25 @@ function refreshList(): void {
  * folded-away table cost nothing rather than quietly rendering rows behind the
  * one you are looking at.
  */
+/**
+ * Point the table at whatever the plot is pointing at.
+ *
+ * The two halves of split mode show the same set and had no idea about each
+ * other: hovering a dot told you nothing about where that patch was in the
+ * table, and the table might be scrolled thousands of rows away from it. Both
+ * are views of one selection, so both follow it.
+ *
+ * Only scrolls when the row is actually off screen - `reveal` checks - since
+ * yanking the table under the cursor on every pixel of a sweep across the plot
+ * would be unusable.
+ */
+function syncList(): void {
+  if (!list || mode === 'map') return;
+  const target = selected >= 0 ? selected : hovered;
+  if (target >= 0) list.reveal(target);
+  else list.mark();
+}
+
 function applyMode(): void {
   if (!listEl || !canvas) return;
   listEl.hidden = mode === 'map';
@@ -1401,6 +1439,28 @@ function offPreset(): void {
 let searchOpen = false;
 let searchDebounce = 0;
 
+function magnifier(): SVGElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('class', 'ico');
+  svg.setAttribute('aria-hidden', 'true');
+  const circle = document.createElementNS(ns, 'circle');
+  circle.setAttribute('cx', '7');
+  circle.setAttribute('cy', '7');
+  circle.setAttribute('r', '4.4');
+  const handle = document.createElementNS(ns, 'path');
+  handle.setAttribute('d', 'M10.3 10.3 L14 14');
+  for (const node of [circle, handle]) {
+    node.setAttribute('fill', 'none');
+    node.setAttribute('stroke', 'currentColor');
+    node.setAttribute('stroke-width', '1.6');
+    node.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(node);
+  }
+  return svg;
+}
+
 function searchControl(): HTMLElement {
   const active = searchText.trim().length > 0;
   const wrap = el('div', { class: 'search-wrap' });
@@ -1413,8 +1473,11 @@ function searchControl(): HTMLElement {
       renderControls();
     },
   },
-    '\u2315',
-    active ? el('span', { class: 'q' }, searchText) : 'search',
+    // Drawn rather than typed. U+2315 is nominally a magnifier and renders
+    // as a bare circle, a telephone recorder or nothing at all depending on
+    // the font the system reaches for; an inline SVG is the same everywhere.
+    magnifier(),
+    active ? el('span', { class: 'q' }, searchText) : 'Search',
     active
       ? el('span', {
         class: 'x',
@@ -1847,6 +1910,7 @@ function attachCanvasEvents(): void {
       // The subcategory legend is per-category, so it follows the cursor.
       if (colourBy === 'subcategory') renderLegend();
       draw();
+      syncList();
       if (selected < 0) {
         renderSide();
         armKeyboard();
@@ -1942,6 +2006,7 @@ function attachCanvasEvents(): void {
     armKeyboard();
     renderSide();
     draw();
+    syncList();
     if (hit >= 0) void audition(hit, false, 'click');
   });
 
@@ -2013,6 +2078,8 @@ export const view: View = {
         armKeyboard();
         renderSide();
         list?.mark();
+        // The plot marks what the cursor is on, wherever the cursor is.
+        if (mode === 'split') draw();
         // The same rate limit the map uses for a sweep: without it, running the
         // cursor down the list queues one full render per row and the sound
         // arrives seconds after the cursor has gone.
@@ -2029,6 +2096,7 @@ export const view: View = {
         renderSide();
         void audition(i, false, 'click');
         list?.mark();
+        if (mode === 'split') draw();
       },
       onRate: (i, value) => {
         void ctx.store.rate(i, value, 'round1').then(() => list?.refresh());
@@ -2068,6 +2136,7 @@ export const view: View = {
         void ctx.store.togglePin(i).then(() => {
           renderSide();
           draw();
+          list?.refresh();
         });
       } else if (e.key === ' ') {
         if (i < 0) return;

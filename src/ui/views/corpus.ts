@@ -490,110 +490,6 @@ function sweepTable(): HTMLElement {
   return wrap;
 }
 
-// ---------------------------------------------------------------- the model
-
-function tastePanel(): HTMLElement {
-  const store = ctx.store;
-  const panel = el('div', {});
-  const model = store.tasteModel;
-  if (!model) {
-    return el('p', { class: 'muted' }, `Needs at least 12 ratings; you have ${fmtInt(store.ratings.size)}.`);
-  }
-
-  const quality = model.r2 > 0.25 ? 'good' : model.r2 > 0.08 ? 'warn' : 'muted';
-  const verdict = model.r2 > 0.25
-    ? 'it has found real structure in your taste'
-    : model.r2 > 0.08
-      ? 'weak but not nothing'
-      : 'no better than guessing the average — rate more';
-
-  panel.appendChild(el('div', { class: 'stats', style: { marginBottom: '10px' } },
-    statBlock('ratings used', fmtInt(model.samples)),
-    el('div', { class: 'stat' },
-      el('div', { class: 'k' }, 'cross-validated R²'),
-      el('div', { class: `v ${quality}` }, model.r2.toFixed(2))),
-    statBlock('mean rating', model.meanRating.toFixed(2)),
-  ));
-  panel.appendChild(el('p', { class: quality, style: { marginTop: 0 } }, verdict));
-
-  // Where the predictive power actually comes from. Three numbers rather than
-  // one, because "the line explains nothing but the neighbours explain a lot"
-  // is a completely different situation from "nothing works yet".
-  const share = (label: string, value: number, note: string) => el('tr', {},
-    el('td', {}, label),
-    el('td', { class: `num ${value > 0.15 ? 'good' : value > 0.05 ? 'warn' : 'muted'}` }, value.toFixed(2)),
-    el('td', { class: 'muted', style: { fontSize: '11.5px' } }, note),
-  );
-  panel.appendChild(el('table', { class: 'data', style: { maxWidth: '560px', marginBottom: '14px' } },
-    el('tbody', {},
-      share('the line alone', model.linearR2, 'ridge regression on the features'),
-      share('plus category offsets', model.categoryR2, 'whole families running above or below the line'),
-      share('the neighbours alone', model.neighbourR2, `average of the ${model.neighbours?.k ?? 8} nearest rated patches`),
-      share('as used', model.r2,
-        model.neighbourWeight === 0
-          ? 'neighbours did not help, so they are switched off'
-          : `${Math.round(model.neighbourWeight * 100)}% neighbours, ${Math.round((1 - model.neighbourWeight) * 100)}% line and offsets`),
-    ),
-  ));
-
-  if (model.categories.length) {
-    const cats = el('div', { class: 'taste-cats' });
-    for (const c of model.categories.slice(0, 6)) {
-      const strong = Math.abs(c.offset) > 0.15;
-      cats.appendChild(el('div', { class: 'taste-cat' },
-        el('i', { style: { background: categoryColour(c.category) } }),
-        el('b', {}, CATEGORY_LABELS[c.category as Category] ?? c.category),
-        el('span', { class: c.offset >= 0 ? 'good' : 'bad' },
-          `${c.offset >= 0 ? '+' : ''}${c.offset.toFixed(2)}`),
-        el('span', { class: 'muted' }, `${c.count} rated, mean ${c.mean.toFixed(1)}`),
-        strong ? null : el('span', { class: 'muted' }, '(barely)'),
-      ));
-    }
-    panel.appendChild(el('h3', {}, 'Categories you like more than their features explain'));
-    panel.appendChild(cats);
-  }
-
-  const { up, down } = topTerms(model, 6);
-  const list = (title: string, terms: Array<{ index: number; coefficient: number }>, cls: string) => {
-    const box = el('div', { style: { flex: '1', minWidth: '240px' } }, el('h3', {}, title));
-    const body = el('tbody');
-    for (const t of terms) {
-      body.appendChild(el('tr', {},
-        el('td', {}, FEATURE_DEFS[t.index]?.label ?? String(t.index)),
-        el('td', { class: `num ${cls}` }, t.coefficient.toFixed(3)),
-      ));
-    }
-    box.appendChild(el('table', { class: 'data' }, body));
-    return box;
-  };
-  panel.appendChild(el('div', { class: 'row', style: { alignItems: 'flex-start', gap: '26px' } },
-    list('pushes a rating up', up, 'good'),
-    list('pushes a rating down', down, 'bad'),
-  ));
-
-  panel.appendChild(el('div', { class: 'row', style: { marginTop: '14px' } },
-    el('button', {
-      class: 'btn',
-      onclick: async () => {
-        await ctx.store.retrain();
-        render();
-      },
-    }, 'Refit from current ratings'),
-    el('label', { class: 'field' }, 'apply to distances',
-      el('input', {
-        type: 'range', min: 0, max: 100, value: Math.round(store.tasteStrength * 100),
-        style: { width: '120px' },
-        onchange: (e: Event) => {
-          ctx.store.setTasteStrength(Number((e.target as HTMLInputElement).value) / 100);
-          render();
-        },
-      })),
-    el('span', { class: 'muted' }, `${Math.round(store.tasteStrength * 100)}%`),
-  ));
-
-  return panel;
-}
-
 // ------------------------------------------------------------ save and load
 
 /**
@@ -711,12 +607,6 @@ function render(): void {
       el('h2', {}, 'Add more'),
       dropZone(false),
       store.lastIngest ? lastImport(store.lastIngest) : null,
-    ));
-  }
-
-  if (store.analysisComplete) {
-    page.appendChild(el('div', { class: 'panel' },
-      disclosure('What your ratings have in common', tastePanel, { key: 'taste' }),
     ));
   }
 

@@ -256,10 +256,10 @@ function render(): void {
         el('button', { class: 'btn', onclick: () => void choose('skip') }, 'Too close'),
       ),
       el('div', { class: 'keyhelp' },
-        el('span', {}, el('kbd', {}, 'x'), ' switch mid-note'),
-        el('span', {}, el('kbd', {}, 'a'), ' / ', el('kbd', {}, 'b'), ' pick a winner'),
-        el('span', {}, el('kbd', {}, 'space'), ' replay'),
-        el('span', {}, el('kbd', {}, 's'), ' too close to call'),
+        el('span', {}, el('kbd', {}, 'space'), ' switch mid-note'),
+        el('span', {}, el('kbd', {}, '1'), ' / ', el('kbd', {}, '2'), ' pick a winner'),
+        el('span', {}, el('kbd', {}, 'r'), ' replay'),
+        el('span', {}, el('kbd', {}, '3'), ' too close to call'),
       ),
     ));
     page.appendChild(el('div', { class: 'panel' }, standings()));
@@ -292,6 +292,25 @@ export const view: View = {
     keyHandler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       const k = e.key.toLowerCase();
+      // The three answers under the three fingers already resting on the
+      // number row, in the order the two sides are drawn in. Rating uses
+      // 1-5 elsewhere, but there is no rating to give here - only a choice
+      // between two things and a way of declining it.
+      if (e.key === '1') {
+        e.preventDefault();
+        void choose('a');
+        return;
+      }
+      if (e.key === '2') {
+        e.preventDefault();
+        void choose('b');
+        return;
+      }
+      if (e.key === '3') {
+        e.preventDefault();
+        void choose('skip');
+        return;
+      }
       if (k === 'x' || e.key === 'Tab') {
         e.preventDefault();
         switchSides();
@@ -305,6 +324,13 @@ export const view: View = {
         e.preventDefault();
         void choose('skip');
       } else if (e.key === ' ') {
+        // Space is the switch, not the replay. Comparing two sounds means
+        // going back and forth between them constantly and replaying one
+        // hardly ever, so the biggest key on the keyboard should do the thing
+        // you do most.
+        e.preventDefault();
+        switchSides();
+      } else if (k === 'r') {
         e.preventDefault();
         ab?.restart();
       }

@@ -1,3 +1,56 @@
+/*
+ * The wordmark's own face: Chango, self-hosted.
+ *
+ * Self-hosted rather than linked, because the app promises that nothing leaves
+ * this machine, and a stylesheet fetched from a font CDN on every load is a
+ * request to somebody else's server announcing that you opened it. Twelve
+ * kilobytes in the bundle is a fair price for that promise staying true
+ * offline as well as on.
+ */
+@font-face {
+  font-family: 'Chango';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/chango-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Chango';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/chango-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F;
+}
+
+/*
+ * Space Mono for everything else.
+ *
+ * A monospace for body text is a deliberate choice here rather than a default:
+ * this app is a wall of numbers - attack times, distances, scores, slot
+ * numbers, ratings - read down columns far more often than along sentences,
+ * and a fixed advance means those columns line up without being told to. It
+ * also sits with Chango, which is the other half of the request: one loud
+ * display face, one plain machine face, and nothing in between.
+ */
+@font-face {
+  font-family: 'Space Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/spacemono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/spacemono-700.woff2') format('woff2');
+}
+
 :root {
   /*
    * Four tones and an accent. That is the whole visual system.
@@ -22,6 +75,9 @@
   --surface: #181c24;
   --raise: #222732;
   --raise-2: #2e3440;
+  /* The plot's own ground, shared with the canvas so the legend can fade into
+     precisely this colour rather than one close to it. */
+  --plot-bg: #101319;
   /*
    * The only line in the app, and it is a rule, never a box.
    *
@@ -35,7 +91,9 @@
   --accent-2: #ffca6a;
   --good: #7bd88f;
   --bad: #f2777a;
-  --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --mono: 'Space Mono', ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  /* The same face for body text. See the @font-face note above. */
+  --ui: 'Space Mono', ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
   --radius: 8px;
   --radius-sm: 6px;
   --pill: 999px;
@@ -45,7 +103,7 @@
      card a card without drawing a line around one. */
   --gut: 10px;
   /* How much room the sound dock takes along the bottom edge. */
-  --dock-h: 36px;
+  --dock-h: 46px;
   color-scheme: dark;
 }
 
@@ -65,7 +123,8 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Space Mono runs wide, so a notch down from 13 keeps the tables honest. */
+  font: 12.5px/1.5 var(--ui);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
@@ -113,21 +172,32 @@ header.topbar {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: var(--mono);
-  font-size: 25px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  text-transform: uppercase;
-  margin-right: 22px;
+  /* Chango is a single heavy weight with no lowercase to speak of, so it is
+     set at its natural case and given room rather than tracked in tight. */
+  font-family: 'Chango', var(--mono);
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  margin-right: 24px;
   white-space: nowrap;
   color: var(--text);
   line-height: 1;
 }
-/* The power lamp. Every piece of eighties hardware has one - flat, though. */
+/*
+ * A white block ahead of the name.
+ *
+ * Purely a mark. Sized in em so it is exactly as tall as the type beside it
+ * and stays that way if the wordmark is ever resized, and 16:9 because a
+ * rectangle reads as deliberate where a square reads as a missing icon. The
+ * yellow dot it replaces looked like a status lamp, which is a promise the app
+ * was not keeping.
+ */
 .topbar .brand::before {
   content: '';
-  width: 9px; height: 9px; border-radius: 50%; flex: none;
-  background: var(--accent-2);
+  height: 1em; width: 1.78em; flex: none;
+  border-radius: 4px;
+  background: var(--text);
 }
 
 nav.tabs { display: flex; gap: 3px; flex: none; }
@@ -403,7 +473,7 @@ kbd {
 }
 .sound-bar {
   display: flex; align-items: center; gap: 10px;
-  height: var(--dock-h); padding: 0 14px;
+  height: var(--dock-h); padding: 0 14px 6px;
   white-space: nowrap; overflow-x: auto; scrollbar-width: none;
 }
 .sound-bar::-webkit-scrollbar { height: 0; }
@@ -526,10 +596,22 @@ kbd {
 }
 /* The plot and the legend that explains it, as one card. */
 .map-plot {
+  position: relative;
   display: flex; flex-direction: column; min-height: 0; flex: 1;
-  background: var(--surface); border-radius: var(--radius); overflow: hidden;
+  background: var(--plot-bg); border-radius: var(--radius); overflow: hidden;
 }
-.map-plot .legend { padding: 9px 14px; flex: none; }
+/*
+ * The legend floats over the foot of the plot and dissolves upward into it.
+ *
+ * As a strip below the canvas it ended on a hard horizontal edge across the
+ * full width, which cut the plot off rather than finishing it - and it cost
+ * the plot forty pixels of height on a screen where the plot is the point.
+ */
+.map-plot .legend {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 26px 14px 10px;
+  background: linear-gradient(to top, var(--plot-bg) 0%, var(--plot-bg) 55%, transparent 100%);
+}
 .map-canvas-wrap { position: relative; flex: 1; min-height: 0; }
 
 /*
@@ -566,15 +648,22 @@ kbd {
 .map-reset:hover { color: var(--text); background: var(--raise-2); }
 
 /* The divider between plot and table in split mode. */
-/* Lives in the gutter, so it is black on black until you go near it. */
+/*
+ * The divider between the plot and the table.
+ *
+ * The whole gutter is the target, not the line drawn in it. The negative
+ * margins cancel the flex gaps on either side, so it occupies exactly the
+ * gutter it sits in rather than adding a third one - and a ten pixel grab
+ * area is the difference between a handle and a dare.
+ */
 .pane-split {
-  height: 2px; margin: -6px 0; flex: none; cursor: row-resize; position: relative;
-  background: none; z-index: 6;
+  height: var(--gut); margin: calc(-1 * var(--gut)) 0; flex: none;
+  cursor: row-resize; position: relative; background: none; z-index: 6;
   touch-action: none;
 }
 .pane-split::after {
-  content: ''; position: absolute; left: 50%; top: 0;
-  width: 36px; height: 2px; margin-left: -18px; border-radius: var(--pill);
+  content: ''; position: absolute; left: 50%; top: 50%;
+  width: 40px; height: 3px; margin: -1.5px 0 0 -20px; border-radius: var(--pill);
   background: var(--raise-2);
   transition: background 0.12s;
 }
@@ -592,6 +681,7 @@ kbd {
 .search-btn:hover { color: var(--text); background: var(--raise-2); }
 /* A search that is filtering must never be invisible: the chip is the reminder. */
 .search-btn.on { color: var(--accent); background: rgba(110, 168, 254, 0.15); }
+.search-btn .ico { width: 13px; height: 13px; flex: none; }
 .search-btn .q { font-family: var(--mono); font-size: 11.5px; color: var(--text); max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-btn .x { opacity: 0.6; }
 /* An overlay, so it gets one of the two shadows in the app: it has to be told
@@ -657,20 +747,109 @@ kbd {
 .legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
+/*
+ * The one part of the sidebar you act on, marked as such.
+ *
+ * A tinted block a step up from the panel around it, so the controls read as
+ * controls rather than as two more rows of the detail list above them.
+ */
+.voice-actions {
+  background: var(--raise); border-radius: var(--radius);
+  padding: 10px 12px; margin: 12px 0 4px;
+}
+/* Centred, with the pin hugging the stars rather than exiled to the far edge:
+   they are one decision about one patch, not two unrelated controls. */
+.act-row { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.act-btn {
+  background: var(--raise-2); border: none; color: var(--text); cursor: pointer;
+  font: inherit; font-size: 12px; padding: 6px 12px; border-radius: var(--radius-sm);
+  transition: background 0.12s, color 0.12s;
+}
+.act-btn:hover { background: #3a4150; }
+.act-btn.on { background: rgba(110, 168, 254, 0.2); color: var(--accent); }
+
+/* A drawn pin, which fills in when it is stuck in. */
+.act-pin {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; flex: none;
+  background: var(--raise-2); border: none; border-radius: var(--radius-sm);
+  color: var(--muted); cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.act-pin .ico { width: 17px; height: 17px; }
+.act-pin:hover { background: #3a4150; color: var(--text); }
+.act-pin.on { background: rgba(255, 202, 106, 0.18); color: var(--accent-2); }
+
+/* The rating, in the same notation it is drawn in everywhere else - and at a
+   size you can actually hit, since this is the control, not a readout. */
+.stars { display: flex; gap: 2px; }
+.star {
+  background: none; border: none; cursor: pointer; padding: 2px 2px;
+  font-size: 27px; line-height: 1; color: var(--raise-2);
+  transition: color 0.1s, transform 0.1s;
+}
+.star.on { color: var(--accent-2); }
+/* Hovering a star lights it and everything before it, so the rating you are
+   about to give is visible before you give it. */
+.stars:hover .star { color: var(--accent-2); }
+.stars .star:hover ~ .star { color: var(--raise-2); }
+.star:hover { transform: translateY(-1px); }
+
+.act-keys {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
+  margin-top: 10px; font-size: 10.5px;
+}
+.act-keys kbd { font-size: 9.5px; padding: 1px 4px; }
+
 /* The patch heading, with its download tucked into the top right corner. */
 .voice-head { display: flex; align-items: flex-start; gap: 10px; }
 .voice-name { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Labelled, not a lone arrow: an icon by itself in a corner is a guess. */
 .voice-dl {
   margin-left: auto; flex: none;
-  width: 26px; height: 26px; border: none; border-radius: var(--radius-sm);
-  background: var(--raise); color: var(--muted); cursor: pointer;
-  font-size: 14px; line-height: 1;
-  transition: background 0.12s, color 0.12s;
+  padding: 5px 9px; border: none; border-radius: var(--radius-sm);
+  background: var(--raise); color: var(--text); cursor: pointer;
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.2;
+  white-space: nowrap;
+  transition: background 0.12s;
 }
-.voice-dl:hover { background: var(--raise-2); color: var(--text); }
+.voice-dl:hover { background: var(--raise-2); }
 
 .detail dt { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; margin-top: 12px; }
 .detail dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+
+/*
+ * The measurements, two to a row.
+ *
+ * Each cell carries a label, a number and a bar showing where that number
+ * falls in the range the corpus occupies - which is the part that turns a
+ * reading into a judgement.
+ */
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin-top: 14px; }
+.stat-cell { min-width: 0; }
+.stat-cell.wide { grid-column: 1 / -1; }
+.stat-cell.wide select { width: 100%; margin-top: 3px; }
+/* Allowed two lines rather than an ellipsis: "predicted rat..." is not a
+   label. Space Mono is a wide face and these cells are half a sidebar. */
+.stat-k {
+  color: var(--muted); font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em; line-height: 1.25;
+  min-height: 2.5em;
+}
+.stat-v {
+  margin-top: 2px; font-variant-numeric: tabular-nums; font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.stat-bar {
+  position: relative; height: 3px; margin-top: 5px;
+  border-radius: var(--pill); background: var(--raise-2); overflow: hidden;
+}
+.stat-bar i { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: var(--pill); }
+
+/* A narrow sidebar cannot take two columns without the labels shredding. */
+@media (max-width: 340px) {
+  .stat-grid { grid-template-columns: 1fr; }
+}
 
 /* A main column with the voice detail panel beside it, as the map has. */
 .detail-layout {
@@ -779,15 +958,20 @@ kbd {
  * cannot carry it off.
  */
 .side-handle {
-  position: absolute; top: 0; bottom: 0; right: calc(var(--side-w, 300px) + var(--gut) / 2);
-  width: 11px; margin-right: -5px; z-index: 6;
+  position: absolute; top: 0; bottom: 0;
+  right: calc(var(--side-w, 300px) + var(--gut) / 2);
+  width: 16px; margin-right: -8px; z-index: 6;
   cursor: col-resize; touch-action: none;
 }
+/* The same grabber as the horizontal one, turned on its side. */
 .side-handle::after {
-  content: ''; position: absolute; top: 0; bottom: 0; left: 5px;
-  width: 2px; border-radius: var(--pill); background: transparent; transition: background 0.12s;
+  content: ''; position: absolute; top: 50%; left: 50%;
+  width: 3px; height: 40px; margin: -20px 0 0 -1.5px; border-radius: var(--pill);
+  background: var(--raise-2); transition: background 0.12s;
 }
 .side-handle:hover::after, .side-handle.dragging::after { background: var(--accent); }
+/* That layout has a wider gutter, so the handle centres further out. */
+.detail-layout .side-handle { right: calc(var(--side-w, 300px) + 12px); }
 
 /*
  * A source entry: name and slots on one line, the path under it.
