@@ -2067,8 +2067,12 @@ function attachCanvasEvents(): void {
         renderSide();
         armKeyboard();
       }
+      // A pinned patch owns the sound. Sweeping the plot with one held would
+      // otherwise cut it off and play whatever the cursor crossed, which
+      // defeats the point of pinning: you pin a patch to keep listening to it
+      // while you look around for the next one.
       const now = performance.now();
-      if (hoverAudition && hit >= 0 && now - lastAuditionAt > HOVER_INTERVAL_MS) {
+      if (hoverAudition && selected < 0 && hit >= 0 && now - lastAuditionAt > HOVER_INTERVAL_MS) {
         lastAuditionAt = now;
         void audition(hit, false, 'hover');
       }
@@ -2307,6 +2311,8 @@ export const view: View = {
         selected = -1;
         renderSide();
         draw();
+        // The table draws the pin too, so releasing it has to reach the row.
+        list?.mark();
       }
     };
     window.addEventListener('keydown', onKey);

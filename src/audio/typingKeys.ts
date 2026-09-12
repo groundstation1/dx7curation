@@ -12,13 +12,24 @@
  * piano do and your hands are already on them. It runs an octave and a tone
  * before you shift.
  *
- * Keys are read by physical position (`KeyboardEvent.code`), never by the
- * character they produce. That is not a shortcut - it is the only mapping that
- * is correct on more than one layout. `code` says "the key where Z is on a US
- * board", so the piano stays a piano on QWERTZ, AZERTY, Dvorak and Neo 2,
- * where the letters printed on those keys are completely different. The layout
- * setting therefore changes only what the on-screen legend prints, which is the
- * one thing the browser genuinely cannot work out for itself.
+ * Which physical key plays which note depends on the layout you tell it you
+ * have, and it has to: the browser will not say. `KeyboardEvent.code` reports
+ * position on a notional US board and `key` reports the character your layout
+ * produced, and neither one alone is enough. Position alone would be layout-
+ * independent, which sounds like the right answer and is not - it makes the
+ * setting cosmetic, so picking Neo 2 changes the picture and nothing else,
+ * which is precisely the complaint that produced this comment.
+ *
+ * So the note is looked up by character, against the characters of the layout
+ * you chose. On a board that really is the chosen layout the two agree exactly
+ * and the white keys are the home row, as they should be. On a board that is
+ * not, choosing that layout gets you its arrangement anyway - which is the
+ * only way the picker can mean anything.
+ *
+ * The consequence is worth stating plainly: choose the wrong layout and the
+ * keys do not play. That is the correct failure. The alternative - falling
+ * back to position when the character is unknown - would give two different
+ * keys the same note and no way to tell which mapping you were in.
  */
 import type { Keyboard } from './keyboard.ts';
 import type { Player } from './player.ts';
@@ -50,6 +61,22 @@ const NOTES: Record<string, number> = {
 /** The two physical rows, in order, so the legend can be drawn as a keyboard. */
 const WHITE_ROW = ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL'];
 const BLACK_ROW = ['KeyW', 'KeyE', null, 'KeyT', 'KeyY', 'KeyU', null, 'KeyO', null];
+
+/**
+ * Character to semitone, for one layout.
+ *
+ * Built from the same two tables the legend is drawn from, so what is printed
+ * on a key and what that key plays cannot drift apart: both come from
+ * `NOTES[code]` and `keyLabel(code, layout)`.
+ */
+export function charNotes(layout: KeyLayout): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [code, offset] of Object.entries(NOTES)) {
+    const label = keyLabel(code, layout).toLowerCase();
+    if (label) out.set(label, offset);
+  }
+  return out;
+}
 
 /** Physical keys that shift the octave, either side of the number row's end. */
 const OCTAVE_DOWN = 'Minus';
@@ -181,9 +208,15 @@ export class TypingKeys {
     return layoutById(this.layoutId);
   }
 
+  /** Character to semitone for the current layout; see `charNotes`. */
+  private notes = charNotes(layoutById(getSetting('typing.layout', 'qwerty')));
+
   setLayout(id: string): void {
     this.layoutId = id;
     setSetting('typing.layout', id);
+    // Rebuilt here rather than looked up per keystroke: this is the whole
+    // point of the setting, and it changes about once in a keyboard's life.
+    this.notes = charNotes(this.layout);
     this.emit();
   }
 
@@ -220,23 +253,31 @@ export class TypingKeys {
       if (t && (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-      if (e.code === OCTAVE_DOWN || e.code === OCTAVE_UP) {
+      // The octave keys are taken by position as well as by character: they
+      // are not notes, and on a layout that puts the minus sign somewhere
+      // unexpected the key beside the digits is still the obvious place.
+      const down = e.key === '-' || e.code === OCTAVE_DOWN;
+      const up = e.key === '=' || e.code === OCTAVE_UP;
+      if (down || up) {
         e.preventDefault();
         e.stopPropagation();
-        this.setBase(this.base + (e.code === OCTAVE_UP ? 12 : -12));
+        this.setBase(this.base + (up ? 12 : -12));
         return;
       }
 
-      const offset = NOTES[e.code];
+      // Shift produces an upper-case character, so the lookup is folded down;
+      // every key in the map is a letter, which makes that safe.
+      const char = e.key.toLowerCase();
+      const offset = this.notes.get(char);
       if (offset === undefined) return;
       e.preventDefault();
       // Capture-phase, so the views' own single-key shortcuts never also fire
       // for a key that is currently a piano key.
       e.stopPropagation();
-      if (e.repeat || this.held.has(e.code)) return;
+      if (e.repeat || this.held.has(char)) return;
 
       const note = this.base + offset;
-      this.held.set(e.code, note);
+      this.held.set(char, note);
       // Shift is the accent, which is the one dynamic a typing keyboard can
       // offer without a second row of keys.
       keyboard.noteOn(note, e.shiftKey ? Math.min(127, this.velocity + 28) : this.velocity);
@@ -244,9 +285,10 @@ export class TypingKeys {
     };
 
     this.upHandler = (e: KeyboardEvent) => {
-      const note = this.held.get(e.code);
+      const char = e.key.toLowerCase();
+      const note = this.held.get(char);
       if (note === undefined) return;
-      this.held.delete(e.code);
+      this.held.delete(char);
       keyboard.noteOff(note);
       this.emit();
     };
