@@ -33,6 +33,16 @@ type AxisId = string;
 interface Axis {
   id: AxisId;
   label: string;
+  /**
+   * The name to draw on the plot, when the picker's name says more.
+   *
+   * A few axes carry a figure of merit in their label - how much of the
+   * variance this component explains, how well the taste model scores. That is
+   * exactly what you want when choosing between sixty axes in a dropdown, and
+   * noise once the axis is chosen and drawn along the edge of its own chart,
+   * where the only question left is which way is which.
+   */
+  short?: string;
   value: (i: number) => number;
 }
 
@@ -294,14 +304,14 @@ function axes(): Axis[] {
   if (store.projection) {
     const p = store.projection;
     const pct = (i: number) => ((store.pcaExplained[i] ?? 0) * 100).toFixed(0);
-    list.push({ id: 'pca1', label: `variation axis 1 (${pct(0)}%)`, value: (i) => p[i * 2] });
-    list.push({ id: 'pca2', label: `variation axis 2 (${pct(1)}%)`, value: (i) => p[i * 2 + 1] });
+    list.push({ id: 'pca1', label: `variation axis 1 (${pct(0)}%)`, short: 'variation axis 1', value: (i) => p[i * 2] });
+    list.push({ id: 'pca2', label: `variation axis 2 (${pct(1)}%)`, short: 'variation axis 2', value: (i) => p[i * 2 + 1] });
   }
   if (store.ldaProjection) {
     const p = store.ldaProjection;
     const pct = (i: number) => ((store.ldaExplained[i] ?? 0) * 100).toFixed(0);
-    list.push({ id: 'lda1', label: `category axis 1 (${pct(0)}% of separation)`, value: (i) => p[i * 2] });
-    list.push({ id: 'lda2', label: `category axis 2 (${pct(1)}% of separation)`, value: (i) => p[i * 2 + 1] });
+    list.push({ id: 'lda1', label: `category axis 1 (${pct(0)}% of separation)`, short: 'category axis 1', value: (i) => p[i * 2] });
+    list.push({ id: 'lda2', label: `category axis 2 (${pct(1)}% of separation)`, short: 'category axis 2', value: (i) => p[i * 2 + 1] });
   }
   for (let d = 0; d < FEATURE_COUNT; d++) {
     const def = FEATURE_DEFS[d];
@@ -311,10 +321,11 @@ function axes(): Axis[] {
     list.push({
       id: 'predicted',
       label: `predicted rating (R\u00b2 ${store.tasteModel.r2.toFixed(2)})`,
+      short: 'predicted rating',
       value: (i) => store.predictedRating(i) ?? 0,
     });
   }
-  list.push({ id: 'algorithm', label: 'algorithm (1-32)', value: (i) => (store.voices[i].unpacked[P.algorithm] & 31) + 1 });
+  list.push({ id: 'algorithm', label: 'algorithm (1-32)', short: 'algorithm', value: (i) => (store.voices[i].unpacked[P.algorithm] & 31) + 1 });
   list.push({ id: 'familySize', label: 'near-duplicate family size', value: (i) => ctx.store.clusterMembers(i).length });
   return list;
 }
@@ -785,7 +796,8 @@ function drawAxisLabels(g: CanvasRenderingContext2D, w: number, h: number): void
    */
   const line = (id: AxisId, room: number): { parts: Array<[string, boolean]>; width: number } => {
     const [lo, hi] = axisEnds(id);
-    const name = axisById(id).label;
+    const axis = axisById(id);
+    const name = axis.short ?? axis.label;
     if (lo) {
       const full: Array<[string, boolean]> = [
         [`${lo}  ←  `, false], [name, true], [`  →  ${hi}`, false],
