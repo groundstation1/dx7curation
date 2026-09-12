@@ -1064,9 +1064,16 @@ function applyFilters(): void {
   draw();
 }
 
-/** Hand the list the same set the canvas is drawing, in its own order. */
+/**
+ * Hand the list the same set the canvas is drawing, in its own order.
+ *
+ * Nothing happens while the list is hidden. It is cheap - a sort of forty
+ * thousand is a few milliseconds - but painting rows is not free of
+ * consequences: a row asks for a predicted rating, and asking for one used to
+ * compute all of them.
+ */
 function refreshList(): void {
-  if (!list) return;
+  if (!list || mode !== 'list') return;
   list.update(sortIndices(ctx.store, visible, listState));
 }
 

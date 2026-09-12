@@ -197,7 +197,12 @@ export function createListView(
 ): ListView {
   let indices: number[] = [];
 
-  const header = el('div', { class: 'list-head', style: { gridTemplateColumns: TEMPLATE } });
+  // The header is a grid inside a clipped box rather than a grid itself, so
+  // that the columns can be wider than the pane without spilling over the
+  // sidebar next to it. Its horizontal scroll is driven from the rows below,
+  // which is what keeps the two aligned.
+  const headGrid = el('div', { class: 'list-head-grid', style: { gridTemplateColumns: TEMPLATE } });
+  const header = el('div', { class: 'list-head' }, headGrid);
   const spacer = el('div', { class: 'list-spacer' });
   const rows = el('div', { class: 'list-rows' });
   const scroller = el('div', { class: 'list-scroll' }, spacer, rows);
@@ -209,10 +214,10 @@ export function createListView(
   host.appendChild(count);
 
   const renderHeader = () => {
-    clear(header);
+    clear(headGrid);
     for (const col of COLUMNS) {
       const active = col.key === state.sort;
-      header.appendChild(el('button', {
+      headGrid.appendChild(el('button', {
         class: `list-th${active ? ' on' : ''}${col.align === 'right' ? ' num' : ''}`,
         disabled: col.key === null,
         onclick: () => {
@@ -256,7 +261,10 @@ export function createListView(
     }
   };
 
-  scroller.addEventListener('scroll', paint, { passive: true });
+  scroller.addEventListener('scroll', () => {
+    header.scrollLeft = scroller.scrollLeft;
+    paint();
+  }, { passive: true });
   window.addEventListener('resize', paint);
 
   renderHeader();

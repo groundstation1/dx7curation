@@ -82,8 +82,9 @@ export class Store {
   whitened: Float32Array | null = null;
   whitener: Whitener | null = null;
   tasteModel: TasteModel | null = null;
-  /** Predictions for the whole corpus, rebuilt whenever the model changes. */
+  /** Predictions, filled in as they are asked for and dropped when stale. */
   private predicted: Float32Array | null = null;
+  private predictedDone: Uint8Array | null = null;
   /** How much redundancy the whitening removed; 1 means none. */
   redundancy = 1;
   /** 0 disables taste weighting of distances, 1 applies it fully. */
@@ -491,6 +492,7 @@ export class Store {
       categoryOf: (row) => this.categoryOf(row),
     });
     this.predicted = null;
+    this.predictedDone = null;
     return this.tasteModel;
   }
 
@@ -515,22 +517,27 @@ export class Store {
   /**
    * The model's guess at how this voice would be rated, or null.
    *
-   * Computed for the whole corpus at once and cached. The neighbour term is a
-   * scan over every rated voice, which is nothing for one patch and half a
-   * second for twenty-six thousand of them - and the map asks for all of them
-   * every time it lays itself out.
+   * Cached per voice, and computed only for the voices actually asked about.
+   * The neighbour term is a scan over every rated voice - nothing for one
+   * patch, a second or two for forty thousand - and the first version filled
+   * the whole corpus on the first call. That was fine while only the map axis
+   * and the sidebar asked, and became a two-second stall on opening the browse
+   * tab as soon as a table with a "guess" column existed, because forty rows
+   * were enough to trigger all forty thousand.
+   *
+   * An axis that needs every value still pays the same total; it just pays it
+   * when something wants the values rather than when something wants one.
    */
   predictedRating(index: number): number | null {
     const model = this.tasteModel;
     if (!model || !this.flat || !this.analysis[index]) return null;
-    if (!this.predicted) {
-      const flat = this.flat;
-      const out = new Float32Array(this.voices.length).fill(NaN);
-      for (let i = 0; i < this.voices.length; i++) {
-        if (!this.analysis[i]) continue;
-        out[i] = predictRating(model, flat, FEATURE_COUNT, i, this.categoryOf(i));
-      }
-      this.predicted = out;
+    if (!this.predicted || this.predicted.length !== this.voices.length) {
+      this.predicted = new Float32Array(this.voices.length);
+      this.predictedDone = new Uint8Array(this.voices.length);
+    }
+    if (!this.predictedDone![index]) {
+      this.predicted[index] = predictRating(model, this.flat, FEATURE_COUNT, index, this.categoryOf(index));
+      this.predictedDone![index] = 1;
     }
     const v = this.predicted[index];
     return Number.isFinite(v) ? v : null;
@@ -793,6 +800,7 @@ export class Store {
 
   async setCategoryOverride(index: number, category: Category | null): Promise<void> {
     this.predicted = null;
+    this.predictedDone = null;
     const v = this.voices[index];
     if (!v) return;
     if (category) this.categoryOverrides.set(v.id, category);
@@ -991,6 +999,7 @@ export class Store {
     this.whitener = null;
     this.tasteModel = null;
     this.predicted = null;
+    this.predictedDone = null;
     this.mergeClusters = null;
     this.mergeRepresentatives = [];
     this.lastIngest = null;
