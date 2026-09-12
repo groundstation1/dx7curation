@@ -2108,6 +2108,12 @@ function attachCanvasEvents(): void {
         lastAuditionAt = now;
         void audition(hit, false, 'hover');
       }
+      // Off a point, with nothing pinned: silence. The sidebar has already
+      // gone blank, and a patch still looping while the panel that named it
+      // shows nothing is the app claiming to play something it cannot tell you
+      // the name of. Only in hover mode - a sound started by clicking was
+      // asked for, and should not stop because the cursor wandered.
+      if (hit < 0 && selected < 0 && ctx.player.mayPlay('hover')) ctx.player.stop();
     }
   });
 
@@ -2215,6 +2221,12 @@ function attachCanvasEvents(): void {
   wrap.addEventListener('mouseleave', () => {
     hovered = -1;
     draw();
+    // Leaving the plot entirely is the same as leaving a point, for the same
+    // reason - and the sidebar follows the cursor, so it is blank now too.
+    if (selected < 0) {
+      renderSide();
+      if (ctx.player.mayPlay('hover')) ctx.player.stop();
+    }
   });
 }
 
