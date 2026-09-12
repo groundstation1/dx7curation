@@ -104,7 +104,14 @@ function dropZone(big: boolean): HTMLElement {
   return zone;
 }
 
-/** The whole screen, when there is nothing in the corpus yet. */
+/**
+ * The whole screen, when there is nothing in the corpus yet.
+ *
+ * The restore line is not decoration. Coming back to an empty browser with a
+ * saved session in hand is the second most likely reason to be on this screen,
+ * and an onboarding page that only offers .syx files leaves that person with
+ * nowhere to put their file.
+ */
 function onboarding(): HTMLElement {
   return el('div', { class: 'onboard' },
     el('h1', {}, 'Start with some patches'),
@@ -116,6 +123,7 @@ function onboarding(): HTMLElement {
         ' and drop the zip straight in.'),
       el('div', { class: 'muted', style: { marginTop: '6px' } },
         'About 40,000 voices. Duplicates collapse on import, and the rest is automatic.')),
+    el('div', { style: { marginTop: '18px' } }, exportPanel()),
   );
 }
 
@@ -628,19 +636,21 @@ function exportPanel(): HTMLElement {
     },
   }) as HTMLInputElement;
 
+  const empty = store.voices.length === 0;
   const panel = el('div', { class: 'panel' },
-    el('h2', {}, 'Save and load'),
+    el('h2', {}, empty ? 'Or load a file you saved earlier' : 'Save and load'),
     el('div', { class: 'row' },
-      el('button', {
+      empty ? el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load a session or ratings file…') : null,
+      empty ? restoreInput : null,
+      empty ? null : el('button', {
         class: 'btn',
-        disabled: store.voices.length === 0,
         title: 'Patches and ratings together. This is the one to move to another machine.',
         onclick: () => {
           const json = new TextEncoder().encode(store.exportSession());
           downloadBytes(json, `dx7-session-${new Date().toISOString().slice(0, 10)}.json`);
         },
       }, `Full session (${fmtInt(store.voices.length)} patches + ratings)`),
-      el('button', {
+      empty ? null : el('button', {
         class: 'btn',
         disabled: store.ratings.size === 0 && !store.voices.some((v) => v.pinned),
         title: 'Ratings, pins and category overrides only, keyed by patch content. Reapplies to a corpus you already have.',
@@ -649,11 +659,10 @@ function exportPanel(): HTMLElement {
           downloadBytes(blob, `dx7-ratings-${new Date().toISOString().slice(0, 10)}.json`);
         },
       }, `Ratings only (${fmtInt(store.ratings.size)})`),
-      el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load a file…'),
-      restoreInput,
-      el('button', {
+      empty ? null : el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load a file…'),
+      empty ? null : restoreInput,
+      empty ? null : el('button', {
         class: 'btn',
-        disabled: store.voices.length === 0,
         title: 'The deduplicated corpus as back-to-back 32-voice bulk dumps, which is what every other DX7 tool reads.',
         onclick: () => {
           const { bytes, voices } = store.exportDedupedSyx();
