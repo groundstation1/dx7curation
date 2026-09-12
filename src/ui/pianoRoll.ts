@@ -41,6 +41,16 @@ const HIGH = 108;
 const HEIGHT = 320;
 /** Pixels a second of history takes. Seven seconds fit in the strip. */
 const SPEED = 46;
+/**
+ * How long a stretch of trail is drawn at one brightness, in seconds.
+ *
+ * Each segment costs eight strokes, so this is the only real cost control the
+ * roll has. Short enough that the shape of an envelope is legible along the
+ * bar, long enough that a seven-second trail is a couple of dozen segments
+ * rather than hundreds.
+ */
+const SEG_SEC = 0.3;
+
 /** Silence for this long after key-up and the note has stopped sounding. */
 const QUIET_SEC = 0.12;
 /**
@@ -202,12 +212,14 @@ function draw(): void {
     const px: number[] = [];
     const py: number[] = [];
     const plv: number[] = [];
+    const pt: number[] = [];
     for (let i = 0; i < bar.at.length; i++) {
       const yy = h - (now - bar.at[i]) * SPEED;
       if (yy < -2) continue;
       px.push(x + bar.dx[i]);
       py.push(Math.min(h, yy));
       plv.push(bar.lv[i] ?? 0);
+      pt.push(bar.at[i]);
     }
     if (px.length === 0) continue;
     // A note still held keeps its bottom end pinned to the edge.
@@ -215,11 +227,13 @@ function draw(): void {
       px.push(px[px.length - 1]);
       py.push(h);
       plv.push(plv[plv.length - 1] ?? 0);
+      pt.push(pt[pt.length - 1] ?? now);
     }
     if (px.length < 2) {
       px.push(px[0]);
       py.push(Math.min(h, py[0] + 1.5));
       plv.push(plv[0] ?? 0);
+      pt.push(pt[0] ?? now);
     }
     live = true;
 
@@ -229,42 +243,112 @@ function draw(): void {
     // colour that stays lit for as long as the key is down. The trail is drawn
     // in chunks so the decay is visible along its length rather than the whole
     // bar dimming at once - a record of how loud it was, moment by moment.
+    /*
+     * The bar's sideways position, smoothed over a few samples.
+     *
+     * Same argument as the brightness: a polyline drawn straight through every
+     * sample shows each sample as a corner, and on a bar that is leaning - a
+     * waver, or a pitch bend pushing the whole thing across - those corners
+     * read as a staircase down the edge rather than as a curve. Two samples
+     * either side at sixty a second is about thirty milliseconds of lag, which
+     * is far below what the eye resolves on something moving this slowly.
+     *
+     * Only sideways. The vertical position is time, and time is not smoothed.
+     */
+    const sx: number[] = [];
+    for (let i = 0; i < px.length; i++) {
+      let sum = 0;
+      let n = 0;
+      for (let k = Math.max(0, i - 2); k <= Math.min(px.length - 1, i + 2); k++) {
+        sum += px[k];
+        n++;
+      }
+      sx.push(sum / n);
+    }
+
     const path = (from: number, to: number, offset: number) => {
       const p = new Path2D();
-      p.moveTo(px[from] + offset, py[from]);
-      for (let i = from + 1; i <= to; i++) p.lineTo(px[i] + offset, py[i]);
+      p.moveTo(sx[from] + offset, py[from]);
+      for (let i = from + 1; i <= to; i++) p.lineTo(sx[i] + offset, py[i]);
       return p;
     };
     const edge = Math.max(1, width * 0.16);
     const half = (width - edge) / 2;
-    const budget = bars.length > 24 ? 4 : 10;
-    const chunks = Math.max(1, Math.min(budget, Math.floor(px.length / 6)));
-    const step = Math.ceil((px.length - 1) / chunks);
 
-    for (let c = 0; c < px.length - 1; c += step) {
-      const to = Math.min(px.length - 1, c + step);
-      let loud = 0;
+    /*
+     * Brightness per sample, lightly smoothed, rather than one value per
+     * segment.
+     *
+     * A segment drawn at a single brightness makes a stair: the step is
+     * invisible while a note is quiet and obvious down the side of a decay,
+     * which is exactly where you are trying to read the envelope. Every
+     * segment now runs as a gradient between its own two ends, and since
+     * neighbouring segments share an end point the whole trail is continuous -
+     * there is no boundary left to see.
+     *
+     * Smoothing is over the sample values, which never change once recorded,
+     * so this stays as stable as the segmenting does.
+     */
+    const relOf = (i: number) => {
+      let sum = 0;
       let n = 0;
-      for (let i = c; i <= to && i < plv.length; i++) {
-        loud += plv[i];
+      for (let k = Math.max(0, i - 2); k <= Math.min(plv.length - 1, i + 2); k++) {
+        sum += plv[k];
         n++;
       }
+      return n ? Math.min(1, (sum / n) / Math.max(bar.peak, 1e-4)) : 0;
+    };
+    const absolute = 0.5 + 0.5 * Math.min(1, bar.peak * 5);
+    const brightOf = (i: number) => (0.1 + 0.9 * Math.pow(relOf(i), 0.55)) * absolute;
+
+    /*
+     * Segment boundaries come from when a sample was taken, not from how many
+     * there are.
+     *
+     * They used to be a count: split the trail into at most ten chunks and
+     * average each. But the sample array grows at the bottom every frame and is
+     * trimmed at the top as it scrolls away, so the chunk size changed
+     * constantly and every boundary slid along the trail. Each segment then
+     * averaged a different window of levels from one frame to the next, and the
+     * whole trail flickered - including the parts far from the edge, which had
+     * not changed and had no business changing.
+     *
+     * Anchored to absolute time, a sample belongs to the same segment for as
+     * long as it exists, so a stretch of trail keeps its brightness from the
+     * moment it is drawn until it scrolls off the top.
+     */
+    const segOf = (t: number) => Math.floor(t / SEG_SEC);
+
+    for (let c = 0; c < px.length - 1;) {
+      const seg = segOf(pt[c]);
+      let to = c;
+      while (to + 1 < px.length && segOf(pt[to + 1]) === seg) to++;
+      // Always advance, and always meet the next segment, so there are no gaps.
+      to = Math.min(px.length - 1, Math.max(to + 1, c + 1));
       // Read against the note's own peak rather than full scale. Absolute
       // level barely moves across a decay in a way the eye can see - one
       // voice rarely gets near full scale to begin with - whereas a note
       // measured against its own loudest moment spans the whole range, which
       // is what makes the shape of the envelope legible. How loud the note was
       // in absolute terms is still there, as an overall dimming.
-      const rel = n ? Math.min(1, (loud / n) / Math.max(bar.peak, 1e-4)) : 0;
-      const absolute = 0.5 + 0.5 * Math.min(1, bar.peak * 5);
-      const bright = (0.1 + 0.9 * Math.pow(rel, 0.55)) * absolute;
-      const a = alpha * bright;
+      const b0 = brightOf(c);
+      const b1 = brightOf(to);
+      // Degenerate gradients paint nothing, so a segment with no height falls
+      // back to a flat colour.
+      const flat = Math.abs(py[to] - py[c]) < 0.5;
+      const shade = (make: (b: number) => string): string | CanvasGradient => {
+        if (flat) return make((b0 + b1) / 2);
+        const g = ctx.createLinearGradient(0, py[c], 0, py[to]);
+        g.addColorStop(0, make(b0));
+        g.addColorStop(1, make(b1));
+        return g;
+      };
 
       const centre = path(c, to, 0);
-      ctx.strokeStyle = oklch(0.5, 0.17, hue, 0.12 * a * (0.4 + 0.6 * vel));
+      ctx.strokeStyle = shade((b) => oklch(0.5, 0.17, hue, 0.12 * alpha * b * (0.4 + 0.6 * vel)));
       ctx.lineWidth = width + 12;
       ctx.stroke(centre);
-      ctx.strokeStyle = oklch(0.6, 0.17, hue, 0.15 * a);
+      ctx.strokeStyle = shade((b) => oklch(0.6, 0.17, hue, 0.15 * alpha * b));
       ctx.lineWidth = width + 5;
       ctx.stroke(centre);
 
@@ -275,11 +359,14 @@ function draw(): void {
       // Offset copies displace with the bar - the whole thing moves, both sides
       // together, as a bar does.
       for (const [at, level] of [[1, 1], [0.62, 0.34], [0.3, 0.2]] as const) {
-        ctx.strokeStyle = oklch(0.62 + 0.3 * bright, 0.08 + 0.05 * (1 - bright), hue, (0.6 + 0.28 * vel) * level * a);
+        ctx.strokeStyle = shade((b) => oklch(
+          0.62 + 0.3 * b, 0.08 + 0.05 * (1 - b), hue, (0.6 + 0.28 * vel) * level * alpha * b,
+        ));
         ctx.lineWidth = edge * (at === 1 ? 1 : 1.35);
         ctx.stroke(path(c, to, -half * at));
         ctx.stroke(path(c, to, half * at));
       }
+      c = to;
     }
 
     // While the key is down, a bloom sits where the bar meets the edge and
@@ -289,7 +376,7 @@ function draw(): void {
     if (bar.end === null) {
       // Shallow and quick: a shimmer, not a blinking light.
       const pulse = 0.85 + 0.15 * Math.sin(now * 11 + bar.pitch * 0.7);
-      const fx = px[px.length - 1];
+      const fx = sx[sx.length - 1];
       const rx = width * 2.6;
       const ry = 26;
       const radius = Math.max(rx, ry);
