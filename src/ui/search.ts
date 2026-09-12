@@ -17,7 +17,9 @@
  * "bass -sub", "piano -e.piano", or the ever-present "-init".
  *
  * A minus only counts at the start of a word, so "e-piano" and "FM-1_Bank" are
- * unaffected, and a quoted "-thing" is searched for literally.
+ * unaffected. Outside a quote it negates - including in front of one, so
+ * -"e.piano 1" drops that phrase - and inside a quote it is just a character,
+ * which is how you search for a literal leading minus.
  *
  * Exclusion binds to the whole query rather than to one alternative: it reads
  * as "any of these, but never that", which is what anyone typing it means.
@@ -42,24 +44,29 @@ export interface SearchQuery {
  * Split a single alternative into words, keeping "quoted phrases" whole, and
  * separating out the ones that were negated.
  *
- * A quoted word is never negated - quoting is how you search for a literal
- * leading minus - and a bare "NOT" negates whatever follows it.
+ * The negation marker is read before the quote rather than inside it, because
+ * a phrase is exactly the thing you most want to exclude - a file path, a bank
+ * name - and -"DX7_AllTheWeb" has to mean what it looks like. Inside the quote
+ * a minus is only a character, which is how you search for one.
+ *
+ * A bare "NOT" negates whatever follows it, quoted or not.
  */
 function words(text: string): { want: string[]; not: string[] } {
   const want: string[] = [];
   const not: string[] = [];
-  const pattern = /"([^"]*)"|(\S+)/g;
+  // Either an optionally negated "phrase", or a run of non-space.
+  const pattern = /([-!]?)"([^"]*)"|(\S+)/g;
   let negateNext = false;
   let m = pattern.exec(text);
   while (m) {
-    const quoted = m[1] !== undefined;
-    let word = (m[1] ?? m[2] ?? '').trim().toLowerCase();
+    const quoted = m[2] !== undefined;
+    let word = (m[2] ?? m[3] ?? '').trim().toLowerCase();
     if (!quoted && word.toUpperCase() === 'NOT') {
       negateNext = true;
       m = pattern.exec(text);
       continue;
     }
-    let negated = negateNext;
+    let negated = negateNext || (quoted && m[1] !== '');
     negateNext = false;
     if (!quoted && word.length > 1 && (word.startsWith('-') || word.startsWith('!'))) {
       negated = true;

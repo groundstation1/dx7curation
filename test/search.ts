@@ -56,6 +56,15 @@ check('a hyphen inside a word is not an exclusion', hits('FM-1_Bank').length ===
 check('a quoted minus is searched for literally',
   parseQuery('"-piano"').exclude.length === 0 && hits('"-piano"').length === 0);
 check('a lone minus is just a word', parseQuery('-').exclude.length === 0);
+check('a minus in front of a quote excludes the phrase',
+  String(hits('-"dx7-collection"')) === 'PIANO   5,BRASS   1',
+  String(hits('-"dx7-collection"')));
+check('a phrase with a space can be excluded too',
+  String(hits('-"piano   5"')) === 'BRASS   1,E.PIANO 1',
+  String(hits('-"piano   5"')));
+check('NOT works on a phrase as well', String(hits('NOT "piano   5"')) === 'BRASS   1,E.PIANO 1');
+check('and an excluded phrase still narrows a search',
+  String(hits('piano -"e.piano"')) === 'PIANO   5');
 
 console.log(fail === 0 ? '\nall search checks passed' : `\n${fail} check(s) failed`);
 process.exit(fail === 0 ? 0 : 1);
