@@ -25,6 +25,16 @@ import type { Store } from './state.ts';
 const ROW_HEIGHT = 26;
 /** Rendered beyond the viewport, so a fast scroll does not show empty space. */
 const OVERSCAN = 8;
+/**
+ * A hard ceiling on how many rows are ever built at once.
+ *
+ * The window is meant to be the forty or so that fit on screen, and it is
+ * computed from the scroller's own height - so a layout that lets the scroller
+ * grow to its content turns "what fits" into "everything", silently, and the
+ * only symptom is that the app stops responding. This makes that mistake a
+ * cosmetic one rather than a hang.
+ */
+const MAX_ROWS = 300;
 
 export type SortKey =
   | 'name' | 'category' | 'rating' | 'predicted' | 'family'
@@ -237,7 +247,7 @@ export function createListView(
 
   const paint = () => {
     const first = Math.max(0, Math.floor(scroller.scrollTop / ROW_HEIGHT) - OVERSCAN);
-    const fit = Math.ceil(scroller.clientHeight / ROW_HEIGHT) + OVERSCAN * 2;
+    const fit = Math.min(MAX_ROWS, Math.ceil(scroller.clientHeight / ROW_HEIGHT) + OVERSCAN * 2);
     const last = Math.min(indices.length, first + fit);
     const current = handlers.current();
     const hits = handlers.matched();

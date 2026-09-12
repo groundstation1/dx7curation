@@ -271,7 +271,12 @@ kbd {
   display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w, 300px);
   height: 100%; position: relative;
 }
-.map-main { position: relative; display: flex; flex-direction: column; min-width: 0; }
+/* min-height: 0 because a grid item defaults to min-height: auto, which means
+   "never shrink below your content". With a canvas that was harmless; with a
+   list whose content is forty thousand rows tall it made the column grow to
+   forty thousand rows tall, and the virtual scroller - which renders what fits
+   in its own height - dutifully rendered all of them. */
+.map-main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .map-controls {
   display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
   padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel);
