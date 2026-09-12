@@ -1032,6 +1032,9 @@ async function rateTarget(value: number): Promise<void> {
  */
 async function audition(i: number, quick = false, auto?: 'click' | 'hover'): Promise<void> {
   if (i < 0 || keyboard.playing) return;
+  // Something is about to play; a stop queued on the way here must not land
+  // on top of it.
+  cancelSilence();
   if (auto && !ctx.player.mayPlay(auto)) return;
   const v = ctx.store.voices[i];
   if (!v) return;
@@ -1505,6 +1508,40 @@ function plotRoom(): number {
 
 function fittedPlotHeight(): number {
   return Math.round(Math.max(MIN_PLOT_HEIGHT, Math.min(plotRoom(), plotHeight)));
+}
+
+/**
+ * Go quiet, but only once the cursor has really stopped on nothing.
+ *
+ * Stopping the moment the cursor is off a point was wrong in the most common
+ * case there is: sweeping from one dot to the next crosses empty space, so the
+ * sound was cut on the way and the arrival was then swallowed by the audition
+ * rate limit, leaving a named patch in the sidebar and silence in the room.
+ *
+ * The delay is longer than that rate limit on purpose. A crossing that lands
+ * on another dot never trips it, and if it does trip - because the crossing
+ * was slow - enough time has passed that the next audition is allowed through
+ * anyway. Parking on the background still goes quiet, which is the case this
+ * is for.
+ */
+const SILENCE_DELAY_MS = 280;
+let silenceTimer: number | null = null;
+
+function cancelSilence(): void {
+  if (silenceTimer === null) return;
+  window.clearTimeout(silenceTimer);
+  silenceTimer = null;
+}
+
+function scheduleSilence(): void {
+  cancelSilence();
+  // A pinned patch owns the sound, and a sound started by clicking was asked
+  // for - neither should stop because the cursor wandered off a dot.
+  if (selected >= 0 || !ctx.player.mayPlay('hover')) return;
+  silenceTimer = window.setTimeout(() => {
+    silenceTimer = null;
+    if (hovered < 0 && selected < 0) ctx.player.stop();
+  }, SILENCE_DELAY_MS);
 }
 
 /** Clamp the plot band so neither half can be dragged out of existence. */
@@ -2108,12 +2145,8 @@ function attachCanvasEvents(): void {
         lastAuditionAt = now;
         void audition(hit, false, 'hover');
       }
-      // Off a point, with nothing pinned: silence. The sidebar has already
-      // gone blank, and a patch still looping while the panel that named it
-      // shows nothing is the app claiming to play something it cannot tell you
-      // the name of. Only in hover mode - a sound started by clicking was
-      // asked for, and should not stop because the cursor wandered.
-      if (hit < 0 && selected < 0 && ctx.player.mayPlay('hover')) ctx.player.stop();
+      if (hit < 0) scheduleSilence();
+      else cancelSilence();
     }
   });
 
@@ -2225,7 +2258,7 @@ function attachCanvasEvents(): void {
     // reason - and the sidebar follows the cursor, so it is blank now too.
     if (selected < 0) {
       renderSide();
-      if (ctx.player.mayPlay('hover')) ctx.player.stop();
+      scheduleSilence();
     }
   });
 }
@@ -2372,6 +2405,7 @@ export const view: View = {
     });
   },
   unmount() {
+    cancelSilence();
     list = null;
     listEl = null;
     splitEl = null;
