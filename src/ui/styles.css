@@ -149,8 +149,16 @@ html, body {
 #app {
   display: flex; flex-direction: column;
   height: 100%;
-  /* The dock floats a gutter clear of the window, so content clears both. */
-  padding-bottom: calc(var(--dock-h) + var(--gut) * 2);
+  /*
+   * Room for the floating dock, and not a pixel more.
+   *
+   * The dock sits a gutter above the window edge, so this reserves its height
+   * plus that gutter - which puts the bottom of the content area exactly on
+   * the dock's top edge. The gutter *between* them is the view's own padding,
+   * the same one it puts between its panes. Reserving two gutters here as well
+   * is how that space came to be counted twice.
+   */
+  padding-bottom: calc(var(--dock-h) + var(--gut));
 }
 
 /* ---------------------------------------------------------------- chrome */
@@ -629,8 +637,6 @@ kbd {
   display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w, 300px);
   gap: var(--gut); padding: var(--gut);
   height: 100%; position: relative; background: var(--bg);
-  /* The header already leaves a gutter below itself. */
-  padding-top: 0;
 }
 /* min-height: 0 because a grid item defaults to min-height: auto, which means
    "never shrink below your content". With a canvas that was harmless; with a
