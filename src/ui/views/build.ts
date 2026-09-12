@@ -17,6 +17,7 @@ import { P } from '../../sysex/voice.ts';
 import { FEATURE_COUNT } from '../../features/vector.ts';
 import { DEMO_PHRASE } from '../../engine/phrase.ts';
 import { kvGet, kvSet } from '../../db/store.ts';
+import { getSetting, setSetting } from '../settings.ts';
 import { keyboard } from '../../audio/keyboard.ts';
 import { voiceDetails } from '../voicePanel.ts';
 import { sidebarSplitter } from '../splitter.ts';
@@ -44,6 +45,12 @@ let minRating = 4;
 let total = 128;
 let backfill = true;
 let categoryAxisWeight = 6;
+/** Optional ordering rules; see runOrdering. */
+let pinnedFirst = getSetting('build.pinnedFirst', false);
+let weakestLast = getSetting('build.weakestLast', false);
+
+/** Voices per bulk dump, which is what "the last bank" means. */
+const BANK_SIZE = 32;
 
 let allocation: AllocationResult | null = null;
 let ordered: number[] = [];
@@ -92,6 +99,8 @@ interface BuildInputs {
   minRating: number;
   backfill: boolean;
   categoryAxisWeight: number;
+  pinnedFirst: boolean;
+  weakestLast: boolean;
   limits: number;
 }
 
@@ -104,6 +113,8 @@ interface StoredBuild {
     minRating: number;
     backfill: boolean;
     categoryAxisWeight: number;
+    pinnedFirst?: boolean;
+    weakestLast?: boolean;
     floors: Record<string, number>;
     ceilings: Record<string, number>;
   };
@@ -138,6 +149,8 @@ function currentInputs(): BuildInputs {
     minRating,
     backfill,
     categoryAxisWeight,
+    pinnedFirst,
+    weakestLast,
     limits,
   };
 }
@@ -164,6 +177,10 @@ function staleReasons(): string[] {
   if (now.backfill !== builtFrom.backfill) out.push(now.backfill ? 'backfill turned on' : 'backfill turned off');
   if (now.limits !== builtFrom.limits) out.push('category limits changed');
   if (now.categoryAxisWeight !== builtFrom.categoryAxisWeight) out.push('ordering strength changed');
+  if (now.pinnedFirst !== builtFrom.pinnedFirst) out.push(now.pinnedFirst ? 'pinned now go first' : 'pinned no longer go first');
+  if (now.weakestLast !== builtFrom.weakestLast) {
+    out.push(now.weakestLast ? 'weakest now go in the last bank' : 'weakest no longer grouped');
+  }
   return out;
 }
 
@@ -174,7 +191,10 @@ async function saveBuild(): Promise<void> {
     ordered,
     builtAt,
     inputs: builtFrom,
-    settings: { total, minRating, backfill, categoryAxisWeight, floors: { ...floors }, ceilings: { ...ceilings } },
+    settings: {
+      total, minRating, backfill, categoryAxisWeight, pinnedFirst, weakestLast,
+      floors: { ...floors }, ceilings: { ...ceilings },
+    },
   };
   await kvSet(BUILD_KEY, record);
 }
@@ -200,6 +220,8 @@ async function restoreBuild(): Promise<void> {
   minRating = record.settings.minRating ?? minRating;
   backfill = record.settings.backfill ?? backfill;
   categoryAxisWeight = record.settings.categoryAxisWeight ?? categoryAxisWeight;
+  pinnedFirst = record.settings.pinnedFirst ?? pinnedFirst;
+  weakestLast = record.settings.weakestLast ?? weakestLast;
   for (const c of CATEGORIES) {
     if (record.settings.floors?.[c] !== undefined) floors[c] = record.settings.floors[c];
     if (record.settings.ceilings?.[c] !== undefined) ceilings[c] = record.settings.ceilings[c];
@@ -254,17 +276,73 @@ function runAllocation(opts: { keepOrder?: boolean } = {}): void {
   render();
 }
 
-function runOrdering(): void {
+/**
+ * Order one group of voices so that neighbours sound adjacent.
+ *
+ * Two or fewer is already in order, and seriating a handful is not worth the
+ * endpoint search.
+ */
+function orderGroup(ids: number[]): number[] {
   const store = ctx.store;
   const flat = store.distanceSpace;
-  if (!allocation || !flat) return;
-  const ids = allocation.selected.map((c) => c.id);
+  if (!flat || ids.length < 3) return ids;
   const vectors = ids.map((i) => Float32Array.from(flat.subarray(i * FEATURE_COUNT, (i + 1) * FEATURE_COUNT)));
   const cats = ids.map((i) => store.categoryOf(i)!).filter(Boolean) as Category[];
   const augmented = withCategoryAxis(vectors, cats, categoryAxisWeight);
   const ends = chooseEndpoints(augmented, cats);
-  const result = seriate(augmented, ends);
-  ordered = result.order.map((k) => ids[k]);
+  return seriate(augmented, ends).order.map((k) => ids[k]);
+}
+
+/**
+ * Lay the selection out, in up to three runs.
+ *
+ * The default is one continuum across all four banks: neighbouring slots sound
+ * adjacent wherever you land while scrolling, which is the whole argument for
+ * seriating in the first place. The two optional rules break that deliberately,
+ * and both are about what happens on the device rather than what sounds good:
+ *
+ *   pinned first    the patches you chose by hand sit at the top of bank A,
+ *                   where they are two button presses away
+ *   weakest last    everything that got in on backfill, or on the lowest
+ *                   ratings, is concentrated in the final bank - which you can
+ *                   then skip, or overwrite, without losing anything you meant
+ *                   to keep
+ *
+ * Each run is seriated on its own, so the ordering still holds inside them.
+ */
+function runOrdering(): void {
+  if (!allocation || !ctx.store.distanceSpace) return;
+  const store = ctx.store;
+  const all = allocation.selected.slice();
+
+  const pinnedRun = pinnedFirst ? all.filter((c) => store.voices[c.id]?.pinned) : [];
+  const taken = new Set(pinnedRun.map((c) => c.id));
+  let rest = all.filter((c) => !taken.has(c.id));
+
+  let weakRun: typeof all = [];
+  if (weakestLast && rest.length > BANK_SIZE) {
+    // Backfilled before merely low-rated, lowest rating first, and the
+    // family-size tie-break the allocator used kept as the last word.
+    const ranked = rest.slice().sort((a, b) => {
+      if (a.backfilled !== b.backfilled) return a.backfilled ? -1 : 1;
+      if (a.rating !== b.rating) return a.rating - b.rating;
+      return (a.tieBreak ?? 0) - (b.tieBreak ?? 0);
+    });
+    // Only things that are actually worse than the best of the selection, and
+    // at most a bank of them. Padding the last bank out to thirty-two with
+    // five-star patches would defeat the point: the bank is meant to be the one
+    // you can overwrite without losing anything you wanted.
+    const best = rest.reduce((top, c) => Math.max(top, c.rating), 0);
+    weakRun = ranked.filter((c) => c.backfilled || c.rating < best).slice(0, BANK_SIZE);
+    const weak = new Set(weakRun.map((c) => c.id));
+    rest = rest.filter((c) => !weak.has(c.id));
+  }
+
+  ordered = [
+    ...orderGroup(pinnedRun.map((c) => c.id)),
+    ...orderGroup(rest.map((c) => c.id)),
+    ...orderGroup(weakRun.map((c) => c.id)),
+  ];
   buildFiles();
   void saveBuild();
   render();
@@ -675,6 +753,30 @@ function render(): void {
     );
     for (const w of allocation.warnings) summary.appendChild(el('p', { class: 'warn', style: { marginBottom: 0 } }, w));
     summary.appendChild(el('div', { class: 'row', style: { marginTop: '14px' } },
+      el('label', {
+        class: 'field',
+        title: 'Put the patches you pinned at the top of bank A, ordered among themselves.',
+      },
+        el('input', {
+          type: 'checkbox',
+          checked: pinnedFirst,
+          onchange: (e: Event) => {
+            pinnedFirst = (e.target as HTMLInputElement).checked;
+            setSetting('build.pinnedFirst', pinnedFirst);
+          },
+        }), 'pinned first'),
+      el('label', {
+        class: 'field',
+        title: 'Gather the backfilled and lowest-rated patches at the end - up to a bank of them - so the last bank can be skipped or overwritten. Never demotes a top-rated patch to fill the quota.',
+      },
+        el('input', {
+          type: 'checkbox',
+          checked: weakestLast,
+          onchange: (e: Event) => {
+            weakestLast = (e.target as HTMLInputElement).checked;
+            setSetting('build.weakestLast', weakestLast);
+          },
+        }), 'weakest in the last bank'),
       el('label', { class: 'field' }, 'category ordering strength',
         el('input', {
           type: 'number', min: 0, max: 40, step: 1, value: categoryAxisWeight,
