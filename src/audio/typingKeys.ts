@@ -421,7 +421,17 @@ export class TypingKeys {
          * everything currently down, not only the note under the two fingers.
          * That is what a wheel does, and it is why this is worth having.
          */
-        if (this.modKeys.size === 0) this.modBefore = keyboard.modWheel;
+        /*
+         * Only remember where the wheel rests when it is actually at rest.
+         *
+         * Reading it whenever the first mod key goes down looks right and is
+         * not: releasing starts a fall that takes a third of a second, and a
+         * second press inside that window read the wheel mid-fall and called
+         * that the resting position. Roll it twice quickly and the wheel
+         * settled wherever the second press happened to catch it - stuck at
+         * 83% with nothing held.
+         */
+        if (this.modKeys.size === 0 && this.modTimer === null) this.modBefore = keyboard.modWheel;
         this.modKeys.add(char);
         this.rampMod(keyboard, 1);
       }
