@@ -164,6 +164,56 @@ export async function getAllVoices(): Promise<VoiceRecord[]> {
   return req(tx.objectStore('voices').getAll() as IDBRequest<VoiceRecord[]>);
 }
 
+/**
+ * Every voice, a page at a time, so the read can be reported on.
+ *
+ * `getAll` on forty thousand rows is one opaque await of several seconds - the
+ * slowest single thing the app does on startup, and the one with nothing to
+ * show for it. Paging with a lower-bound range keeps `getAll`'s speed (it is
+ * still a bulk read, just eighteen of them) while giving the progress bar
+ * something true to say.
+ */
+export async function getAllVoicesPaged(
+  onProgress?: (done: number, total: number) => void, page = 2500,
+): Promise<VoiceRecord[]> {
+  const db = await openDb();
+  const total = await countVoices();
+  const out: VoiceRecord[] = [];
+  let lower: number | null = null;
+  for (;;) {
+    const tx = db.transaction('voices', 'readonly');
+    const range: IDBKeyRange | null = lower === null ? null : IDBKeyRange.lowerBound(lower, true);
+    const batch: VoiceRecord[] = await req(tx.objectStore('voices').getAll(range, page) as IDBRequest<VoiceRecord[]>);
+    if (batch.length === 0) break;
+    for (const row of batch) out.push(row);
+    lower = batch[batch.length - 1].id;
+    onProgress?.(out.length, total);
+    if (batch.length < page) break;
+  }
+  return out;
+}
+
+/** Every feature row, a page at a time. Keyed by voiceId. */
+export async function getAllFeaturesPaged(
+  onProgress?: (done: number, total: number) => void, page = 2500,
+): Promise<FeatureRecord[]> {
+  const db = await openDb();
+  const total = await countFeatures();
+  const out: FeatureRecord[] = [];
+  let lower: number | null = null;
+  for (;;) {
+    const tx = db.transaction('features', 'readonly');
+    const range: IDBKeyRange | null = lower === null ? null : IDBKeyRange.lowerBound(lower, true);
+    const batch: FeatureRecord[] = await req(tx.objectStore('features').getAll(range, page) as IDBRequest<FeatureRecord[]>);
+    if (batch.length === 0) break;
+    for (const row of batch) out.push(row);
+    lower = batch[batch.length - 1].voiceId;
+    onProgress?.(out.length, total);
+    if (batch.length < page) break;
+  }
+  return out;
+}
+
 export async function countVoices(): Promise<number> {
   const db = await openDb();
   const tx = db.transaction('voices', 'readonly');

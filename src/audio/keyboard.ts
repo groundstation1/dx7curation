@@ -141,17 +141,8 @@ export class Keyboard {
     this.error = this.inputs.length ? '' : 'No MIDI inputs found. Connect a keyboard and press Connect again.';
     this.detach?.();
     this.detach = attachInputs({
-      noteOn: (note, velocity) => {
-        // Anything sounding from an audition is in the way now.
-        this.player?.stop();
-        this.ensureEngine();
-        this.engine.noteOn(note, velocity);
-        this.emitNote(note, velocity, true);
-      },
-      noteOff: (note) => {
-        this.engine.noteOff(note);
-        this.emitNote(note, 0, false);
-      },
+      noteOn: (note, velocity) => this.noteOn(note, velocity),
+      noteOff: (note) => this.noteOff(note),
       modWheel: (raw) => {
         this.modWheelRaw = raw;
         const value = raw <= this.modDeadzone
@@ -181,6 +172,38 @@ export class Keyboard {
       else this.emit();
     });
     this.emit();
+  }
+
+  /**
+   * Sound a note, from wherever it came from.
+   *
+   * The MIDI handler and the typing keyboard both land here, so a note typed
+   * on the computer keyboard suppresses the audition, shows up on the piano
+   * roll and measures its own level exactly like one played on hardware.
+   */
+  noteOn(note: number, velocity: number): void {
+    // Anything sounding from an audition is in the way now.
+    this.player?.stop();
+    this.ensureEngine();
+    this.engine.noteOn(note, velocity);
+    this.emitNote(note, velocity, true);
+  }
+
+  noteOff(note: number): void {
+    this.engine.noteOff(note);
+    this.emitNote(note, 0, false);
+  }
+
+  /**
+   * Point the engine at the player without asking for MIDI.
+   *
+   * The typing keyboard needs an audio path and nothing else; going through
+   * `connect` would throw a permission prompt at someone who only wants to
+   * press a key.
+   */
+  usePlayer(player: Player): void {
+    this.player = player;
+    this.ensureEngine();
   }
 
   setModDeadzone(v: number): void {

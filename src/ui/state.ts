@@ -6,7 +6,8 @@
  * pass, after clustering, and after every single rating.
  */
 import {
-  addVoices, clearAll, clearRatings, deleteRating, getAllFeatures, getAllRatings, getAllVoices, kvGet, kvSet,
+  addVoices, clearAll, clearRatings, deleteRating, getAllFeatures, getAllFeaturesPaged, getAllRatings,
+  getAllVoices, getAllVoicesPaged, kvGet, kvSet,
   putFeatures, putRating, setPinned,
   type FeatureRecord, type RatingRecord, type VoiceRecord, type VoiceSource,
 } from '../db/store.ts';
@@ -27,6 +28,44 @@ import type { AcousticFeatures } from '../features/acoustic.ts';
 import type { StructuralFeatures } from '../features/structural.ts';
 import { analyzeAll, type PoolProgress } from '../workers/pool.ts';
 import { isZip, extractZip } from '../util/zip.ts';
+import { runTask, type TaskHandle } from './task.ts';
+
+/**
+ * Let the browser paint before starting something that blocks the thread.
+ *
+ * A progress bar set immediately before a synchronous five-second PCA never
+ * appears: the assignment happens, the frame never runs, and the user watches
+ * the previous stage for the whole of the next one.
+ */
+function yieldToPaint(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 0));
+}
+
+function fmtCount(n: number): string {
+  return n.toLocaleString('en-GB');
+}
+
+/*
+ * Base64 in chunks.
+ *
+ * `String.fromCharCode(...bytes)` on a whole corpus overflows the argument
+ * limit and throws; forty thousand voices go through here one at a time
+ * anyway, so the chunking only matters for safety.
+ */
+function bytesToBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 8192) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  }
+  return btoa(s);
+}
+
+function base64ToBytes(text: string): Uint8Array {
+  const bin = atob(text);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 export interface LoadedVoice {
   id: number;
@@ -143,51 +182,75 @@ export class Store {
 
   // ------------------------------------------------------------- lifecycle
 
+  /**
+   * Read the whole session back from IndexedDB.
+   *
+   * Reported stage by stage, because on a large corpus this is fifteen seconds
+   * of work with four distinct phases in it and no natural sign of life: the
+   * two bulk reads, the unpack, and a PCA plus LDA that block the thread
+   * outright. Yielding between stages is what lets the bar paint at all.
+   */
   async load(): Promise<void> {
-    const [voiceRows, featureRows, ratingRows] = await Promise.all([
-      getAllVoices(), getAllFeatures(), getAllRatings(),
-    ]);
-    this.voices = voiceRows.map(toLoaded);
-    this.reindex();
-    this.analysis = new Array(this.voices.length).fill(null);
-    this.staleFeatures = 0;
-    for (const f of featureRows) {
-      const ix = this.indexById.get(f.voiceId);
-      if (ix === undefined) continue;
-      const a = toAnalysis(f);
-      if (a) this.analysis[ix] = a;
-      else this.staleFeatures++;
-    }
-    for (const r of ratingRows) this.ratings.set(r.voiceId, r);
+    await runTask('loading the corpus', async (task) => {
+      // Reading dominates, so it gets most of the bar: voices are the bigger
+      // rows, features the bigger count.
+      const voiceRows = await getAllVoicesPaged((done, total) => {
+        task.set(total ? (done / total) * 0.45 : null, `${fmtCount(done)} voices`);
+      });
+      const featureRows = await getAllFeaturesPaged((done, total) => {
+        task.set(total ? 0.45 + (done / total) * 0.3 : null, `${fmtCount(done)} analysed`);
+      });
+      const ratingRows = await getAllRatings();
 
-    this.threshold = (await kvGet<number>('threshold')) ?? this.threshold;
-    this.mergeThreshold = (await kvGet<number>('mergeThreshold')) ?? this.mergeThreshold;
-    const overrides = (await kvGet<Array<[number, Category]>>('categoryOverrides')) ?? [];
-    this.categoryOverrides = new Map(overrides);
-    const extras = (await kvGet<Array<[number, number[]]>>('faceoffExtras')) ?? [];
-    this.faceoffExtras = new Map(extras);
+      task.stage('unpacking');
+      task.set(0.78);
+      await yieldToPaint();
 
-    if (this.analysisComplete) {
-      // Categories are a pure function of features that are already stored, so
-      // a change to the rules re-labels the corpus without re-rendering it.
-      const seen = await kvGet<number>('categorizerVersion');
-      if (seen !== CATEGORIZER_VERSION) {
-        this.setBusy('re-categorising');
-        await new Promise((r) => setTimeout(r, 0));
-        await this.recategorizeAll();
+      this.voices = voiceRows.map(toLoaded);
+      this.reindex();
+      this.analysis = new Array(this.voices.length).fill(null);
+      this.staleFeatures = 0;
+      for (const f of featureRows) {
+        const ix = this.indexById.get(f.voiceId);
+        if (ix === undefined) continue;
+        const a = toAnalysis(f);
+        if (a) this.analysis[ix] = a;
+        else this.staleFeatures++;
       }
-      // PCA and LDA over tens of thousands of voices takes a few seconds and
-      // blocks the thread, so say so rather than looking hung.
-      this.setBusy('projecting the map');
-      await new Promise((r) => setTimeout(r, 0));
-      this.rebuildDerived();
-      this.setBusy(null);
-      const savedGraph = await kvGet<NearDupeGraph>('nearDupeGraph');
-      if (savedGraph && savedGraph.n === this.voices.length) {
-        this.graph = savedGraph;
-        this.applyThreshold(this.threshold, this.mergeThreshold, false);
+      for (const r of ratingRows) this.ratings.set(r.voiceId, r);
+
+      this.threshold = (await kvGet<number>('threshold')) ?? this.threshold;
+      this.mergeThreshold = (await kvGet<number>('mergeThreshold')) ?? this.mergeThreshold;
+      const overrides = (await kvGet<Array<[number, Category]>>('categoryOverrides')) ?? [];
+      this.categoryOverrides = new Map(overrides);
+      const extras = (await kvGet<Array<[number, number[]]>>('faceoffExtras')) ?? [];
+      this.faceoffExtras = new Map(extras);
+
+      if (this.analysisComplete) {
+        // Categories are a pure function of features that are already stored,
+        // so a change to the rules re-labels the corpus without re-rendering.
+        const seen = await kvGet<number>('categorizerVersion');
+        if (seen !== CATEGORIZER_VERSION) {
+          task.stage('re-categorising');
+          task.set(0.82);
+          await yieldToPaint();
+          await this.recategorizeAll();
+        }
+        task.stage('projecting the map');
+        task.set(0.9);
+        await yieldToPaint();
+        this.rebuildDerived();
+
+        const savedGraph = await kvGet<NearDupeGraph>('nearDupeGraph');
+        if (savedGraph && savedGraph.n === this.voices.length) {
+          task.stage('grouping near-duplicates');
+          task.set(0.97);
+          await yieldToPaint();
+          this.graph = savedGraph;
+          this.applyThreshold(this.threshold, this.mergeThreshold, false);
+        }
       }
-    }
+    });
     this.emit();
   }
 
@@ -258,6 +321,15 @@ export class Store {
     files: File[],
     opts: { userSupplied?: boolean; pinned?: boolean; onProgress?: (label: string, done: number, total: number) => void } = {},
   ): Promise<IngestSummary> {
+    return runTask(`reading ${fmtCount(files.length)} file${files.length === 1 ? '' : 's'}`,
+      (task) => this.ingestInto(files, opts, task));
+  }
+
+  private async ingestInto(
+    files: File[],
+    opts: { userSupplied?: boolean; pinned?: boolean; onProgress?: (label: string, done: number, total: number) => void },
+    task: TaskHandle,
+  ): Promise<IngestSummary> {
     const summary: IngestSummary = {
       files: 0, voicesRead: 0, added: 0, merged: 0, rejected: 0,
       clampedBytes: 0, checksumFailures: 0, skipped: [], errors: [],
@@ -314,6 +386,7 @@ export class Store {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      task.set(i / files.length, file.name);
       opts.onProgress?.(file.name, i, files.length);
       const bytes = new Uint8Array(await file.arrayBuffer());
       // A loose file's timestamp is usually the day it was downloaded, which
@@ -325,7 +398,13 @@ export class Store {
         const { files: inner, failed } = await extractZip(
           bytes,
           (name, size) => !name.endsWith('/') && size > 0 && (VOICE_EXTENSIONS.test(name) || size === 4104 || size === 163 || size % 4096 === 0),
-          (done, total) => opts.onProgress?.(`${file.name} (${done}/${total})`, i, files.length),
+          (done, total) => {
+            // Inside an archive the entries are the real unit of work, so the
+            // bar tracks those rather than sitting still on one "file".
+            task.set(total ? (i + done / total) / files.length : i / files.length,
+              `${file.name} — ${fmtCount(done)} of ${fmtCount(total)}`);
+            opts.onProgress?.(`${file.name} (${done}/${total})`, i, files.length);
+          },
         );
         for (const f of failed) summary.errors.push({ file: `${file.name}:${f.name}`, error: f.error });
         for (const f of inner) {
@@ -338,6 +417,8 @@ export class Store {
       }
     }
 
+    task.stage('writing to the database');
+    task.set(1);
     opts.onProgress?.('writing to the database', files.length, files.length);
     const { added, merged } = await addVoices(pending);
     summary.added = added;
@@ -381,11 +462,19 @@ export class Store {
       return;
     }
 
+    // Cancellable from the progress bar whether or not the caller brought its
+    // own signal, since the bar is the only stop button there is now.
+    const own = new AbortController();
+    const signal = opts.signal ?? own.signal;
+
     this.setBusy(`analysing ${jobs.length} voices`);
     try {
-      await analyzeAll(jobs, {
-        onProgress: opts.onProgress,
-        signal: opts.signal,
+      await runTask(`analysing ${fmtCount(jobs.length)} voices`, (task) => analyzeAll(jobs, {
+        onProgress: (p) => {
+          task.set(p.total ? p.done / p.total : null, `${p.rate.toFixed(0)}/s`);
+          opts.onProgress?.(p);
+        },
+        signal,
         onBatch: async (items) => {
           const records: FeatureRecord[] = [];
           for (const item of items) {
@@ -414,8 +503,15 @@ export class Store {
           }
           await putFeatures(records);
         },
-      });
-      if (this.analysisComplete) this.rebuildDerived();
+      }), { cancel: () => own.abort() });
+
+      if (this.analysisComplete) {
+        await runTask('projecting the map', async (task) => {
+          task.set(null, 'principal components');
+          await yieldToPaint();
+          this.rebuildDerived();
+        });
+      }
     } finally {
       this.setBusy(null);
     }
@@ -570,20 +666,28 @@ export class Store {
     if (!space) throw new Error('run the analysis pass first');
     this.setBusy('finding near-duplicates');
 
+    const own = new AbortController();
+    const signal = opts.signal ?? own.signal;
+
     const worker = new Worker(new URL('../workers/nearDupe.worker.ts', import.meta.url), { type: 'module' });
     try {
-      const graph = await new Promise<NearDupeGraph>((resolve, reject) => {
+      const graph = await runTask('finding near-duplicates', (task) => new Promise<NearDupeGraph>((resolve, reject) => {
         const stop = () => {
           worker.terminate();
           reject(new DOMException('cancelled', 'AbortError'));
         };
-        if (opts.signal?.aborted) return stop();
-        opts.signal?.addEventListener('abort', stop, { once: true });
+        if (signal.aborted) return stop();
+        signal.addEventListener('abort', stop, { once: true });
 
         worker.onmessage = (ev: MessageEvent<DupeResponse>) => {
           const msg = ev.data;
-          if (msg.type === 'progress') opts.onProgress?.(msg.done, msg.total, msg.stage);
-          else if (msg.type === 'done') resolve(msg.graph);
+          if (msg.type === 'progress') {
+            // Stages do not take equal time, so the fraction is within the
+            // stage and the label says which stage it is.
+            task.stage(msg.stage);
+            task.set(msg.total > 0 ? msg.done / msg.total : null);
+            opts.onProgress?.(msg.done, msg.total, msg.stage);
+          } else if (msg.type === 'done') resolve(msg.graph);
           else reject(new Error(msg.message));
         };
         worker.onerror = (e) => reject(new Error(e.message || 'the near-duplicate worker failed'));
@@ -598,7 +702,7 @@ export class Store {
           opts: { maxDistance: opts.maxDistance ?? 0.4, blockSize: opts.blockSize ?? 400 },
         };
         worker.postMessage(request, [request.data.buffer]);
-      });
+      }), { cancel: () => own.abort() });
       this.graph = graph;
       await kvSet('nearDupeGraph', graph);
       this.applyThreshold(this.threshold, this.mergeThreshold, true);
@@ -969,6 +1073,106 @@ export class Store {
 
     this.emit();
     return { ratings: applied, overrides, pinned, missing };
+  }
+
+  // ------------------------------------------------------- whole sessions
+
+  /**
+   * The entire session as one file: the patches themselves, plus every
+   * judgement made about them.
+   *
+   * The smaller backup above carries only judgements, keyed by patch content -
+   * which is exactly right for reapplying your ratings to a corpus you still
+   * have, and useless for moving to another machine, where there is nothing for
+   * those keys to match. That distinction was invisible: the button said
+   * "session backup", the file restored silently into nothing, and the only
+   * clue was a count of entries that referred to patches that were not there.
+   *
+   * Features are deliberately not included. They are by far the largest part of
+   * the session - tens of megabytes of vectors, envelopes and spectra - and
+   * they are a pure function of the patch bytes, so re-rendering them costs
+   * minutes of CPU rather than a download. Everything that cannot be recomputed
+   * is here.
+   */
+  exportSession(): string {
+    const voices = this.voices.map((v) => ({
+      p: bytesToBase64(v.packed),
+      n: v.name,
+      s: v.sources,
+      pin: v.pinned || undefined,
+      us: v.userSupplied || undefined,
+    }));
+    return JSON.stringify({
+      format: 'dx7curation-session',
+      version: 1,
+      savedAt: new Date().toISOString(),
+      threshold: this.threshold,
+      mergeThreshold: this.mergeThreshold,
+      voices,
+      judgements: JSON.parse(this.exportBackup()) as unknown,
+    });
+  }
+
+  /** True when `json` is a whole session rather than judgements alone. */
+  static isSession(json: string): boolean {
+    try {
+      return (JSON.parse(json) as { format?: string }).format === 'dx7curation-session';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Replace everything with the contents of a session file.
+   *
+   * Destructive by nature - a session is a whole state, not a set of edits -
+   * so the caller is expected to have asked first.
+   */
+  async importSession(json: string): Promise<{ voices: number }> {
+    const data = JSON.parse(json) as {
+      format?: string;
+      voices?: Array<{ p: string; n: string; s: VoiceSource[]; pin?: boolean; us?: boolean }>;
+      judgements?: unknown;
+    };
+    if (data.format !== 'dx7curation-session') throw new Error('that file is not a full session');
+    const rows = data.voices ?? [];
+
+    await runTask('restoring the session', async (task) => {
+      task.stage('clearing the old corpus');
+      await this.reset();
+
+      task.stage('unpacking');
+      const records: Array<Omit<VoiceRecord, 'id'>> = [];
+      for (let i = 0; i < rows.length; i++) {
+        const packed = base64ToBytes(rows[i].p);
+        records.push({
+          packedKey: packedKeyOf(packed),
+          packed,
+          unpacked: unpackVoice(packed),
+          name: rows[i].n,
+          sources: rows[i].s ?? [],
+          pinned: !!rows[i].pin,
+          clampedBytes: 0,
+          userSupplied: !!rows[i].us,
+        });
+        if ((i & 1023) === 0) {
+          task.set(rows.length ? (i / rows.length) * 0.4 : null, `${fmtCount(i)} of ${fmtCount(rows.length)}`);
+          await yieldToPaint();
+        }
+      }
+
+      task.stage('writing to the database');
+      await addVoices(records, (done, total) => task.set(0.4 + (done / total) * 0.6, `${fmtCount(done)} of ${fmtCount(total)}`));
+    });
+
+    // Read it back the normal way, so a restored session and a reloaded one
+    // arrive in exactly the same state.
+    this.voices = [];
+    this.ratings.clear();
+    await this.load();
+    if (data.judgements) await this.importBackup(JSON.stringify(data.judgements));
+    this.emit();
+    return { voices: rows.length };
   }
 
   /** Clear every rating and face-off result, keeping the corpus and features. */
