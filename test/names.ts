@@ -9,7 +9,8 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { buildNameVocabulary, nameColumns, nameConceptIds, nameWords } from '../src/features/nameTokens.ts';
-import { buildNameSpace } from '../src/cluster/nameSpace.ts';
+import { buildNameSpace, nameSimilarity } from '../src/cluster/nameSpace.ts';
+import { clusterAtThreshold, type NearDupeClusters } from '../src/cluster/nearDupe.ts';
 import { fitTaste } from '../src/cluster/taste.ts';
 
 let fail = 0;
@@ -22,7 +23,11 @@ const has = (list: string[], word: string) => list.some((c) => c.includes(word))
 console.log('reading names:');
 
 check('a slot number is not vocabulary', String(nameWords('PIANO   5')) === 'piano');
-check('but B3 is a Hammond, not a B', String(nameWords('B3 ORGAN')) === 'b3,organ');
+// Two-letter words are dropped: on the real corpus they are overwhelmingly
+// author initials and bookkeeping. The ones that do mean something are in the
+// keyword tables already, so they still reach a concept.
+check('a two-letter word is not vocabulary', String(nameWords('B3 ORGAN')) === 'organ');
+check('but B3 still says Hammond', has(nameConceptIds('B3 ORGAN'), 'organ'));
 check('a bare number is not a word', String(nameWords('60-S ORGAN')) === 'organ');
 check('punctuation splits, and a stray letter is dropped',
   String(nameWords('E.PIANO 1')) === 'piano');
@@ -200,6 +205,53 @@ for (const rated of [60, 400]) {
   check(`${rated} ratings: signal in the names is picked up`, signal.named > signal.audio + 0.02,
     `audio ${signal.audio.toFixed(3)} vs named ${signal.named.toFixed(3)}`);
 }
+
+console.log('\nthe pull on families:');
+
+/*
+ * The point of all this: a shared name draws two voices together a little.
+ *
+ * A person naming two patches the same thing is direct evidence about
+ * perception, which the feature vector only ever approximates. But it is a
+ * hint and not a verdict, so what has to hold is that it moves a pair the
+ * measurements already nominated, and cannot reach one they did not.
+ */
+const graph = {
+  n: 244,
+  //     0-1 just outside the threshold, 2-3 far outside
+  a: Int32Array.from([0, 2]),
+  b: Int32Array.from([1, 3]),
+  d: Float32Array.from([0.34, 0.9]),
+  featureScale: 1, paramScale: 1, featureWeight: 1, paramWeight: 1, blocks: 1, truncated: false,
+};
+/*
+ * The corpus around the four matters, because the weighting is relative: a
+ * word earns its pull by being rare. "Fat" is two voices in a thousand in the
+ * real archives and carries a lot; in a four-voice fixture it would be half of
+ * everything and carry almost nothing. So the four sit in a crowd.
+ */
+const crowd: string[][] = [];
+for (let i = 0; i < 240; i++) crowd.push([['PIANO', 'STRINGS', 'ORGAN', 'BELL'][i % 4] + ' ' + (i % 9)]);
+const named = buildNameSpace([
+  ['FAT BASS'], ['FAT TBONE'], ['WASP STING'], ['EVOLUTION'],
+  ...crowd,
+], { vocabulary: { minVoices: 2 } })!;
+const close = (x: number, y: number) => nameSimilarity(named.vectors, x, y);
+check('two patches a person called fat agree', close(0, 1) > 0.3, close(0, 1).toFixed(2));
+check('two patches with nothing in common do not', close(2, 3) === 0);
+
+const same = (c: NearDupeClusters, x: number, y: number) => c.labels[x] === c.labels[y];
+const without = clusterAtThreshold(graph, 0.3);
+check('without the hint the near pair stays apart', !same(without, 0, 1));
+const withHint = clusterAtThreshold(graph, 0.3, close, 0.25);
+check('with it they group', same(withHint, 0, 1));
+check('and the far pair is still not reachable', !same(withHint, 2, 3));
+check('and exactly one pair was joined, not a cascade',
+  withHint.clusterCount === graph.n - 1, `${withHint.clusterCount} groups of ${graph.n}`);
+
+// The dial has to actually turn it off.
+const off = clusterAtThreshold(graph, 0.3, close, 0);
+check('a pull of zero is the old behaviour', !same(off, 0, 1));
 
 console.log(fail === 0 ? '\nall name checks passed' : `\n${fail} check(s) failed`);
 process.exit(fail === 0 ? 0 : 1);

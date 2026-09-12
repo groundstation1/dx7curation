@@ -20,7 +20,7 @@ import { ANALYSIS_VERSION, fitStandardizer, standardize, FEATURE_COUNT, FEATURE_
 import type { DupeRequest, DupeResponse } from '../workers/nearDupe.worker.ts';
 import { clusterAtThreshold, chooseRepresentatives, thresholdSweep, type NearDupeGraph, type NearDupeClusters, type SweepRow } from '../cluster/nearDupe.ts';
 import { pca } from '../cluster/pca.ts';
-import { buildNameSpace, type NameSpace } from '../cluster/nameSpace.ts';
+import { buildNameSpace, nameSimilarity, type NameSpace } from '../cluster/nameSpace.ts';
 import { fitWhitener, whitenAll, redundancyRatio, redundancyWeights, type Whitener } from '../cluster/whiten.ts';
 import { fitTaste, predictRating, tasteWeights, type TasteModel } from '../cluster/taste.ts';
 import { lda } from '../cluster/lda.ts';
@@ -30,6 +30,17 @@ import type { StructuralFeatures } from '../features/structural.ts';
 import { analyzeAll, type PoolProgress } from '../workers/pool.ts';
 import { isZip, extractZip } from '../util/zip.ts';
 import { runTask, type TaskHandle } from './task.ts';
+
+/**
+ * How far a shared name may pull two voices together, as a fraction of the
+ * distance between them.
+ *
+ * A quarter: enough that a pair sitting just outside the family threshold is
+ * brought in when a person gave both the same word, and far too little to
+ * reach anything the measurements call unrelated. Scaled by `nameWeight`, so
+ * the dial that turns names off turns this off with it.
+ */
+const NAME_PULL = 0.25;
 import { applyResult, newStanding, ratingOffset, type Standing } from '../rank/elo.ts';
 
 /**
@@ -852,9 +863,12 @@ export class Store {
     // Everything derived, not just the model: the map is laid out in this
     // space too, so moving the dial has to move the plot.
     await runTask('weighing the names', async (task) => {
-      task.set(null, 'laying the map out again');
+      task.set(null, 'regrouping');
       await yieldToPaint();
       this.rebuildDerived();
+      // The families are formed with the name hint, so the dial has to reform
+      // them, not only refit the model.
+      if (this.graph) this.applyThreshold(this.threshold, this.mergeThreshold, false);
     });
     this.emit();
   }
@@ -978,7 +992,29 @@ export class Store {
     this.mergeThreshold = Math.min(mergeThreshold, threshold);
     const space = this.distanceSpace;
     if (!this.graph || !space) return;
-    this.clusters = clusterAtThreshold(this.graph, this.threshold);
+    /*
+     * Families get the name hint. Merges never do.
+     *
+     * The two thresholds mean different things and only one of them can afford
+     * to listen to a name. A merge says "these are the same patch, keep one" -
+     * and two unrelated patches both called BASS 1 are not the same patch, so
+     * anything that lets a name close that gap is a bug that quietly deletes
+     * somebody's sound. A family says "these are alike, worth comparing", and
+     * that is a judgement about perception, which is the one thing a name is
+     * direct evidence of and the feature vector only ever approximates.
+     *
+     * So the graph stays audio-only, the merge level reads it raw, and the
+     * family level shrinks an edge by up to NAME_PULL when the two voices were
+     * given the same words by a person. It can only move pairs the audio
+     * already nominated - nothing far away is dragged in - and on this corpus
+     * ninety-three percent of pairs share no word at all, so it is a nudge
+     * applied to a small minority rather than a smear over everything.
+     */
+    const vectors = this.nameSpace?.vectors;
+    const closeness = vectors && this.nameWeight > 0
+      ? (a: number, b: number) => nameSimilarity(vectors, a, b)
+      : undefined;
+    this.clusters = clusterAtThreshold(this.graph, this.threshold, closeness, NAME_PULL * this.nameWeight);
     this.representatives = chooseRepresentatives(this.clusters.clusters, space, FEATURE_COUNT);
     this.representativeSet = null;
     this.mergeClusters = clusterAtThreshold(this.graph, this.mergeThreshold);
@@ -1636,9 +1672,18 @@ export class Store {
     const rows = data.voices ?? [];
 
     await runTask('restoring the session', async (task) => {
-      task.stage('clearing the old corpus');
-      await this.reset();
-
+      /*
+       * Everything that can fail happens before anything is destroyed.
+       *
+       * This used to clear the corpus first and unpack afterwards, which meant
+       * any failure in between - a truncated file, a voice that will not
+       * unpack, the tab running out of memory on a hundred-megabyte session -
+       * left you with no corpus and no error worth reading. It looked like the
+       * restore had done nothing. It had done the worst possible thing.
+       *
+       * So: unpack the whole file into records first, and only clear once
+       * there is something to put back.
+       */
       task.stage('unpacking');
       const records: Array<Omit<VoiceRecord, 'id'>> = [];
       for (let i = 0; i < rows.length; i++) {
@@ -1658,6 +1703,11 @@ export class Store {
           await yieldToPaint();
         }
       }
+
+      if (records.length === 0) throw new Error('that session file has no patches in it');
+
+      task.stage('clearing the old corpus');
+      await this.reset();
 
       task.stage('writing to the database');
       await addVoices(records, (done, total) => task.set(0.4 + (done / total) * 0.6, `${fmtCount(done)} of ${fmtCount(total)}`));

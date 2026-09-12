@@ -1934,6 +1934,30 @@ function renderControls(): void {
           disabled: ctx.store.representatives.length === 0,
         }, 'family'),
       )),
+    /*
+     * How much a shared name counts, where you can see it work.
+     *
+     * The families on this map are formed with a nudge from the patch names,
+     * so this is the control that shows what that nudge is doing: flip it to
+     * none and the grouping goes back to the sound alone. It re-forms the
+     * families rather than only redrawing, which is why it is a select and not
+     * a slider - each step is a rebuild.
+     */
+    ctx.store.nameSpace ? adv(el('label', {
+      class: 'field',
+      title: 'How much two patches sharing a word in their names counts as evidence that they belong together. Never affects which patches are treated as copies of each other.',
+    }, 'names count',
+      el('select', {
+        onchange: (e: Event) => {
+          void ctx.store.setNameWeight(Number((e.target as HTMLSelectElement).value));
+        },
+      },
+        ...[[0, 'not at all'], [0.5, 'a little'], [1, 'normally'], [2, 'a lot']].map(([v, label]) =>
+          el('option', {
+            value: String(v),
+            selected: Math.abs(ctx.store.nameWeight - (v as number)) < 1e-6,
+          }, label as string)),
+      ))) : null,
     adv(plot ? el('label', {
       class: 'field',
       title: 'Play a patch blended from the voices nearest the cursor, rather than the nearest single patch. Only ever uses what is currently shown.',

@@ -638,6 +638,33 @@ async function browseSource(key: string): Promise<void> {
  * seen the patches matches nothing and looks exactly like a broken button, so
  * both the names and the result now say which is which.
  */
+/**
+ * Ask a yes/no question inside the page and wait for the answer.
+ *
+ * The one thing confirm() has over this is that it blocks; the several things
+ * this has over confirm() are that it cannot be suppressed by the browser, it
+ * cannot be mistaken for a phishing dialog, and it is visible in a screenshot
+ * when someone reports that a button did nothing.
+ */
+function askInPage(host: HTMLElement, question: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let answered = false;
+    const answer = (value: boolean) => {
+      if (answered) return;
+      answered = true;
+      clear(host);
+      resolve(value);
+    };
+    clear(host);
+    host.className = 'warn';
+    host.appendChild(el('div', { class: 'row' },
+      el('span', {}, question),
+      el('button', { class: 'btn', onclick: () => answer(true) }, 'Replace'),
+      el('button', { class: 'btn', onclick: () => answer(false) }, 'Cancel'),
+    ));
+  });
+}
+
 function exportPanel(): HTMLElement {
   const store = ctx.store;
   const result = el('div', { class: 'muted', style: { marginTop: '10px' } });
@@ -654,7 +681,33 @@ function exportPanel(): HTMLElement {
       clear(result);
       try {
         if (Store.isSession(text)) {
-          if (!confirm('Replace everything in this browser with the session in that file?')) return;
+          /*
+           * Asked in the page, not through confirm().
+           *
+           * A browser is allowed to suppress confirm() - after a few dialogs
+           * Chrome offers to stop showing them, and some embedded contexts
+           * never show them at all - and a suppressed confirm() returns false.
+           * This used to be `if (!confirm(...)) return;`, so in exactly those
+           * browsers loading a session did nothing whatsoever: no dialog, no
+           * import, no error, no message. Reproduced with a real hundred-and
+           * -sixteen-megabyte session: zero voices, zero exceptions, and the
+           * screen unchanged. Stubbing confirm() to true imported all
+           * thirty-four thousand of them on the first try.
+           *
+           * A question drawn in the page cannot be suppressed, and answering
+           * no now says so instead of looking like a broken button.
+           *
+           * And it is only asked when there is something to lose.
+           */
+          if (store.voices.length > 0) {
+            const ok = await askInPage(result,
+              `Replace all ${fmtInt(store.voices.length)} patches in this browser with the session in that file?`);
+            if (!ok) {
+              result.className = 'muted';
+              result.textContent = 'Left everything as it was.';
+              return;
+            }
+          }
           const { voices } = await store.importSession(text);
           result.className = 'good';
           result.textContent = `Restored ${fmtInt(voices)} voices and their ratings.`;

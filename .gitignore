@@ -4,3 +4,4 @@ test/out
 *.local
 .DS_Store
 scratch/
+.tmp-import/

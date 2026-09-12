@@ -223,11 +223,34 @@ export interface NearDupeClusters {
   collapsed: number;
 }
 
-export function clusterAtThreshold(graph: NearDupeGraph, threshold: number): NearDupeClusters {
+/**
+ * A hint that two voices belong together for reasons the audio cannot show.
+ *
+ * Returns 0 to 1. The edge's distance is shrunk by up to `pull` times this, so
+ * a pair the measurements put just outside the threshold can be brought in by
+ * something else that knows better - in practice, by having been given the
+ * same name by a person. It only ever moves a pair that is already a
+ * candidate: nothing distant is teleported into a family.
+ */
+export type Closeness = (a: number, b: number) => number;
+
+export function clusterAtThreshold(
+  graph: NearDupeGraph, threshold: number, closeness?: Closeness, pull = 0,
+): NearDupeClusters {
   const uf = new UnionFind(graph.n);
-  for (let e = 0; e < graph.d.length; e++) {
-    if (graph.d[e] >= threshold) break; // edges are sorted
-    uf.union(graph.a[e], graph.b[e]);
+  if (closeness && pull > 0) {
+    // Shrinking distances reorders them, so the sorted-edge shortcut is gone
+    // and every candidate pair has to be looked at.
+    for (let e = 0; e < graph.d.length; e++) {
+      const hint = closeness(graph.a[e], graph.b[e]);
+      const d = hint > 0 ? graph.d[e] * (1 - pull * Math.min(1, hint)) : graph.d[e];
+      if (d < threshold) uf.union(graph.a[e], graph.b[e]);
+    }
+  } else {
+    for (let e = 0; e < graph.d.length; e++) {
+      if (graph.d[e] >= threshold) break; // edges are sorted
+      uf.union(graph.a[e], graph.b[e]);
+    }
   }
   const labels = new Int32Array(graph.n).fill(-1);
   const clusters: number[][] = [];

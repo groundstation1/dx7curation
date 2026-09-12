@@ -146,7 +146,14 @@ export function nameWords(name: string): string[] {
     const out: string[] = [];
     for (const raw of normalized.split(' ')) {
         const word = /^[a-z]{3,}\d+$/.test(raw) ? raw.replace(/\d+$/, '') : raw;
-      if (word.length < 2) continue;
+      /*
+       * Two-letter words are dropped. On the real corpus they are almost
+       * entirely author initials and bookkeeping - bs, st, ac, ms, eg, hm, ob,
+       * mm, jl, mf, jh, it - twenty-five of ninety tokens and hardly a
+       * description among them. The few real ones (bs for bass, br for brass)
+       * are already covered: their fuller spellings are concepts.
+       */
+      if (word.length < 3) continue;
       // A bare number is a slot, a year or a count, never a description.
       if (!/[a-z]/.test(word)) continue;
       if (NAME_STOP_WORDS.has(word)) continue;
@@ -306,12 +313,15 @@ export function buildNameVocabulary(docs: readonly (readonly string[])[], opts: 
     if (!kept.has(into)) merged.delete(from);
   }
 
-  // The commonest spelling wins the column, but the longest one is the label:
-  // a group is called "piano" even when more archives wrote "pia".
+  /*
+   * A merged group is labelled with the spelling most archives actually used.
+   *
+   * The longest one is tempting - "piano" reads better than "pia" - but on the
+   * real corpus it picks up compounds: the group around `analog` would be
+   * called `analogbs`, and the one around `strng` would be `anlgstrng`. What
+   * people wrote most is both the honest label and usually the readable one.
+   */
   const display = new Map(tokens.map((t) => [t, t]));
-  for (const [from, into] of merged) {
-    if (from.length > (display.get(into) ?? '').length) display.set(into, from);
-  }
 
   const labelOf = new Map(NAME_CONCEPTS.map((c) => [c.id, c.label]));
   const mergedDf = new Map(canonical);

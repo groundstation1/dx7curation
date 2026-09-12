@@ -39,6 +39,56 @@ import {
   type NameVocabulary, type VocabularyOptions,
 } from '../features/nameTokens.ts';
 
+/**
+ * The name flags themselves, sparse, one row per voice.
+ *
+ * Kept alongside the components because the two answer different questions and
+ * the components are the wrong tool for the second one.
+ *
+ * Components are a projection: every voice gets coordinates, including the
+ * twenty-eight percent of this corpus whose names the table does not
+ * recognise - TRW, FLEXATONE, WATER GDN. Those all land on the origin, which
+ * in a distance makes ten thousand unrelated patches each other's nearest
+ * neighbours. Exactly the banding you get from leaning on a discrete
+ * coordinate.
+ *
+ * The flags have no such point. A voice with no recognised word has an empty
+ * row and is similar to nothing, itself included, which is the truthful answer.
+ * Rows are weighted by inverse document frequency and normalised, so their dot
+ * product is a cosine in 0..1: two patches sharing the word WASP agree
+ * strongly, two sharing PIANO barely at all.
+ */
+export interface NameVectors {
+  /** Start of each row in `indices`/`values`, length n + 1. */
+  indptr: Int32Array;
+  indices: Int32Array;
+  values: Float32Array;
+}
+
+/** How alike two voices' names are, 0 to 1. */
+export function nameSimilarity(v: NameVectors, i: number, j: number): number {
+  const ai = v.indptr[i];
+  const ae = v.indptr[i + 1];
+  const bi = v.indptr[j];
+  const be = v.indptr[j + 1];
+  if (ai === ae || bi === be) return 0;
+  // Both rows are sorted by column, so this is a merge.
+  let a = ai;
+  let b = bi;
+  let dot = 0;
+  while (a < ae && b < be) {
+    const ca = v.indices[a];
+    const cb = v.indices[b];
+    if (ca === cb) {
+      dot += v.values[a] * v.values[b];
+      a++;
+      b++;
+    } else if (ca < cb) a++;
+    else b++;
+  }
+  return dot > 0 ? Math.min(1, dot) : 0;
+}
+
 export interface NameSpace {
   /** How many components came out. Zero when there was nothing to reduce. */
   dims: number;
@@ -49,6 +99,8 @@ export interface NameSpace {
   /** Share of the name variance each component carries. */
   explained: number[];
   vocabulary: NameVocabulary;
+  /** The flags themselves, for similarity between two named voices. */
+  vectors: NameVectors;
   /** Voices with no recognised word at all: they sit at the origin. */
   unnamed: number;
 }
@@ -80,12 +132,29 @@ export function buildNameSpace(
   const dim = nameDimensions(vocabulary);
   if (dim < 2) return null;
 
-  // Column weights: rare words say more. Smoothed so a word on every voice
-  // gets a small weight rather than a zero.
+  /*
+   * Column weights: rarer words say a little more, but only a little.
+   *
+   * The textbook weighting here is inverse document frequency, and it is the
+   * wrong instinct for this job. Idf answers "which word best narrows a
+   * search". The question here is "how reliably does this word mean the same
+   * thing", and rarity is a poor proxy for that - in patch names a rare word
+   * is often rare precisely because it is somebody's private coinage, while
+   * the most reliable descriptions in the whole corpus are the commonest ones.
+   * Straight idf gave `agitato`, on 0.1% of voices, a weight of 6.8 against
+   * 2.7 for `piano` on 7.2%: it valued the obscure term at two and a half
+   * times the established one, which is backwards.
+   *
+   * True one-offs are already gone - a word has to appear on a few dozen
+   * voices to get a column at all - so what is left is a range of established
+   * terms, and among those the spread should be gentle. The square root keeps
+   * the ordering and compresses the ratio to about 1.6, which is a discount
+   * for being everywhere rather than a reversal of the ranking.
+   */
   const weight = new Float64Array(dim);
   for (let d = 0; d < dim; d++) {
     const df = Math.max(1, vocabulary.documentFrequency[d]);
-    weight[d] = Math.log(1 + n / df);
+    weight[d] = Math.sqrt(Math.log(1 + n / df));
   }
 
   // One sparse row per voice: the columns it lights up, and their weights
@@ -166,9 +235,29 @@ export function buildNameSpace(
     }
   }
 
+  // Flatten the sparse rows for the similarity measure.
+  let total = 0;
+  for (let i = 0; i < n; i++) total += rowCols[i].length;
+  const indptr = new Int32Array(n + 1);
+  const indices = new Int32Array(total);
+  const flatValues = new Float32Array(total);
+  let at = 0;
+  for (let i = 0; i < n; i++) {
+    indptr[i] = at;
+    const cols = rowCols[i];
+    const vals = rowVals[i];
+    for (let k = 0; k < cols.length; k++) {
+      indices[at] = cols[k];
+      flatValues[at] = vals[k];
+      at++;
+    }
+  }
+  indptr[n] = at;
+
   return {
     dims,
     coords,
+    vectors: { indptr, indices, values: flatValues },
     labels: keep.map((c) => componentLabel(vectors, c, dim, vocabulary, opts.labelTerms ?? 3)),
     explained: keep.map((c) => values[c] / totalVariance),
     vocabulary,
