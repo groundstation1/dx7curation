@@ -216,6 +216,21 @@ export interface NameVocabulary {
 }
 
 export interface VocabularyOptions {
+  /**
+   * How many distinct archives a data-driven word has to appear in.
+   *
+   * The sharpest available test for "is this an established description".
+   * Frequency cannot tell a word apart from a label: `ddx` is on a thousand
+   * voices of this corpus and means only that somebody's collection stamped
+   * its name on every patch in it, which is why two patches called DDX 733302
+   * and DDX 526485 were being drawn together. A word that several unrelated
+   * archives reached for independently - piano, analog, fat - is a word with
+   * shared meaning. One that never leaves the folder it was born in is a tag.
+   *
+   * Concepts are exempt: they are the curated vocabulary and are established
+   * by construction.
+   */
+  minArchives?: number;
   /** A word has to appear on at least this fraction of voices. */
   minFraction?: number;
   /** And at most this fraction: a word on half the corpus separates nothing. */
@@ -234,6 +249,7 @@ const DEFAULTS: Required<VocabularyOptions> = {
   maxFraction: 0.4,
   minVoices: 3,
   maxTokens: 160,
+  minArchives: 2,
 };
 
 /**
@@ -243,19 +259,26 @@ const DEFAULTS: Required<VocabularyOptions> = {
  * the same patch is named differently in different archives and the union is
  * more informative than any one of them.
  */
-export function buildNameVocabulary(docs: readonly (readonly string[])[], opts: VocabularyOptions = {}): NameVocabulary {
+export function buildNameVocabulary(
+  docs: readonly (readonly string[])[],
+  opts: VocabularyOptions = {},
+  archivesOf?: (index: number) => readonly string[],
+): NameVocabulary {
   const o = { ...DEFAULTS, ...opts };
   const n = docs.length;
   const conceptDf = new Map<string, number>();
   const tokenDf = new Map<string, number>();
+  const tokenArchives = new Map<string, Set<string>>();
 
-  for (const names of docs) {
+  for (let index = 0; index < docs.length; index++) {
+    const names = docs[index];
     const concepts = new Set<string>();
     const words = new Set<string>();
     for (const name of names) {
       for (const id of nameConceptIds(name)) concepts.add(id);
       for (const w of nameWords(name)) words.add(w);
     }
+    const archives = archivesOf?.(index);
     for (const id of concepts) conceptDf.set(id, (conceptDf.get(id) ?? 0) + 1);
     for (const w of words) {
       // A word that already fires a concept does not get a second column of
@@ -264,6 +287,14 @@ export function buildNameVocabulary(docs: readonly (readonly string[])[], opts: 
       // against the keyword lists would miss.
       if (nameConceptIds(w).length > 0) continue;
       tokenDf.set(w, (tokenDf.get(w) ?? 0) + 1);
+      if (archives) {
+        let seen = tokenArchives.get(w);
+        if (!seen) {
+          seen = new Set<string>();
+          tokenArchives.set(w, seen);
+        }
+        for (const a of archives) seen.add(a);
+      }
     }
   }
 
@@ -303,8 +334,23 @@ export function buildNameVocabulary(docs: readonly (readonly string[])[], opts: 
     }
   }
 
+  // A word that never left the collection it came from is that collection's
+  // label, not a description. Only applied when the caller knows where each
+  // voice came from.
+  const spread = (word: string): number => {
+    if (!archivesOf) return Infinity;
+    // The whole merge group counts: `analog` and `anlg` in two archives each
+    // is one word that four archives use, not two words that are stuck.
+    const union = new Set(tokenArchives.get(word) ?? []);
+    for (const [from, into] of merged) {
+      if (into !== word) continue;
+      for (const a of tokenArchives.get(from) ?? []) union.add(a);
+    }
+    return union.size;
+  };
+
   const tokens = canonical
-    .filter(([, df]) => df >= floor)
+    .filter(([word, df]) => df >= floor && spread(word) >= o.minArchives)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, o.maxTokens)
     .map(([w]) => w);

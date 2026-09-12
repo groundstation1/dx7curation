@@ -690,7 +690,18 @@ export class Store {
     this.whitener = fitWhitener(flat, n, FEATURE_COUNT);
     this.redundancy = redundancyRatio(this.whitener);
     // Names first: the model is fitted in the space they are part of.
-    this.nameSpace = buildNameSpace(this.nameDocs());
+    this.nameSpace = buildNameSpace(this.nameDocs(), {
+      // The archive a voice came from, so a word that never leaves one
+      // collection can be recognised as that collection's label.
+      archivesOf: (i) => {
+        const out: string[] = [];
+        for (const src of this.voices[i]?.sources ?? []) {
+          const cut = src.file.indexOf('/');
+          out.push(cut > 0 ? src.file.slice(0, cut) : src.file);
+        }
+        return out;
+      },
+    });
     this.buildSemantic();
     this.refitTasteModel();
     this.applyWhitening();

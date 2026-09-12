@@ -110,6 +110,11 @@ export interface NameSpaceOptions {
   vocabulary?: VocabularyOptions;
   /** Words per component label. */
   labelTerms?: number;
+  /**
+   * Which archives a voice arrived from, for telling a description apart from
+   * a collection's label. See `minArchives` in nameTokens.
+   */
+  archivesOf?: (index: number) => readonly string[];
 }
 
 /**
@@ -128,7 +133,7 @@ export function buildNameSpace(
 ): NameSpace | null {
   const n = docs.length;
   if (n === 0) return null;
-  const vocabulary = buildNameVocabulary(docs, opts.vocabulary);
+  const vocabulary = buildNameVocabulary(docs, opts.vocabulary, opts.archivesOf);
   const dim = nameDimensions(vocabulary);
   if (dim < 2) return null;
 
