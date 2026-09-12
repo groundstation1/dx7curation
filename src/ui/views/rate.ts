@@ -103,16 +103,42 @@ async function buildQueue(): Promise<void> {
       queue = base;
     }
 
+    /*
+     * Families nobody has touched come first.
+     *
+     * A stable partition, so whichever order was chosen still holds inside
+     * each half - coverage still spreads, the model's guesses are still in
+     * order. It only decides which half you work through first, and an
+     * untouched family is worth more than another look at one you have already
+     * formed a view on.
+     *
+     * Not a filter: the rest stay in the queue, behind. Revisiting is exactly
+     * what the arrow keys are for.
+     */
+    const fresh: number[] = [];
+    const known: number[] = [];
+    for (const i of queue) (store.familyHasRating(i) ? known : fresh).push(i);
+    queue = fresh.concat(known);
+
     position = 0;
     if (skipRated) advanceToUnrated(0);
   });
   building = false;
 }
 
+/**
+ * Skip past anything already decided - by family, not by voice.
+ *
+ * A rating on one member is a judgement about the family: its members are
+ * "similar but audibly different" by construction, so once one has a score you
+ * know roughly what the others are worth. Skipping only voices you had rated
+ * personally meant a family you had already judged from the map came round
+ * again here, asking the same question about a near-relative.
+ */
 function advanceToUnrated(from: number): void {
   const store = ctx.store;
   for (let i = from; i < queue.length; i++) {
-    if (store.ratingOf(queue[i]) === null) {
+    if (!store.familyHasRating(queue[i])) {
       position = i;
       return;
     }
@@ -329,7 +355,7 @@ function render(): void {
             if (skipRated) advanceToUnrated(0);
             render();
           },
-        }), 'skip rated'),
+        }), 'skip rated families'),
     ),
   ));
   wrap.appendChild(el('progress', { max: Math.max(1, queue.length), value: rated, style: { width: '100%' } }));

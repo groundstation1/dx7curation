@@ -771,6 +771,26 @@ export class Store {
     return id >= 0 ? this.clusters.clusters[id] : [index];
   }
 
+  /**
+   * Whether anything in this voice's family has been rated.
+   *
+   * A judgement about one member is a judgement about the family: they are
+   * "similar but audibly different" by construction, so once you have scored
+   * one you know roughly what the rest are worth. The interesting question is
+   * always the family nobody has touched.
+   *
+   * Not the same as "is this voice rated". A family can be rated through a
+   * member you found on the map while its chosen representative - the one the
+   * queue would show you - is still blank.
+   */
+  familyHasRating(index: number): boolean {
+    for (const m of this.clusterMembers(index)) {
+      const v = this.voices[m];
+      if (v && this.ratings.has(v.id)) return true;
+    }
+    return false;
+  }
+
   /** Every voice treated as identical to this one. */
   mergedMembers(index: number): number[] {
     if (!this.mergeClusters || index >= this.mergeClusters.labels.length) return [index];

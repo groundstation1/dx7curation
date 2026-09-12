@@ -49,6 +49,14 @@ let categoryAxisWeight = 6;
 /** Optional ordering rules; see runOrdering. */
 let pinnedFirst = getSetting('build.pinnedFirst', false);
 let weakestLast = getSetting('build.weakestLast', false);
+/**
+ * One slot per family, filled by its best member. See `candidates`.
+ *
+ * Off by default because it overrides the face-off: choosing to keep two
+ * members of a family is a decision the user made by hand, and this would
+ * quietly discard it.
+ */
+let bestOfFamily = getSetting('build.bestOfFamily', false);
 
 /** Voices per bulk dump, which is what "the last bank" means. */
 const BANK_SIZE = 32;
@@ -102,6 +110,8 @@ interface BuildInputs {
   categoryAxisWeight: number;
   pinnedFirst: boolean;
   weakestLast: boolean;
+  /** Absent in builds stored before this rule existed. */
+  bestOfFamily?: boolean;
   limits: number;
 }
 
@@ -116,6 +126,7 @@ interface StoredBuild {
     categoryAxisWeight: number;
     pinnedFirst?: boolean;
     weakestLast?: boolean;
+    bestOfFamily?: boolean;
     floors: Record<string, number>;
     ceilings: Record<string, number>;
   };
@@ -152,6 +163,7 @@ function currentInputs(): BuildInputs {
     categoryAxisWeight,
     pinnedFirst,
     weakestLast,
+    bestOfFamily,
     limits,
   };
 }
@@ -182,6 +194,12 @@ function staleReasons(): string[] {
   if (now.weakestLast !== builtFrom.weakestLast) {
     out.push(now.weakestLast ? 'weakest now go in the last bank' : 'weakest no longer grouped');
   }
+  // Defaulted on both sides: a build stored before this rule existed has no
+  // opinion about it, and reporting that as a change would tell everyone with
+  // an older build that something they never touched had been turned off.
+  if ((now.bestOfFamily ?? false) !== (builtFrom.bestOfFamily ?? false)) {
+    out.push(now.bestOfFamily ? 'now taking the best of each family' : 'no longer taking the best of each family');
+  }
   return out;
 }
 
@@ -193,7 +211,7 @@ async function saveBuild(): Promise<void> {
     builtAt,
     inputs: builtFrom,
     settings: {
-      total, minRating, backfill, categoryAxisWeight, pinnedFirst, weakestLast,
+      total, minRating, backfill, categoryAxisWeight, pinnedFirst, weakestLast, bestOfFamily,
       floors: { ...floors }, ceilings: { ...ceilings },
     },
   };
@@ -223,6 +241,7 @@ async function restoreBuild(): Promise<void> {
   categoryAxisWeight = record.settings.categoryAxisWeight ?? categoryAxisWeight;
   pinnedFirst = record.settings.pinnedFirst ?? pinnedFirst;
   weakestLast = record.settings.weakestLast ?? weakestLast;
+  bestOfFamily = record.settings.bestOfFamily ?? bestOfFamily;
   for (const c of CATEGORIES) {
     if (record.settings.floors?.[c] !== undefined) floors[c] = record.settings.floors[c];
     if (record.settings.ceilings?.[c] !== undefined) ceilings[c] = record.settings.ceilings[c];
@@ -253,12 +272,41 @@ function candidates(): Candidate[] {
   if (store.clusters) {
     for (let id = 0; id < store.clusters.clusters.length; id++) {
       const rep = store.representatives[id];
+      const members = store.clusters.clusters[id];
+      const familySize = members.length;
+
+      if (bestOfFamily) {
+        /*
+         * One per family, and the best one rather than the appointed one.
+         *
+         * The representative is chosen by position in feature space - it is
+         * the most typical member, which is the right thing to *rate*, since
+         * rating the typical one tells you most about the rest. It is not
+         * necessarily the one you liked best: rate the representative three,
+         * find a cousin on the map and give it five, and the bank would still
+         * take the three, because that is the one the family nominated.
+         *
+         * This takes the family's best instead, and takes exactly one, which
+         * is also the honest reading of "one slot per distinct sound".
+         */
+        let best = rep;
+        let bestRating = store.effectiveRating(rep) ?? 0;
+        for (const m of members) {
+          const r = store.effectiveRating(m);
+          if (r !== null && r > bestRating) {
+            best = m;
+            bestRating = r;
+          }
+        }
+        push(best, bestRating, store.voices[best]?.pinned ?? false, familySize);
+        continue;
+      }
+
       // The refined rating, so an order settled in the ranking pass decides
       // which of two five-star patches gets the last slot. It never crosses a
       // star boundary, so every threshold downstream still means what it says.
       const rating = store.effectiveRating(rep) ?? 0;
       const chosen = store.faceoffExtras.get(id) ?? [rep];
-      const familySize = store.clusters.clusters[id].length;
       for (const index of chosen) push(index, rating, store.voices[index]?.pinned ?? false, familySize);
     }
   }
@@ -802,6 +850,7 @@ function heroPanel(): HTMLElement {
   const rules: string[] = [`${total} slots`, `rated ${minRating}+`];
   if (backfill) rules.push('gaps filled with the next best');
   if (pinnedFirst) rules.push('pinned first');
+  if (bestOfFamily) rules.push('best of each family');
   if (weakestLast) rules.push('weakest in the last bank');
   panel.appendChild(el('p', { class: 'hint', style: { margin: '10px 0 0' } }, rules.join('  \u00b7  ')));
 
@@ -843,6 +892,17 @@ function settingsControls(): HTMLElement {
           setSetting('build.pinnedFirst', pinnedFirst);
         },
       }), 'pinned first'),
+    el('label', {
+      class: 'field',
+      title: 'One slot per family, taken by whichever member you rated highest - rather than by the family’s representative, which is the most typical member and not necessarily the best. Overrides face-off keepers.',
+    },
+      el('input', {
+        type: 'checkbox', checked: bestOfFamily,
+        onchange: (e: Event) => {
+          bestOfFamily = (e.target as HTMLInputElement).checked;
+          setSetting('build.bestOfFamily', bestOfFamily);
+        },
+      }), 'best of each family'),
     el('label', {
       class: 'field',
       title: 'Gather the backfilled and lowest-rated patches at the end - up to a bank of them - so the last bank can be skipped or overwritten. Never demotes a top-rated patch to fill the quota.',
