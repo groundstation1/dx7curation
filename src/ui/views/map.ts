@@ -1606,6 +1606,7 @@ export const view: View = {
         void ctx.store.rate(i, value, 'round1').then(() => list?.refresh());
       },
       current: () => (selected >= 0 ? selected : hovered),
+      pinned: () => selected,
       matched: () => (searchMode === 'highlight' ? matched : null),
     }, () => {
       setSetting('map.listSort', listState.sort);

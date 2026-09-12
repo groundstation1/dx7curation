@@ -52,6 +52,12 @@ export interface ListHandlers {
   /** The voice the sidebar is showing, so the row can be marked. */
   current(): number;
   /**
+   * The voice a click has pinned, which is drawn differently from the one the
+   * cursor happens to be over. Without the distinction a click looks exactly
+   * like a hover, and there is nothing to tell you it stuck.
+   */
+  pinned(): number;
+  /**
    * The search hits, when the search is highlighting rather than filtering, or
    * null when every row counts. On the map the misses are dimmed rather than
    * removed, so that you can see where the matches sit among everything else;
@@ -102,11 +108,15 @@ const COLUMNS: Column[] = [
   {
     key: 'predicted',
     label: 'guess',
-    width: '54px',
-    align: 'right',
+    width: '72px',
+    // Stars, like the rating, because a guess at a rating is worth reading in
+    // the same currency as the thing it is guessing - a 4.2 next to a column
+    // of stars takes a moment to place. Dimmer, because it is a guess.
     cell: (store, i) => {
       const p = store.predictedRating(i);
-      return p === null ? '—' : p.toFixed(1);
+      if (p === null) return el('span', { class: 'muted' }, '·');
+      const stars = Math.max(1, Math.min(5, Math.round(p)));
+      return el('span', { class: 'rating-guess', title: `predicted ${p.toFixed(2)}` }, '★'.repeat(stars));
     },
   },
   {
@@ -250,6 +260,7 @@ export function createListView(
     const fit = Math.min(MAX_ROWS, Math.ceil(scroller.clientHeight / ROW_HEIGHT) + OVERSCAN * 2);
     const last = Math.min(indices.length, first + fit);
     const current = handlers.current();
+    const held = handlers.pinned();
     const hits = handlers.matched();
 
     clear(rows);
@@ -257,7 +268,8 @@ export function createListView(
     for (let at = first; at < last; at++) {
       const index = indices[at];
       const row = el('div', {
-        class: `list-row${index === current ? ' on' : ''}${hits && !hits.has(index) ? ' dim' : ''}`,
+        class: `list-row${index === current ? ' on' : ''}${index === held ? ' held' : ''}`
+          + `${hits && !hits.has(index) ? ' dim' : ''}`,
         style: { gridTemplateColumns: TEMPLATE },
         'data-index': String(index),
         onpointerenter: () => handlers.onHover(index),

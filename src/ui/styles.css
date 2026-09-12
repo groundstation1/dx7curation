@@ -313,6 +313,10 @@ kbd {
 }
 .list-row:hover { background: var(--panel-2); }
 .list-row.on { background: rgba(110, 168, 254, 0.14); }
+/* Clicked, and therefore pinned: the sidebar stays on this one until you click
+   it again or press escape. Marked with a bar rather than more colour, so it
+   is still obvious while the cursor is somewhere else entirely. */
+.list-row.held { background: rgba(110, 168, 254, 0.2); box-shadow: inset 3px 0 0 var(--accent); }
 /* A search miss, when the search is highlighting rather than filtering. */
 .list-row.dim { opacity: 0.32; }
 .list-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -321,6 +325,7 @@ kbd {
 .list-name i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .list-from { color: var(--muted); font-size: 11px; }
 .rating-on { color: var(--accent-2); letter-spacing: -1px; }
+.rating-guess { color: var(--accent-2); letter-spacing: -1px; opacity: 0.7; }
 .list-count { padding: 5px 12px; font-size: 11px; border-top: 1px solid var(--line); flex: none; }
 
 .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; }
