@@ -107,5 +107,26 @@ check('the offsets find a category the features cannot explain',
   catModel.categoryR2 > catModel.linearR2, `${catModel.categoryR2.toFixed(2)} vs ${catModel.linearR2.toFixed(2)}`);
 check('and the liked category gets the positive offset', (organ?.offset ?? 0) > 0.3, organ?.offset.toFixed(2));
 
+// A taste no line can express: two clumps that like opposite ends of one
+// feature. The line settles on nothing; the neighbours simply say where the
+// good corners are - and the fold has to pick a neighbourhood size for that.
+const clumpRatings = rows.map((i) => {
+  const x = flat[i * FEATURE_COUNT];
+  return Math.abs(x) > 0.8 ? 5 : 1;
+});
+const clump = fitTaste(flat, FEATURE_COUNT, { rows, ratings: clumpRatings });
+if (!clump) {
+  console.log('  FAIL clump model did not fit');
+  process.exit(1);
+}
+console.log(`  clumped taste: line ${clump.linearR2.toFixed(2)}, neighbours ${clump.neighbourR2.toFixed(2)}`
+  + `, k ${clump.neighbours?.k ?? '-'}, as used ${clump.r2.toFixed(2)}`);
+check('the neighbours beat the line on a taste the line cannot hold',
+  clump.neighbourR2 > clump.linearR2,
+  `${clump.neighbourR2.toFixed(2)} vs ${clump.linearR2.toFixed(2)}`);
+check('and a neighbourhood size was chosen from the offered ones',
+  clump.neighbours === null || [4, 8, 16, 32, 64].includes(clump.neighbours.k),
+  String(clump.neighbours?.k));
+
 console.log(fail === 0 ? '\nall taste checks passed' : `\n${fail} check(s) failed`);
 process.exit(fail === 0 ? 0 : 1);

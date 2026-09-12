@@ -152,6 +152,12 @@ export interface TasteInput {
   ratings: number[];
   /** The category of any row, for the per-category offsets. */
   categoryOf?: (row: number) => string | null;
+  /**
+   * An alternative space for the neighbour search, same rows and dimensions.
+   *
+   * Whitened, in practice: see the note at the top of `fitTaste`.
+   */
+  neighbourData?: Float32Array;
 }
 
 /**
@@ -189,11 +195,35 @@ function categoryOffsets(
  * sound effect with none. `skip` excludes a row from its own estimate, which
  * is what makes the cross-validation honest.
  */
+/**
+ * Kernel estimates for several neighbourhood sizes, from one scan.
+ *
+ * The scan is the expensive part - every rated voice against every other - and
+ * it is the same scan whatever k turns out to be, so the k values are derived
+ * from a single sorted shortlist rather than by repeating the work per k.
+ */
+function neighbourEstimates(
+  data: Float32Array, dim: number, row: number,
+  rows: number[], ratings: number[], ks: readonly number[], skip = -1,
+): Array<number | null> {
+  const k = Math.max(...ks);
+  const out = neighbourScan(data, dim, row, rows, ratings, k, skip, ks);
+  return out;
+}
+
 function neighbourEstimate(
   data: Float32Array, dim: number, row: number,
   rows: number[], ratings: number[], k: number, skip = -1,
 ): number | null {
-  if (rows.length === 0) return null;
+  return neighbourScan(data, dim, row, rows, ratings, k, skip, [k])[0];
+}
+
+function neighbourScan(
+  data: Float32Array, dim: number, row: number,
+  rows: number[], ratings: number[], k: number, skip: number, ks: readonly number[],
+): Array<number | null> {
+  const none = ks.map(() => null);
+  if (rows.length === 0) return none;
   const base = row * dim;
   // The k nearest are picked by insertion rather than by sorting everything:
   // this runs once per voice in the corpus, and an array of objects per call
@@ -223,28 +253,40 @@ function neighbourEstimate(
     bestY[at] = ratings[i];
     found++;
   }
-  if (found === 0) return null;
+  if (found === 0) return none;
 
-  const use = Math.min(k, found);
-  // Bandwidth is the distance to the furthest of the k, not a fixed radius: the
-  // corpus is wildly uneven, and a patch in the middle of the electric piano
-  // mass has fifty rated voices inside a radius that leaves a sound effect
-  // with none.
-  const sigma = Math.max(Math.sqrt(bestD[use - 1]), 1e-6);
-  let wsum = 0;
-  let acc = 0;
-  for (let i = 0; i < use; i++) {
-    if (!Number.isFinite(bestD[i])) break;
-    const t = Math.sqrt(bestD[i]) / sigma;
-    const w = Math.exp(-t * t);
-    wsum += w;
-    acc += w * bestY[i];
-  }
-  return wsum > 1e-9 ? acc / wsum : null;
+  return ks.map((want) => {
+    const use = Math.min(want, k, found);
+    if (use <= 0 || !Number.isFinite(bestD[use - 1])) return null;
+    // Bandwidth is the distance to the furthest of the k, not a fixed radius:
+    // the corpus is wildly uneven, and a patch in the middle of the electric
+    // piano mass has fifty rated voices inside a radius that leaves a sound
+    // effect with none.
+    const sigma = Math.max(Math.sqrt(bestD[use - 1]), 1e-6);
+    let wsum = 0;
+    let acc = 0;
+    for (let i = 0; i < use; i++) {
+      if (!Number.isFinite(bestD[i])) break;
+      const t = Math.sqrt(bestD[i]) / sigma;
+      const w = Math.exp(-t * t);
+      wsum += w;
+      acc += w * bestY[i];
+    }
+    return wsum > 1e-9 ? acc / wsum : null;
+  });
 }
 
-const NEIGHBOUR_K = 8;
-const BLENDS = [0, 0.25, 0.5, 0.75, 1];
+/**
+ * Neighbourhood sizes to choose between, and how finely to mix.
+ *
+ * Eight was a guess and a single guess cannot be right across the range this
+ * has to work over: with forty ratings, eight neighbours is most of the
+ * evidence there is, and with four thousand it is a handful of the nearest
+ * near-duplicates agreeing with each other. Offering the fold a choice costs
+ * one shortlist - the scan finds the largest k and the rest are read off it.
+ */
+const NEIGHBOUR_KS = [4, 8, 16, 32, 64] as const;
+const BLENDS = [0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1];
 
 /**
  * Fit with five-fold cross-validation over a few ridge values and a few blends
@@ -256,6 +298,18 @@ export function fitTaste(
   data: Float32Array, dim: number, input: TasteInput,
   ridges = [0.05, 0.2, 1, 5, 25],
 ): TasteModel | null {
+  /*
+   * Neighbours are found in their own space, if the caller has a better one.
+   *
+   * The line wants the standardised features, because its coefficients are
+   * meant to be read one per feature. A nearest-neighbour search wants
+   * something else entirely: Euclidean distance counts every dimension once,
+   * so a property measured by four correlated features counts four times and
+   * "nearby" comes to mean "agrees about brightness" whatever else is going
+   * on. Whitening removes exactly that, and it is fitted from the features
+   * alone, so using it here does not make the model depend on itself.
+   */
+  const space = input.neighbourData ?? data;
   const n = input.rows.length;
   if (n < 12) return null;
   const categoryOf = input.categoryOf ?? (() => null);
@@ -298,9 +352,10 @@ export function fitTaste(
     return { linear, withCats };
   };
 
-  // Neighbours do not depend on the ridge, so they are computed once. Each
+  // Neighbours do not depend on the ridge, so they are computed once - for
+  // every candidate k at the same time, off one shortlist per voice. Each
   // rated voice is predicted from the other folds only.
-  const neighbourPred = new Array<number>(n).fill(meanRating);
+  const byK = NEIGHBOUR_KS.map(() => new Array<number>(n).fill(meanRating));
   for (let f = 0; f < folds; f++) {
     const trainRows: number[] = [];
     const trainY: number[] = [];
@@ -311,8 +366,10 @@ export function fitTaste(
     }
     for (let i = 0; i < n; i++) {
       if (foldOf(i) !== f) continue;
-      const est = neighbourEstimate(data, dim, input.rows[i], trainRows, trainY, NEIGHBOUR_K);
-      if (est !== null) neighbourPred[i] = est;
+      const ests = neighbourEstimates(space, dim, input.rows[i], trainRows, trainY, NEIGHBOUR_KS);
+      ests.forEach((est, ki) => {
+        if (est !== null) byK[ki][i] = est;
+      });
     }
   }
 
@@ -325,7 +382,20 @@ export function fitTaste(
     return 1 - sse / totalVar;
   };
 
-  const neighbourR2 = r2Of(neighbourPred);
+  // The k that does best on its own is the one reported and the one used; the
+  // blend then decides how much of it to believe.
+  let bestKi = 0;
+  let neighbourR2 = -Infinity;
+  byK.forEach((pred, ki) => {
+    const r2 = r2Of(pred);
+    if (r2 > neighbourR2) {
+      neighbourR2 = r2;
+      bestKi = ki;
+    }
+  });
+  const neighbourPred = byK[bestKi];
+  const neighbourK = NEIGHBOUR_KS[bestKi];
+
   let best: { ridge: number; blend: number; r2: number; linearR2: number; categoryR2: number } | null = null;
   for (const ridge of ridges) {
     const oof = outOfFold(ridge);
@@ -371,7 +441,7 @@ export function fitTaste(
     neighbourR2: Number.isFinite(neighbourR2) ? neighbourR2 : 0,
     neighbourWeight: best.blend,
     categories,
-    neighbours: best.blend > 0 ? { rows: [...input.rows], ratings: [...input.ratings], k: NEIGHBOUR_K } : null,
+    neighbours: best.blend > 0 ? { rows: [...input.rows], ratings: [...input.ratings], k: neighbourK } : null,
     samples: n,
     meanRating,
     ridge: best.ridge,

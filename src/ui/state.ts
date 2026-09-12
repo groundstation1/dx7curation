@@ -53,6 +53,13 @@ export type SliceCallback = (done: number, total: number) => Promise<void> | voi
 /** How long to hold the thread before offering it back, in milliseconds. */
 const SLICE_MS = 12;
 
+/**
+ * When to refit the taste model, as a fraction of what it was fitted on, and
+ * the fewest new ratings that can ever trigger one.
+ */
+const REFIT_FRACTION = 0.25;
+const REFIT_FLOOR = 10;
+
 function fmtCount(n: number): string {
   return n.toLocaleString('en-GB');
 }
@@ -607,14 +614,37 @@ export class Store {
       const r = this.ratings.get(this.voices[i].id);
       if (r && this.analysis[i]) {
         rows.push(i);
-        ratings.push(r.rating);
+        /*
+         * The refined rating, so the ranking pass teaches the model too.
+         *
+         * Stars alone give it five values to learn from, and by the time the
+         * top band matters most they have all collapsed onto one of them. The
+         * order settled by comparison is real information about what you
+         * prefer - it is the only information there is *within* a band - and a
+         * model that never sees it cannot predict the distinction the ranking
+         * exists to draw.
+         */
+        ratings.push(this.effectiveRating(i) ?? r.rating);
       }
     }
+    /*
+     * Neighbours search the whitened space, which the line does not use.
+     *
+     * Whitening is fitted from the features alone - it is not the taste
+     * weighting, which does depend on the model and would make this circular.
+     */
+    const neighbourData = this.whitener
+      ? whitenAll(this.flat, this.voices.length, FEATURE_COUNT, this.whitener)
+      : undefined;
+
     this.tasteModel = fitTaste(this.flat, FEATURE_COUNT, {
       rows,
       ratings,
+      neighbourData,
       categoryOf: (row) => this.categoryOf(row),
     });
+    this.fittedAt = this.ratings.size;
+    this.ratingsSinceFit = 0;
     this.predicted = null;
     this.predictedDone = null;
     return this.tasteModel;
@@ -994,6 +1024,53 @@ export class Store {
     this.ratings.set(v.id, rec);
     this.emit();
     await putRating(rec);
+    this.ratingsSinceFit++;
+    this.maybeRefit();
+  }
+
+  /** How many ratings the model was last fitted on, and how many since. */
+  private fittedAt = 0;
+  private ratingsSinceFit = 0;
+  private refitting = false;
+
+  /**
+   * Refit once enough has changed to be worth it.
+   *
+   * The model was fitted when the corpus was analysed and then never again
+   * unless you pressed the button, so everything downstream of it drifted
+   * steadily out of date as you rated - the predicted column, the axis you can
+   * plot against, and the rating order that claims to put the best guesses
+   * first. The one screen where you generate the evidence was the screen where
+   * the model ignored it.
+   *
+   * Proportional rather than fixed, because the cost and the value move in
+   * opposite directions. Early on twenty ratings is most of what is known and
+   * the fit is instant; at four thousand it is noise, and the fit is a
+   * neighbour scan over every rated pair. A quarter more than last time keeps
+   * it frequent while it is cheap and rare once it is not, with a floor so the
+   * first few dozen ratings still land.
+   */
+  private maybeRefit(): void {
+    if (this.refitting || !this.flat) return;
+    /*
+     * Judgements since the last fit, not the size of the set.
+     *
+     * Changing your mind about a patch you already rated teaches the model
+     * exactly as much as rating a new one - more, sometimes, since you went
+     * back for it - and counting the set instead meant a session spent
+     * revising never refitted at all.
+     */
+    if (this.ratingsSinceFit < Math.max(REFIT_FLOOR, Math.round(this.fittedAt * REFIT_FRACTION))) return;
+    this.refitting = true;
+    void runTask('learning from your ratings', async (task) => {
+      task.set(null, `${fmtCount(this.ratings.size)} ratings`);
+      await yieldToPaint();
+      this.refitTasteModel();
+      this.applyWhitening();
+      this.emit();
+    }).finally(() => {
+      this.refitting = false;
+    });
   }
 
   // ------------------------------------------------------------- ranking
