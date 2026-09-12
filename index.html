@@ -6,24 +6,18 @@
     <!--
       The wordmark's block, in the one place that can only take text.
 
-      Two of U+25A0 BLACK SQUARE, which is the shape after measuring the
-      candidates in the font a tab is actually drawn in (Segoe UI, 15px):
+      U+25AC BLACK RECTANGLE. Measured in the font a tab is drawn in (Segoe UI
+      at 15px) it inks 9px tall against 11px for a black square and 19px for a
+      full block, so it is the shortest of the three - but it is the only one
+      whose proportion is actually the mark's, wider than it is tall, and in a
+      tab at tab size that reads better than a squarer shape at the nominally
+      correct height.
 
-        U+25AC BLACK RECTANGLE   ink  9px tall - sits low and thin
-        U+25A0 BLACK SQUARE      ink 11px tall
-        U+2588 FULL BLOCK        ink 19px tall - a whole line
-
-      Eleven is the one that matches the mark in the app, which is set to three
-      quarters of the em. Two of them because the mark is wider than it is
-      tall, and they can be: the square's side bearing measures -0.08px, so the
-      ink is a hair wider than the advance and the pair butts together with no
-      seam. A full block would tile too, but at nearly twice the height.
-
-      They take the tab's own text colour, so this works whether the browser
+      It takes the tab's own text colour, so this works whether the browser
       draws tab text light on dark or dark on light - which a shaded character
       like U+2593 would not.
     -->
-    <title>■■ DX7 curator</title>
+    <title>▬ DX7 curator</title>
   </head>
   <body>
     <div id="app"></div>
