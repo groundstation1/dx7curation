@@ -457,8 +457,12 @@ function render(): void {
       onPlay: () => void play(),
       autoPlay: ctx.player.autoPlay,
       onHover: (n) => {
+        // Back to the patch being rated, sound included: it is the one the
+        // screen is about, and you were only visiting the family.
         if (n < 0) {
-          keyboard.setPatch(store.voices[queue[position]]?.unpacked ?? null);
+          const back = store.voices[queue[position]];
+          keyboard.setPatch(back?.unpacked ?? null);
+          if (back && ctx.player.mayPlay('hover')) void play('hover');
           return;
         }
         const other = store.voices[n];

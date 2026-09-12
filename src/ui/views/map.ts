@@ -284,6 +284,16 @@ let focusSub = '';
  * `'unrated'` is the untouched pile; a number is a floor, "this good or better".
  */
 let focusRating: '' | 'unrated' | 1 | 2 | 3 | 4 | 5 = '';
+/**
+ * Widen a minimum rating to take in the unjudged as well.
+ *
+ * "Four stars or better" is what you have decided; "four stars or better, or
+ * not rated yet" is that plus everything you have not decided about - the
+ * keepers and the candidates, which together are the only patches still worth
+ * looking at. Everything rated three or less has been ruled out and is just in
+ * the way.
+ */
+let orUnrated = false;
 let matched: Set<number> | null = null;
 
 // interpolation
@@ -1289,9 +1299,17 @@ function renderSide(): void {
     onPlay: (n) => void audition(n),
     autoPlay: ctx.player.autoPlay,
     onHover: (n) => {
-      // Leaving the list puts the keyboard back on whatever is selected.
+      // Leaving the list puts everything back on whatever is selected - the
+      // keyboard, and the sound too. Having gone down the family to compare
+      // them, what you want next is the one you pinned, and having to click it
+      // again to get it back is a step that says nothing.
       if (n < 0) {
         armKeyboard();
+        const back = selected >= 0 ? selected : hovered;
+        if (back >= 0 && ctx.player.mayPlay('hover')) {
+          lastAuditionAt = performance.now();
+          void audition(back, false, 'hover');
+        }
         return;
       }
       // Overrides the pinned selection, deliberately: the whole point of this
@@ -1342,6 +1360,8 @@ function applyFilters(): void {
         const r = store.ratingOf(i);
         if (focusRating === 'unrated') {
           if (r !== null) continue;
+        } else if (orUnrated) {
+          if (r !== null && r < focusRating) continue;
         } else if (r === null || r < focusRating) continue;
       }
       const tags = cat ? `${cat} ${CATEGORY_LABELS[cat]} ${subcategoryLabel(cat, store.subcategoryOf(i))}` : '';
@@ -1910,13 +1930,18 @@ function showSelect(): HTMLElement {
     onchange: (e: Event) => {
       const value = (e.target as HTMLSelectElement).value;
       focusSub = '';
-      if (value === 'unrated' || value.startsWith('min')) {
-        focusRating = value === 'unrated' ? 'unrated' : (Number(value.slice(3)) as 1 | 2 | 3 | 4 | 5);
+      if (value === 'unrated' || value.startsWith('min') || value.startsWith('or')) {
+        // "or4" is four-or-better plus the unrated; "min4" is four-or-better.
+        orUnrated = value.startsWith('or');
+        focusRating = value === 'unrated'
+          ? 'unrated'
+          : (Number(value.slice(orUnrated ? 2 : 3)) as 1 | 2 | 3 | 4 | 5);
         focusCategory = '';
         colourBy = 'rating';
         setSetting('map.colourBy', colourBy);
       } else {
         focusRating = '';
+        orUnrated = false;
         focusCategory = value as Category | '';
         if (focusCategory) {
           colourBy = 'subcategory';
@@ -1936,8 +1961,15 @@ function showSelect(): HTMLElement {
       el('option', { value: 'unrated', selected: focusRating === 'unrated' }, 'not rated yet'),
       ...([1, 2, 3, 4, 5] as const).map((r) => el('option', {
         value: 'min' + r,
-        selected: focusRating === r,
+        selected: focusRating === r && !orUnrated,
       }, r === 1 ? 'rated at all' : r === 5 ? STAR.repeat(5) : STAR.repeat(r) + ' or better'))),
+    // The working set: what you have kept, plus what you have not judged.
+    // Everything in between has been ruled out and is only in the way.
+    el('optgroup', { label: 'still in play' },
+      ...([3, 4, 5] as const).map((r) => el('option', {
+        value: 'or' + r,
+        selected: focusRating === r && orUnrated,
+      }, (r === 5 ? STAR.repeat(5) : STAR.repeat(r) + '+') + ', or not rated yet'))),
   );
 }
 
