@@ -101,6 +101,19 @@ const MIN_LIFT = 2;
  *  but not five, which is what an unmerged PIANO does to a plot. */
 const MAX_PER_WORD = 2;
 
+/*
+ * Words that mean the same thing are not merged, and should not be.
+ *
+ * SAX and SAXOPHONE both earn labels, in neighbouring regions, and both are
+ * right: they are two words the archive really uses, on two groups of patches
+ * that really are adjacent and really are separable. Stemming them together is
+ * the obvious next idea and it would throw away a true distinction to remove
+ * an apparent repetition - and it would have to be a hand-written synonym list,
+ * since no stemmer turns SAXOPHONE into SAX. A little duplication is the
+ * corpus's vocabulary showing through, which is the whole point of reading the
+ * names instead of the categories.
+ */
+
 /**
  * Work out what to call each part of the plot.
  *
