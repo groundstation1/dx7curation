@@ -2,16 +2,14 @@
 
 ![The Browse screen: thirty thousand patches laid out so that ones which sound alike sit together, each region labelled with the word its patches are actually named, and the selected voice broken down in the sidebar.](docs/browse.png)
 
-There are tens of thousands of free Yamaha DX7 patches on the internet and room
-for 128 on the synth. This is a browser app for closing that gap. It renders
-every voice you give it, measures what it sounds like, collapses the duplicates,
-and draws the rest as a map where patches that sound alike sit together and
-hovering plays whatever is under the cursor. You rate one patch per group rather
-than all thirty thousand. What comes out is four 32-voice bank files, ordered so
-that neighbouring slots sound adjacent, ready to send over MIDI or download.
+Tens of thousands of free Yamaha DX7 patches exist. A synth holds 128. This is a
+browser app for closing that gap. It renders every voice, measures it, and drops
+the duplicates. What survives is drawn as a map where patches that sound alike
+sit together, so you rate one per group instead of all of them. Out come four
+32-voice banks, ordered so that neighbouring slots sound adjacent.
 
-Everything stays on your machine: the patches, the measurements and your ratings
-live in IndexedDB and nothing is uploaded. Chrome only, because it needs WebMIDI.
+Nothing leaves your machine: the patches, the measurements and your ratings live
+in IndexedDB. Chrome only, for WebMIDI.
 
 ```bash
 npm install
