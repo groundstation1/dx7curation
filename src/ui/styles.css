@@ -1205,13 +1205,20 @@ table.data.fixed { table-layout: fixed; }
  * rather than a label in the corner - everywhere else it sits at 22px next to
  * the tabs and must not compete with them.
  */
+/* A single quiet line under the two choices, not a panel of its own. */
+/* Centred under the pair, like the restore button above it, rather than
+   hanging off the left edge with nothing to align to. */
+.about-device { margin-top: 14px; display: flex; justify-content: center; }
+
 .splash { max-width: 880px; }
 .splash-brand {
   display: flex; align-items: center; justify-content: center; gap: 14px;
   font-family: 'Chango', var(--mono);
   font-size: clamp(30px, 5.4vw, 52px);
   line-height: 1; color: var(--text);
-  margin: 0 0 12px;
+  /* Room to be the thing the screen opens with, rather than a label stuck to
+     the top of the first card. */
+  margin: 14px 0 36px;
 }
 /*
  * The same bracketing blocks as the topbar, at this size and without the
@@ -1226,14 +1233,40 @@ table.data.fixed { table-layout: fixed; }
 
 .splash-choices { display: grid; gap: var(--gut); text-align: left; }
 /* Side by side only when there are two of them, so a single card does not sit
-   in half the width with nothing beside it. */
-@media (min-width: 760px) { .splash-choices.two { grid-template-columns: 1fr 1fr; align-items: start; } }
+   in half the width with nothing beside it. Stretched, because two cards of
+   different heights beside each other read as one of them being unfinished. */
+@media (min-width: 760px) { .splash-choices.two { grid-template-columns: 1fr 1fr; align-items: stretch; } }
+/*
+ * Both cards are the same three things: a name, one line, one button. The
+ * button sits on the bottom edge whatever the line above it does, which is
+ * what actually makes a pair of cards look like a pair.
+ */
 .splash-card {
   background: var(--surface); border-radius: var(--radius); padding: 20px;
+  display: flex; flex-direction: column; min-height: 150px;
 }
 .splash-card h2 { margin: 0 0 6px; font-size: 17px; letter-spacing: -0.01em; }
-.splash-card p { margin: 0 0 14px; font-size: 13px; }
-.splash-card .dropzone { padding: 30px 20px; }
+.splash-card p { margin: 0 0 16px; font-size: 12.5px; color: var(--muted); }
+.splash-card .splash-act { margin-top: auto; }
+/* The whole card is the drop target, so there is no box drawn inside a box. */
+/* Left-aligned like its neighbour: the drop zone centres its own contents,
+   which is right for a box on its own and wrong for one of a matched pair. */
+/*
+ * Same padding as its neighbour, or the headings do not line up.
+ *
+ * `.onboard .dropzone` sets 52px of top padding, which is right for a box
+ * whose whole content is an invitation to drop something and wrong for one of
+ * a matched pair - it pushed this card's title half an inch below the other's.
+ * Left-aligned for the same reason: the drop zone centres its contents, which
+ * suits a box on its own.
+ */
+.splash-card.dropzone { text-align: left; padding: 20px; }
+/* No dashed outline. The two cards have to be the same box or their contents
+   cannot line up - a border is a pixel of height on one side and not the
+   other, and chasing that difference through the layout is how you end up with
+   two tiles that are nearly the same. Dragging over it says so by lighting up
+   instead. */
+.splash-card.dropzone.over { background: var(--raise); box-shadow: inset 0 0 0 1px var(--accent); }
 .btn.big { font-size: 14px; padding: 10px 18px; }
 
 /* ------------------------------------------------- the described pulldown */
@@ -1298,3 +1331,43 @@ table.data.fixed { table-layout: fixed; }
   color: var(--muted); background: var(--raise-2); border-radius: var(--pill); padding: 2px 7px;
 }
 .credit-what { margin: 6px 0 0; font-size: 12.5px; line-height: 1.65; color: var(--muted); max-width: 68ch; }
+
+/*
+ * The first screen while something is loading into it.
+ *
+ * One bar, the size of the decision it replaced. Every stage - fetching,
+ * unpacking, writing, reading back, analysing - reports through it rather than
+ * each announcing itself in turn, because from the outside they are one thing:
+ * the wait before you can hear anything.
+ */
+.splash-load { max-width: 520px; margin: 40px auto 0; }
+.splash-load-label { font-size: 14px; margin-bottom: 12px; }
+.splash-load-bar {
+  height: 6px; border-radius: var(--pill); background: var(--raise-2);
+  overflow: hidden; position: relative;
+}
+.splash-load-bar > i {
+  display: block; height: 100%; background: var(--accent);
+  border-radius: var(--pill); transition: width 0.2s linear;
+}
+/* Nothing to measure yet: a band that travels, so it is plainly not stuck. */
+.splash-load-bar.indeterminate > i {
+  width: 40% !important; transition: none;
+  animation: splash-slide 1.1s ease-in-out infinite;
+}
+@keyframes splash-slide {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(280%); }
+}
+.splash-load-detail { margin-top: 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* Fine print inside the card whose promise it is: it is about the files you
+   are handing over, not about a collection that ships with the app. */
+.splash-fine { margin: 0 0 14px; font-size: 11px; color: var(--muted); }
+/* A real button, just a quiet one - it was a ghost and read as a caption. */
+.bare { padding: 0; }
+.splash-restore { margin-top: 14px; display: flex; justify-content: center; }
+.btn.wide { width: 100%; justify-content: center; text-align: center; }
+/* The drop zone inside a splash card draws nothing: the card is the target. */
+.drop-inner { text-align: left; }
+.drop-inner .field { justify-content: flex-start !important; margin-top: 10px !important; font-size: 11px; }

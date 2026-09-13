@@ -2,8 +2,8 @@
   {
     "name": "DX7 patch library",
     "file": "bundles/dx7-patch-library.json.gz",
-    "voices": 30956,
-    "bytes": 21143774,
-    "note": "A public-domain collection, already measured, grouped and laid out."
+    "voices": 30365,
+    "bytes": 20828165,
+    "note": "Public domain, already analysed."
   }
 ]

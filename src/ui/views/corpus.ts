@@ -31,7 +31,7 @@ import { categoryColour } from '../colour.ts';
 import { FEATURE_DEFS } from '../../features/vector.ts';
 import { rankSources, sortSources, SOURCE_LEVELS, type SourceLevel, type SourceScore } from '../sourceRanking.ts';
 import { ratingColour } from '../colour.ts';
-import { runTask } from '../task.ts';
+import { activeTask, claimTaskDisplay, runTask, subscribeTasks } from '../task.ts';
 
 const SWEEP_POINTS = [0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.16, 0.22, 0.3];
 
@@ -58,6 +58,20 @@ let lastNote = '';
  * and no way back to the choice at all.
  */
 let forceSplash = false;
+/**
+ * A load started from the splash owns the screen while it runs.
+ *
+ * The header bar is right for work you set going and then carry on around -
+ * it is small, it is out of the way, and it does not interrupt. It is wrong
+ * for the one action on the first screen, where there is nothing else to look
+ * at, nothing else to do, and the two cards it is happening behind are no
+ * longer choices. So the choices give way to the progress, full size, and the
+ * stages report through the same single bar rather than each announcing
+ * itself.
+ */
+let splashBusy = false;
+let splashBar: HTMLElement | null = null;
+let splashUnsub: (() => void) | null = null;
 
 /** Called from the header. */
 export function openSplash(): void {
@@ -77,6 +91,45 @@ function statBlock(k: string, v: string): HTMLElement {
 
 // ------------------------------------------------------------------ intake
 
+/**
+ * The "your own files" half of the splash: a card that is itself the target.
+ *
+ * Shares the drop handling with the ordinary zone and none of its chrome - no
+ * second border, no repeated sentence - and puts the button on the bottom edge
+ * so the two cards end level.
+ */
+function dropCard(): HTMLElement {
+  const inner = dropZone(true);
+  inner.classList.remove('dropzone');
+  inner.classList.add('drop-inner');
+  /*
+   * The act holds the button and nothing else, in both cards.
+   *
+   * It is the element with `margin-top: auto`, so whatever is inside it is
+   * what sits on the bottom edge. The drop zone brings a pin toggle along with
+   * the button, and while that rode inside the act this card's button sat a
+   * row higher than the one beside it. Hoisted out, both acts contain one
+   * button and the pair lines up.
+   */
+  const act = el('div', { class: 'splash-act' }, inner);
+  const card = el('div', { class: 'splash-card dropzone' },
+    el('h2', {}, 'Your own files'),
+    el('p', {}, 'Drop .syx files, a folder or a zip.'),
+    // Above the button, not below it: the button has to be the last thing in
+    // both cards or it cannot sit on the same line as the one beside it.
+    el('div', { class: 'splash-fine' }, 'Stays on this machine.'),
+    act,
+  );
+  const pin = inner.querySelector('.field');
+  if (pin) card.insertBefore(pin, act);
+  // The listeners stay on the inner element; the card takes the highlight so
+  // the whole tile responds rather than a rectangle inside it.
+  for (const [event, on] of [['dragover', true], ['dragleave', false], ['drop', false]] as const) {
+    inner.addEventListener(event, () => card.classList.toggle('over', on));
+  }
+  return card;
+}
+
 function dropZone(big: boolean): HTMLElement {
   const input = el('input', {
     type: 'file',
@@ -91,18 +144,34 @@ function dropZone(big: boolean): HTMLElement {
 
   const pinToggle = el('input', { type: 'checkbox' }) as HTMLInputElement;
 
+  /*
+   * Pinning on import is how you say "these are mine, keep them" before you
+   * have listened to anything. Hidden until asked for, since the common case
+   * is dropping an archive you have never heard.
+   *
+   * Above the button on the first screen, because there the button is the last
+   * thing in a card that has to line up with the card beside it, and anything
+   * after it pushes it out of line.
+   */
+  const pin = adv(el('label', {
+    class: 'field',
+    style: big ? { marginBottom: '12px' } : { justifyContent: 'center', marginTop: '12px' },
+  }, pinToggle, 'pin into the final 128'));
+
+  const button = el('div', { style: { marginTop: big ? '0' : '10px' } },
+    // The same button as the collection's, in the same place, at the same
+    // size - just not the primary one. Two tiles offering the same kind of
+    // choice should not disagree about what a choice looks like.
+    el('button', { class: big ? 'btn big wide' : 'btn', onclick: () => input.click() }, 'Choose files'),
+    input);
+
   const zone = el(
     'div',
     { class: 'dropzone' },
-    el('div', { class: big ? 'drop-big' : '' }, 'Drop .syx files, folders or a .zip here'),
-    el('div', { style: { marginTop: big ? '14px' : '10px' } },
-      el('button', { class: big ? 'btn primary big' : 'btn', onclick: () => input.click() }, 'Choose files'),
-      input),
-    // Pinning on import is how you say "these are mine, keep them" before you
-    // have listened to anything. Hidden until asked for, since the common case
-    // is dropping an archive you have never heard.
-    adv(el('label', { class: 'field', style: { justifyContent: 'center', marginTop: '12px' } },
-      pinToggle, 'pin these into the final 128 regardless of rating')),
+    big ? null : el('div', {}, 'Drop .syx files, folders or a .zip here'),
+    big ? pin : null,
+    button,
+    big ? null : pin,
   );
 
   const stop = (e: DragEvent) => {
@@ -147,17 +216,18 @@ function dropZone(big: boolean): HTMLElement {
  * anybody about a set they cannot have.
  */
 function onboarding(): HTMLElement {
+  if (splashBusy) return splashProgress();
   const choices = el('div', { class: 'splash-choices' });
 
-  const scratch = el('div', { class: 'splash-card' },
-    el('h2', {}, 'Start from scratch'),
-    el('p', { class: 'muted' }, 'Drop in your own .syx files, folders or a zip.'),
-    dropZone(true),
-    // The pointer to an outside archive lived here to answer "where do I get a
-    // lot of these", which the collection beside it now answers without
-    // sending anybody off to find a zip. Still credited on the about page,
-    // where a source belongs.
-  );
+  /*
+   * The card is the drop target.
+   *
+   * It used to contain one: a dashed box inside a card, each with its own
+   * padding and its own version of the same sentence. The card was already a
+   * rectangle you can drop files on, and the inner box cost the pair its
+   * symmetry - this side came out taller than the collection beside it.
+   */
+  const scratch = dropCard();
 
   const store = ctx.store;
   const page = el('div', { class: 'onboard splash' },
@@ -174,9 +244,8 @@ function onboarding(): HTMLElement {
       : null,
     el('div', { class: 'splash-brand' },
       el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
-    el('p', { class: 'lede' }, 'Everything stays on this machine. Nothing is uploaded.'),
     choices,
-    el('div', { style: { marginTop: '18px' } }, exportPanel()),
+    el('div', { class: 'splash-restore' }, exportPanel()),
   );
 
   // Asynchronous, and the screen is complete without it: the shipped
@@ -190,19 +259,104 @@ function onboarding(): HTMLElement {
   return page;
 }
 
+/**
+ * The whole first screen, while something is loading into it.
+ *
+ * Driven straight off the task stack, so every stage - fetching, unpacking,
+ * writing, reading back - is the same bar moving rather than four of them in
+ * sequence.
+ */
+/*
+ * Where each stage sits on the one bar.
+ *
+ * The substeps are separate tasks and each of them counts its own work from
+ * zero, so shown raw the bar filled and reset five times over - which reads as
+ * five failures rather than one job. Each stage gets a band of the whole
+ * instead, and its own progress moves within that band.
+ *
+ * The widths are roughly what the stages cost on a large collection, measured
+ * rather than guessed; they do not have to be exact, only monotonic, because
+ * what ruins a progress bar is going backwards and not being slightly wrong
+ * about the middle.
+ *
+ * Anything unrecognised holds the bar where it is rather than moving it
+ * somewhere arbitrary - a stage nobody predicted is not a reason to lie.
+ */
+const LOAD_STAGES: Array<[RegExp, number, number]> = [
+  [/^fetching/i, 0, 0.30],
+  [/unpacking/i, 0.30, 0.40],
+  [/clearing/i, 0.40, 0.42],
+  [/writing to the database/i, 0.42, 0.62],
+  [/restoring ratings/i, 0.62, 0.65],
+  [/restoring measurements/i, 0.65, 0.80],
+  [/reading|loading the corpus|matching up/i, 0.80, 0.90],
+  [/projecting|grouping|learning/i, 0.90, 0.98],
+  [/analysing|near-duplicate|laying out/i, 0.90, 0.99],
+];
+
+function splashProgress(): HTMLElement {
+  const label = el('div', { class: 'splash-load-label' }, 'Starting up');
+  const bar = el('div', { class: 'splash-load-bar' }, el('i', { style: { width: '0%' } }));
+  const detail = el('div', { class: 'splash-load-detail muted' }, '');
+  splashBar = el('div', { class: 'onboard splash' },
+    el('div', { class: 'splash-brand' },
+      el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
+    el('div', { class: 'splash-load' }, label, bar, detail),
+  );
+
+  let shown = 0;
+  const paint = () => {
+    const task = activeTask();
+    if (!task) return;
+    label.textContent = task.label;
+
+    const band = LOAD_STAGES.find(([re]) => re.test(task.label));
+    const fill = bar.firstElementChild as HTMLElement;
+    if (band) {
+      const [, from, to] = band;
+      const within = task.fraction === null ? 0 : task.fraction;
+      // Never backwards: a stage that starts lower than the last one finished
+      // is still further through the job than the last one was.
+      shown = Math.max(shown, from + (to - from) * within);
+      bar.classList.remove('indeterminate');
+      fill.style.width = `${(shown * 100).toFixed(1)}%`;
+    } else if (shown === 0) {
+      bar.classList.add('indeterminate');
+      fill.style.width = '100%';
+    }
+    detail.textContent = task.detail || (shown > 0 ? `${Math.round(shown * 100)}%` : '');
+  };
+  splashUnsub?.();
+  splashUnsub = subscribeTasks(paint);
+  claimTaskDisplay(true);
+  paint();
+  return splashBar;
+}
+
+function endSplashLoad(): void {
+  splashBusy = false;
+  claimTaskDisplay(false);
+  splashUnsub?.();
+  splashUnsub = null;
+  splashBar = null;
+}
+
 function bundleCard(entry: BundleEntry): HTMLElement {
-  const ask = el('div', { class: 'muted', style: { marginTop: '8px' } });
-  // Rounded to the unit that makes it a real number: "0 MB" for a small
-  // collection says the download is free, which is not what it means.
-  const size = entry.bytes
-    ? (entry.bytes >= 1e6 ? `${(entry.bytes / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(entry.bytes / 1024))} KB`) + ' download'
-    : '';
-  const count = entry.voices ? `${fmtInt(entry.voices)} patches` : '';
+  // No margin while it is empty, or it reserves space for a question nobody
+  // has been asked yet.
+  const ask = el('div', { class: 'muted' });
+  // No byte count. It is a number nobody weighs anything against, and the one
+  // question behind it - how long is this going to take - is answered by the
+  // bar that replaces this screen the moment the button is pressed.
   return el('div', { class: 'splash-card primary' },
     el('h2', {}, entry.name),
-    el('p', { class: 'muted' }, entry.note ?? 'Ready to listen to: already measured, grouped and laid out.'),
-    el('button', {
-      class: 'btn primary big',
+    el('p', {}, entry.note ?? 'Measured, grouped and mapped already.'),
+    // Before the button, like the other card's fine print: anything after it
+    // takes the bottom edge away from the button, even at zero height, because
+    // it still carries a margin.
+    ask,
+    el('div', { class: 'splash-act' }, el('button', {
+      class: 'btn primary big wide',
       onclick: async () => {
         /*
          * Replacing is asked about, because this button can now be reached
@@ -216,7 +370,9 @@ function bundleCard(entry: BundleEntry): HTMLElement {
         }
         try {
           forceSplash = false;
-          await runTask(`fetching ${entry.name}`, async (task) => {
+          splashBusy = true;
+          render();
+          await runTask(`Fetching ${entry.name}`, async (task) => {
             const bytes = await fetchBundle(entry, (done, total) => {
               task.set(total ? done / total : null, `${(done / 1e6).toFixed(0)} of ${(total / 1e6).toFixed(0)} MB`);
             });
@@ -224,29 +380,54 @@ function bundleCard(entry: BundleEntry): HTMLElement {
             const text = await readSessionBytes(bytes);
             await ctx.store.importSession(text, { bundle: entry.name });
           });
-          void autoAdvance();
+          await autoAdvance();
+          endSplashLoad();
+          /*
+           * Straight to the map.
+           *
+           * The whole point of a prepared collection is that there is nothing
+           * to set up, so ending back on the screen you pressed the button on
+           * - now showing an import panel - asks you to work out where to go
+           * next when the answer is the same every time.
+           */
+          ctx.go('map');
+          return;
         } catch (err) {
           if ((err as Error).name !== 'AbortError') lastNote = `Could not load ${entry.name}: ${(err as Error).message}`;
         }
+        endSplashLoad();
         render();
       },
-    }, 'Load it'),
-    el('div', { class: 'muted', style: { marginTop: '8px', fontSize: '11.5px' } },
-      [count, size].filter(Boolean).join('  ·  ')),
-    ask,
+    }, entry.voices ? `Load ${fmtInt(entry.voices)} patches` : 'Load it')),
   );
 }
 
 async function ingest(files: File[], pinned: boolean): Promise<void> {
   forceSplash = false;
+  // Dropping files from the first screen gets the same treatment: there is
+  // nothing else on it to look at while they are read.
+  if (ctx.store.voices.length === 0) {
+    splashBusy = true;
+    render();
+  }
   try {
     await ctx.store.ingestFiles(files, { pinned, userSupplied: pinned });
   } catch (err) {
     lastNote = `Could not read those files: ${(err as Error).message}`;
+    endSplashLoad();
     render();
     return;
   }
-  void autoAdvance();
+  await autoAdvance();
+  const landed = splashBusy;
+  endSplashLoad();
+  // Files dropped on the first screen land on the map too, for the same
+  // reason: the pipeline has just finished and there is nothing left to do here.
+  if (landed && ctx.store.projection) {
+    ctx.go('map');
+    return;
+  }
+  render();
 }
 
 // ------------------------------------------------------------- the pipeline
@@ -882,10 +1063,17 @@ function exportPanel(): HTMLElement {
   }) as HTMLInputElement;
 
   const empty = store.voices.length === 0;
-  const panel = el('div', { class: 'panel' },
-    el('h2', {}, empty ? 'Or load a file you saved earlier' : 'Save and load'),
+  /*
+   * With nothing loaded this is one button and does not deserve a card.
+   *
+   * A heading, a border and a sentence around a single quiet action made it
+   * look like a third choice competing with the two above it, which it is not
+   * - it is for the one person who already has a file.
+   */
+  const panel = el('div', { class: empty ? 'bare' : 'panel' },
+    empty ? null : el('h2', {}, 'Save and load'),
     el('div', { class: 'row' },
-      empty ? el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load a session or ratings file…') : null,
+      empty ? el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load a saved file') : null,
       empty ? restoreInput : null,
       empty ? null : el('button', {
         class: 'btn',
@@ -947,9 +1135,19 @@ function render(): void {
    */
   if (store.voices.length === 0 || forceSplash) {
     container.appendChild(onboarding());
-    if (isAdvanced()) {
-      container.appendChild(el('div', { class: 'stack page-narrow', style: { marginTop: 'var(--gut)' } },
-        el('div', { class: 'panel' }, disclosure('Read patches off a device', devicePanel, { key: 'device' }))));
+    /*
+     * Hardware, for the person who has a synth and no files.
+     *
+     * A whole panel for it made the first screen look like a settings page, so
+     * it is a collapsed line under the two choices - still there for the one
+     * case that needs it, and worth nothing of the screen until asked for.
+     */
+    if (isAdvanced() && !splashBusy) {
+      container.appendChild(el('div', { class: 'stack page-narrow about-device' },
+        // Folded, and not remembering it was ever open: here it is the third
+        // answer to a question nearly everybody answers with one of the two
+        // above it.
+        disclosure('Or read them off a device', devicePanel)));
     }
     return;
   }

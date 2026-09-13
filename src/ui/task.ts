@@ -64,6 +64,24 @@ export function anyTaskRunning(): boolean {
   return stack.length > 0;
 }
 
+/*
+ * Somewhere else is showing the progress, so the header should not.
+ *
+ * Two bars for one job is worse than either alone: they disagree, because one
+ * of them is spreading the stages over a single scale and the other is showing
+ * whichever stage is on top, and a reader has to work out which to believe.
+ */
+let owned = false;
+
+export function claimTaskDisplay(on: boolean): void {
+  owned = on;
+  emit(true);
+}
+
+export function taskDisplayClaimed(): boolean {
+  return owned;
+}
+
 /**
  * Run `work`, reporting its progress for as long as it takes.
  *

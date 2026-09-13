@@ -6,7 +6,7 @@ import { getSetting } from './settings.ts';
 import { mountPianoRoll } from './pianoRoll.ts';
 import { mountSoundBar } from './soundBar.ts';
 import { advancedSwitch, isAdvanced, subscribeAdvanced } from './advanced.ts';
-import { activeTask, subscribeTasks } from './task.ts';
+import { activeTask, taskDisplayClaimed, subscribeTasks } from './task.ts';
 import type { AutoPlay } from '../audio/player.ts';
 import { keyboard } from '../audio/keyboard.ts';
 
@@ -258,7 +258,7 @@ export class App {
    * missing rather than quietly silent.
    */
   private renderTask(): void {
-    const task = activeTask();
+    const task = taskDisplayClaimed() ? null : activeTask();
     this.taskEl.hidden = !task;
     clear(this.taskEl);
     if (!task) return;
