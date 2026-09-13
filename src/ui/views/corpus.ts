@@ -242,6 +242,41 @@ function choicesRow(): HTMLElement {
   return choices;
 }
 
+/**
+ * Anything dropped on this screen, anywhere on it.
+ *
+ * Armed on the container rather than on the panel, so the whole window takes a
+ * drop and not just the tile that looks like it will - including the dimmed
+ * area around the first screen, which is still screen and which people aim at
+ * because nothing about it says not to.
+ *
+ * What arrived decides what happens to it, so there is nothing a target
+ * boundary would be protecting.
+ */
+function armDropTarget(host: HTMLElement): void {
+  const result = el('div', { class: 'muted' });
+  const stop = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  host.addEventListener('dragover', (e) => {
+    stop(e);
+    host.classList.add('drop-armed');
+  });
+  host.addEventListener('dragleave', (e) => {
+    // Only when the cursor has left the host, not on the way between two of
+    // its children, which fires dragleave on the one behind.
+    if (e.target === host) host.classList.remove('drop-armed');
+  });
+  host.addEventListener('drop', (e) => {
+    stop(e);
+    host.classList.remove('drop-armed');
+    const files = [...((e as DragEvent).dataTransfer?.files ?? [])];
+    if (files.length) void routeDropped(files, false, result);
+  });
+  host.appendChild(result);
+}
+
 function onboarding(): HTMLElement {
   if (splashBusy) return splashProgress();
 
@@ -260,36 +295,7 @@ function onboarding(): HTMLElement {
     el('div', { class: 'splash-restore' }, exportPanel()),
   );
 
-  /*
-   * The whole screen takes a drop, not just the tile that looks like it will.
-   *
-   * On a page whose entire purpose is "give me something to work with", aiming
-   * is a tax. And since what arrives is identified by reading it rather than by
-   * which half of the screen it landed on, there is nothing a target boundary
-   * would be protecting: a session restores, a ratings file reapplies, patches
-   * import, whichever card they were nearer.
-   */
-  const dropResult = el('div', { class: 'muted' });
-  const stop = (e: Event) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-  page.addEventListener('dragover', (e) => {
-    stop(e);
-    page.classList.add('drop-armed');
-  });
-  page.addEventListener('dragleave', (e) => {
-    // Only when the cursor has actually left the page, not on the way between
-    // two children of it, which fires dragleave on the one behind.
-    if (e.target === page) page.classList.remove('drop-armed');
-  });
-  page.addEventListener('drop', (e) => {
-    stop(e);
-    page.classList.remove('drop-armed');
-    const files = [...((e as DragEvent).dataTransfer?.files ?? [])];
-    if (files.length) void routeDropped(files, false, dropResult);
-  });
-  page.appendChild(dropResult);
+
 
   // Asynchronous, and the screen is complete without it: the shipped
   // collection appears beside "start from scratch" if there is one, and
@@ -383,18 +389,41 @@ function bundleCard(entry: BundleEntry): HTMLElement {
   // No margin while it is empty, or it reserves space for a question nobody
   // has been asked yet.
   const ask = el('div', { class: 'muted' });
+
+  /*
+   * Already here, so there is nothing to offer.
+   *
+   * Every source the collection brought carries its name, which is how this
+   * knows. The card stays - it is part of what is in the library and removing
+   * it would leave people wondering where the thing they loaded went - but the
+   * button goes dead rather than offering to replace a library with a copy of
+   * itself, which is the one outcome nobody pressing it could want.
+   */
+  const loaded = ctx.store.bundleNames().includes(entry.name);
   // No byte count. It is a number nobody weighs anything against, and the one
   // question behind it - how long is this going to take - is answered by the
   // bar that replaces this screen the moment the button is pressed.
-  return el('div', { class: 'splash-card primary' },
+  /*
+   * Once it is in, it stops being the loud half of the pair.
+   *
+   * On the first screen the collection is the recommendation and carries the
+   * weight; on Sources, with it already loaded, the live choice is the card
+   * beside it, and leaving both headings at full strength points at the one
+   * thing on the screen that can no longer be done.
+   */
+  return el('div', { class: loaded ? 'splash-card spent' : 'splash-card primary' },
     el('h2', {}, entry.name),
-    el('p', {}, entry.note ?? 'Measured, grouped and mapped already.'),
+    el('p', {}, loaded
+      ? 'Already loaded. Everything below is from here unless you added more.'
+      : entry.note ?? 'Measured, grouped and mapped already.'),
     // Before the button, like the other card's fine print: anything after it
     // takes the bottom edge away from the button, even at zero height, because
     // it still carries a margin.
     ask,
     el('div', { class: 'splash-act' }, el('button', {
-      class: 'btn primary big wide',
+      class: loaded ? 'btn big wide' : 'btn primary big wide',
+      disabled: loaded,
+      title: loaded ? 'These patches are already in this browser' : '',
       onclick: async () => {
         /*
          * Replacing is asked about, because this button can now be reached
@@ -435,7 +464,9 @@ function bundleCard(entry: BundleEntry): HTMLElement {
         endSplashLoad();
         render();
       },
-    }, entry.voices ? `Load ${fmtInt(entry.voices)} patches` : 'Load it')),
+    }, loaded
+      ? 'Loaded'
+      : entry.voices ? `Load ${fmtInt(entry.voices)} patches` : 'Load it')),
   );
 }
 
@@ -1206,6 +1237,9 @@ function exportPanel(): HTMLElement {
 function render(): void {
   const store = ctx.store;
   clear(container);
+  // The whole view takes a drop, on either screen: the scrim is a child of
+  // this, so events from it bubble here too.
+  armDropTarget(container);
 
   /*
    * An empty library always gets the splash, advanced or not.
