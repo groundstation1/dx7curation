@@ -463,6 +463,22 @@ function axes(): Axis[] {
     value: (i) => ctx.store.familyContenders(i).length,
   });
   list.push({ id: 'familySize', label: 'family size, counting every copy', short: 'copies nearby', value: (i) => ctx.store.clusterMembers(i).length });
+  /*
+   * And the third count, which had no axis at all.
+   *
+   * The two above are both about the neighbourhood: how many things sit close
+   * enough to be confused with this one. This is about the patch itself - how
+   * many copies of it the corpus holds, below the merge threshold, which is to
+   * say versions that are not audibly different from each other. It is the
+   * count the sidebar has always shown as "merged", and the one you want when
+   * the question is how much of this archive is the same patch again.
+   */
+  list.push({
+    id: 'nearDupes',
+    label: 'near-identical copies of this one',
+    short: 'near-identical copies',
+    value: (i) => ctx.store.mergedMembers(i).length,
+  });
   return list;
 }
 
@@ -525,7 +541,7 @@ const AXIS_GROUPS: Array<{ label: string; ids: string[] }> = [
   },
   {
     label: 'Corpus',
-    ids: ['familySounds', 'familySize'],
+    ids: ['familySounds', 'familySize', 'nearDupes'],
   },
 ];
 
@@ -1812,9 +1828,27 @@ const PRESETS: MapPreset[] = [
     id: 'modwheel', label: 'Mod wheel', x: 'modVibrato', y: 'modTimbre', colour: 'category',
     note: 'vibrato against timbre change; an unused wheel sits at the origin',
   },
+  /*
+   * Two counts about duplication, against each other.
+   *
+   * This used to plot family size against the model's predicted rating, which
+   * is a fact about your taste on a plot about how much of the archive is the
+   * same patch twice - and worse, `predicted` only exists once there is a
+   * model, so the preset was filtered out of the list entirely until twelve
+   * ratings had been given. The one view that tells you how redundant a
+   * collection is was unreachable until after you had started working through
+   * it, which is exactly backwards.
+   *
+   * Distinct sounds nearby against copies of this one, because those are
+   * independent: family size counting every copy already contains this voice's
+   * own copies, so plotting the two would be plotting a sum against one of its
+   * terms. Far right is a crowded corner of the sound space; far up is one
+   * patch the archives passed round. Coloured by family, so a column of dots
+   * is one thing duplicated.
+   */
   {
-    id: 'copies', label: 'Where the copies are', x: 'familySize', y: 'predicted', colour: 'cluster',
-    note: 'how many near-identical versions of each patch the corpus holds',
+    id: 'copies', label: 'Where the copies are', x: 'familySounds', y: 'nearDupes', colour: 'cluster',
+    note: 'similar sounds nearby against near-identical copies of the same patch',
   },
 ];
 
