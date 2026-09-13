@@ -16,11 +16,10 @@ import { buildBank, BANK_FILE_SIZE } from '../sysex/write.ts';
 import { parseSysexFile, type ParseReport } from '../sysex/parse.ts';
 import { isCarrier } from '../engine/fmcore.ts';
 import { isInitVoice, isSilentByParams } from '../sysex/voice.ts';
-import { ANALYSIS_VERSION, fitStandardizer, standardize, FEATURE_COUNT, FEATURE_DEFS, type Standardizer } from '../features/vector.ts';
+import { ANALYSIS_VERSION, fitStandardizer, standardize, FEATURE_COUNT, type Standardizer } from '../features/vector.ts';
 import type { DupeRequest, DupeResponse } from '../workers/nearDupe.worker.ts';
 import { clusterAtThreshold, chooseRepresentatives, thresholdSweep, type NearDupeGraph, type NearDupeClusters, type SweepRow } from '../cluster/nearDupe.ts';
 import { pca } from '../cluster/pca.ts';
-import { buildNameSpace, nameCloseness, NAME_PULL, type NameSpace } from '../cluster/nameSpace.ts';
 import { fitWhitener, whitenAll, redundancyRatio, redundancyWeights, type Whitener } from '../cluster/whiten.ts';
 import { fitTaste, predictRating, tasteWeights, type TasteModel } from '../cluster/taste.ts';
 import { lda } from '../cluster/lda.ts';
@@ -30,7 +29,6 @@ import type { StructuralFeatures } from '../features/structural.ts';
 import { analyzeAll, type PoolProgress } from '../workers/pool.ts';
 import { isZip, extractZip } from '../util/zip.ts';
 import { runTask, type TaskHandle } from './task.ts';
-
 import { applyResult, newStanding, ratingOffset, type Standing } from '../rank/elo.ts';
 
 /**
@@ -132,33 +130,6 @@ export class Store {
   standardizer: Standardizer | null = null;
   /** Standardised vectors, n * FEATURE_COUNT, row-major. */
   flat: Float32Array | null = null;
-
-  /*
-   * What the names say, and the two matrices that carry it.
-   *
-   * A DX7 name is ten characters somebody chose on purpose, and until now it
-   * reached exactly one place: a keyword nudged the category and nothing else
-   * ever looked. That is a whole axis thrown away. "LEAD" is an intention no
-   * spectrum analysis recovers, "ORGAN" separates two things the features
-   * genuinely confuse, and the words carrying the most taste - warm, fat,
-   * soft, dirty - have no acoustic definition at all.
-   *
-   * cluster/nameSpace.ts reduces the words to about a dozen dense components.
-   * They are appended to the audio features to make the `semantic` space, and
-   * that is what the model learns in and what neighbourhoods are measured in.
-   *
-   * Not near-duplicate detection, though, and this is the one hard line. Two
-   * archives naming the same patch differently still have to merge, and two
-   * unrelated patches both called BASS 1 still have to stay apart. Dedupe goes
-   * on measuring the audio alone: `distanceSpace` never sees any of this.
-   */
-  nameSpace: NameSpace | null = null;
-  /** Audio features with the name components appended. */
-  semantic: Float32Array | null = null;
-  /** The same, whitened, for the neighbour search. */
-  semanticNeighbour: Float32Array | null = null;
-  /** Width of both. FEATURE_COUNT when there are no usable names. */
-  semanticDim = FEATURE_COUNT;
   /**
    * The same vectors, whitened, and weighted by what the ratings care about.
    *
@@ -176,21 +147,6 @@ export class Store {
   redundancy = 1;
   /** 0 disables taste weighting of distances, 1 applies it fully. */
   tasteStrength = 1;
-  /**
-   * How much the words in a name count against the sound of the patch.
-   *
-   * 1 puts a name component on the same footing as an audio feature, which
-   * with a dozen of them against sixty-odd features means the names decide
-   * roughly a sixth of where a patch sits. 0 turns the whole thing off and
-   * gets the behaviour this app had before names were read at all - worth
-   * keeping, because an archive of INIT VOICE copies and slot numbers has
-   * nothing to say and a corpus of carefully named patches has a great deal.
-   */
-  nameWeight = 1;
-  /** Whether the fitted model is the one that reads names. */
-  tasteUsesNames = false;
-  /** What reading them was worth, in R-squared, the last time it was tried. */
-  nameGain = 0;
   graph: NearDupeGraph | null = null;
   /**
    * The looser of the two thresholds: groups voices into families that get a
@@ -596,75 +552,6 @@ export class Store {
     }
   }
 
-  /**
-   * Read every name a voice arrived under.
-   *
-   * All of them, not just the surviving one: the same patch is called SOFT EP
-   * in one archive and RHODES MK1 in the next, and the two together say more
-   * than either does. Agreement across archives is the strongest naming signal
-   * this corpus has.
-   */
-  private nameDocs(): string[][] {
-    return this.voices.map((v) => {
-      const names = [v.name];
-      for (const src of v.sources) if (src.name !== v.name) names.push(src.name);
-      return names;
-    });
-  }
-
-  /**
-   * Build the semantic space: standardised audio, then the name components.
-   *
-   * The name block arrives already scaled to unit variance per column, which
-   * is the same footing the standardised audio features are on, so `weight` is
-   * a straight statement of how much the words count against the sound.
-   */
-  private buildSemantic(): void {
-    const n = this.voices.length;
-    if (!this.flat) return;
-    const space = this.nameSpace;
-    const extra = space && this.nameWeight > 0 ? space.dims : 0;
-    this.semanticDim = FEATURE_COUNT + extra;
-
-    const whitened = this.whitener
-      ? whitenAll(this.flat, n, FEATURE_COUNT, this.whitener)
-      : null;
-    if (extra === 0) {
-      this.semantic = this.flat;
-      this.semanticNeighbour = whitened;
-      return;
-    }
-
-    const dim = this.semanticDim;
-    const semantic = new Float32Array(n * dim);
-    const neighbour = new Float32Array(n * dim);
-    for (let i = 0; i < n; i++) {
-      const to = i * dim;
-      const from = i * FEATURE_COUNT;
-      for (let d = 0; d < FEATURE_COUNT; d++) {
-        semantic[to + d] = this.flat[from + d];
-        neighbour[to + d] = whitened ? whitened[from + d] : this.flat[from + d];
-      }
-      const nameFrom = i * space!.dims;
-      for (let d = 0; d < extra; d++) {
-        const v = space!.coords[nameFrom + d] * this.nameWeight;
-        semantic[to + FEATURE_COUNT + d] = v;
-        neighbour[to + FEATURE_COUNT + d] = v;
-      }
-    }
-    this.semantic = semantic;
-    this.semanticNeighbour = neighbour;
-  }
-
-  /** What a coefficient at this index is called. */
-  featureLabel(index: number): string {
-    if (!this.tasteUsesNames && index >= FEATURE_COUNT) return `feature ${index}`;
-    if (index < FEATURE_COUNT) return FEATURE_DEFS[index]?.label ?? `feature ${index}`;
-    const k = index - FEATURE_COUNT;
-    const label = this.nameSpace?.labels[k];
-    return label ? `named: ${label}` : `name component ${k + 1}`;
-  }
-
   /** Standardise the vectors and compute the map projection. */
   rebuildDerived(): void {
     const vectors = this.analysis.map((a) => a?.vector).filter((v): v is Float32Array => !!v);
@@ -679,45 +566,12 @@ export class Store {
     this.flat = flat;
     this.whitener = fitWhitener(flat, n, FEATURE_COUNT);
     this.redundancy = redundancyRatio(this.whitener);
-    // Names first: the model is fitted in the space they are part of.
-    this.nameSpace = buildNameSpace(this.nameDocs(), {
-      // The archive a voice came from, so a word that never leaves one
-      // collection can be recognised as that collection's label.
-      archivesOf: (i) => {
-        const out: string[] = [];
-        for (const src of this.voices[i]?.sources ?? []) {
-          const cut = src.file.indexOf('/');
-          out.push(cut > 0 ? src.file.slice(0, cut) : src.file);
-        }
-        return out;
-      },
-    });
-    this.buildSemantic();
     this.refitTasteModel();
     this.applyWhitening();
 
-    /*
-     * The variation axes stay on the audio alone, and this was measured.
-     *
-     * Putting the name block into the projection is the obvious thing to try
-     * and it does not work, for a reason that is structural rather than a
-     * matter of tuning. PCA takes the directions of greatest variance, and the
-     * audio block is sixty-odd correlated features whose variance piles up
-     * into a few coherent directions; the name block is a dozen components
-     * that are orthogonal by construction and carry one unit of variance each.
-     * No name direction can out-vote an audio principal direction, at any
-     * weight. Measured on twenty thousand voices: the names took 2% of the two
-     * axes, left the layout indistinguishable, and dropped the variance
-     * explained from 18.7% to 7.3% purely by enlarging the denominator.
-     *
-     * And if the weighting were forced up far enough to matter, the result
-     * would be worse than useless - name coordinates are discrete, so every
-     * patch sharing a set of words sits at exactly one point, and an axis
-     * driven by them stripes the map into bands.
-     *
-     * Where names do belong is the category axes below, which separate labelled
-     * groups rather than chase variance.
-     */
+    // The map's variation axes are computed on a redundancy-weighted copy, so
+    // that a family of near-duplicate features cannot claim a principal axis
+    // just by being numerous.
     const pcaWeights = redundancyWeights(flat, n, FEATURE_COUNT);
     const forPca = new Float32Array(n * FEATURE_COUNT);
     for (let i = 0; i < n; i++) {
@@ -733,27 +587,7 @@ export class Store {
       const c = this.categoryOf(i);
       if (c) labels[i] = CATEGORIES.indexOf(c);
     }
-    /*
-     * The category axes do get the names.
-     *
-     * LDA is not looking for variance, it is looking for directions that pull
-     * labelled groups apart, so a dozen small orthogonal components are not
-     * out-voted the way they are in PCA - they are used exactly where they
-     * separate something. Which is the honest use for a word: `lead` is not a
-     * sound, it is a statement about what the patch is for, and no
-     * arrangement of attack and brightness recovers it.
-     *
-     * The circularity is worth naming. Categories are assigned partly from
-     * name keywords, so separating them in a space that includes name
-     * components will always look good, and some of that is the labelling rule
-     * being reflected back. It is partial - the acoustic terms outweigh the
-     * name prior in the categoriser - and the axes are read as "where the
-     * kinds of sound sit", which is what they now do better, not as evidence
-     * that the categories are correct.
-     */
-    const ldaData = this.semantic ?? flat;
-    const ldaDim = this.semantic ? this.semanticDim : FEATURE_COUNT;
-    const l = lda(ldaData, n, ldaDim, labels, CATEGORIES.length, 2);
+    const l = lda(flat, n, FEATURE_COUNT, labels, CATEGORIES.length, 2);
     this.ldaProjection = l.ok ? l.projection : null;
     this.ldaExplained = l.explained;
     this.ldaReason = l.reason ?? '';
@@ -799,40 +633,16 @@ export class Store {
      * Whitening is fitted from the features alone - it is not the taste
      * weighting, which does depend on the model and would make this circular.
      */
-    /*
-     * Fit twice, and let the cross-validation decide whether the names helped.
-     *
-     * This is not a formality. A dozen name components added to sixty-odd
-     * audio features are a dozen more chances to fit noise, and measured
-     * against ratings that owed nothing to the names, they cost 0.20 of
-     * R-squared at sixty ratings - and about 0.01 at a hundred and fifty. So
-     * the damage is real, it is concentrated exactly where a new user lives,
-     * and it disappears on its own as the ratings pile up.
-     *
-     * Guessing a threshold for that would be inventing a number. The fit
-     * already measures itself honestly, out of fold, so the cheap correct
-     * thing is to run it both ways and keep whichever actually predicts
-     * better. When the names carry nothing the audio model wins and nothing is
-     * lost; when they carry something - and in these archives they usually do
-     * - the difference is large enough to see.
-     */
-    const options = { rows, ratings, categoryOf: (row: number) => this.categoryOf(row) };
-    const plain = fitTaste(this.flat, FEATURE_COUNT, {
-      ...options,
-      neighbourData: this.whitener
-        ? whitenAll(this.flat, this.voices.length, FEATURE_COUNT, this.whitener)
-        : undefined,
-    });
-    const named = this.semantic && this.semanticDim > FEATURE_COUNT
-      ? fitTaste(this.semantic, this.semanticDim, {
-        ...options,
-        neighbourData: this.semanticNeighbour ?? undefined,
-      })
-      : null;
+    const neighbourData = this.whitener
+      ? whitenAll(this.flat, this.voices.length, FEATURE_COUNT, this.whitener)
+      : undefined;
 
-    this.nameGain = named && plain ? named.r2 - plain.r2 : 0;
-    this.tasteUsesNames = !!named && (!plain || named.r2 > plain.r2);
-    this.tasteModel = this.tasteUsesNames ? named : plain;
+    this.tasteModel = fitTaste(this.flat, FEATURE_COUNT, {
+      rows,
+      ratings,
+      neighbourData,
+      categoryOf: (row) => this.categoryOf(row),
+    });
     this.fittedAt = this.ratings.size;
     this.ratingsSinceFit = 0;
     this.predicted = null;
@@ -850,28 +660,6 @@ export class Store {
     } finally {
       this.setBusy(null);
     }
-  }
-
-  /** Change how much names count, and rebuild everything that used them. */
-  async setNameWeight(v: number): Promise<void> {
-    const next = Math.max(0, Math.min(2, v));
-    if (Math.abs(next - this.nameWeight) < 1e-6) return;
-    this.nameWeight = next;
-    if (!this.flat) {
-      this.emit();
-      return;
-    }
-    // Everything derived, not just the model: the map is laid out in this
-    // space too, so moving the dial has to move the plot.
-    await runTask('weighing the names', async (task) => {
-      task.set(null, 'regrouping');
-      await yieldToPaint();
-      this.rebuildDerived();
-      // The families are formed with the name hint, so the dial has to reform
-      // them, not only refit the model.
-      if (this.graph) this.applyThreshold(this.threshold, this.mergeThreshold, false);
-    });
-    this.emit();
   }
 
   setTasteStrength(v: number): void {
@@ -902,9 +690,7 @@ export class Store {
       this.predictedDone = new Uint8Array(this.voices.length);
     }
     if (!this.predictedDone![index]) {
-      const data = this.tasteUsesNames && this.semantic ? this.semantic : this.flat;
-      const dim = this.tasteUsesNames && this.semantic ? this.semanticDim : FEATURE_COUNT;
-      this.predicted[index] = predictRating(model, data, dim, index, this.categoryOf(index));
+      this.predicted[index] = predictRating(model, this.flat, FEATURE_COUNT, index, this.categoryOf(index));
       this.predictedDone![index] = 1;
     }
     const v = this.predicted[index];
@@ -993,33 +779,7 @@ export class Store {
     this.mergeThreshold = Math.min(mergeThreshold, threshold);
     const space = this.distanceSpace;
     if (!this.graph || !space) return;
-    /*
-     * Families get the name hint. Merges never do.
-     *
-     * The two thresholds mean different things and only one of them can afford
-     * to listen to a name. A merge says "these are the same patch, keep one" -
-     * and two unrelated patches both called BASS 1 are not the same patch, so
-     * anything that lets a name close that gap is a bug that quietly deletes
-     * somebody's sound. A family says "these are alike, worth comparing", and
-     * that is a judgement about perception, which is the one thing a name is
-     * direct evidence of and the feature vector only ever approximates.
-     *
-     * So the graph stays audio-only, the merge level reads it raw, and the
-     * family level shrinks an edge by up to NAME_PULL when two voices were
-     * given clearly the same words by a person - clearly, because the
-     * agreement floor in nameSpace.ts throws away the weak overlaps that are
-     * the ones producing nonsense. It can only move pairs the audio already
-     * nominated, and on this corpus ninety-three percent of pairs share no
-     * word at all, so it is a nudge to a small minority rather than a smear.
-     *
-     * Measured over nine thousand of these voices: fifteen hundred pairs
-     * brought in, two hundred and fifty more voices in a family, and the
-     * largest family growing from 107 to 142 - which is the cost, and is why
-     * the dial exists.
-     */
-    const vectors = this.nameSpace?.vectors;
-    const closeness = vectors && this.nameWeight > 0 ? nameCloseness(vectors) : undefined;
-    this.clusters = clusterAtThreshold(this.graph, this.threshold, closeness, NAME_PULL * this.nameWeight);
+    this.clusters = clusterAtThreshold(this.graph, this.threshold);
     this.representatives = chooseRepresentatives(this.clusters.clusters, space, FEATURE_COUNT);
     this.representativeSet = null;
     this.mergeClusters = clusterAtThreshold(this.graph, this.mergeThreshold);
@@ -1685,9 +1445,6 @@ export class Store {
        * unpack, the tab running out of memory on a hundred-megabyte session -
        * left you with no corpus and no error worth reading. It looked like the
        * restore had done nothing. It had done the worst possible thing.
-       *
-       * So: unpack the whole file into records first, and only clear once
-       * there is something to put back.
        */
       task.stage('unpacking');
       const records: Array<Omit<VoiceRecord, 'id'>> = [];

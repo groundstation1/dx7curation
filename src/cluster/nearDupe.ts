@@ -223,48 +223,11 @@ export interface NearDupeClusters {
   collapsed: number;
 }
 
-/**
- * A hint that two voices belong together for reasons the audio cannot show.
- *
- * Returns 0 to 1. The edge's distance is shrunk by up to `pull` times this, so
- * a pair the measurements put just outside the threshold can be brought in by
- * something else that knows better - in practice, by having been given the
- * same name by a person. It only ever moves a pair that is already a
- * candidate: nothing distant is teleported into a family.
- */
-export type Closeness = (a: number, b: number) => number;
-
-export function clusterAtThreshold(
-  graph: NearDupeGraph, threshold: number, closeness?: Closeness, pull = 0,
-): NearDupeClusters {
+export function clusterAtThreshold(graph: NearDupeGraph, threshold: number): NearDupeClusters {
   const uf = new UnionFind(graph.n);
-  if (closeness && pull > 0) {
-    /*
-     * Shrinking distances reorders them, so an edge can no longer be skipped
-     * just because the one before it was too far. But the shrink is bounded:
-     * nothing is reduced by more than `pull`, so an edge beyond
-     * threshold / (1 - pull) cannot be brought under the threshold by any
-     * amount of agreement about the name, and the sorted list can still be
-     * abandoned there. On a corpus of this size that is the difference
-     * between reading a few thousand edges and several million.
-     */
-    const reach = threshold / Math.max(1e-6, 1 - Math.min(0.99, pull));
-    for (let e = 0; e < graph.d.length; e++) {
-      if (graph.d[e] >= reach) break;
-      if (graph.d[e] < threshold) {
-        uf.union(graph.a[e], graph.b[e]);
-        continue;
-      }
-      const hint = closeness(graph.a[e], graph.b[e]);
-      if (hint > 0 && graph.d[e] * (1 - pull * Math.min(1, hint)) < threshold) {
-        uf.union(graph.a[e], graph.b[e]);
-      }
-    }
-  } else {
-    for (let e = 0; e < graph.d.length; e++) {
-      if (graph.d[e] >= threshold) break; // edges are sorted
-      uf.union(graph.a[e], graph.b[e]);
-    }
+  for (let e = 0; e < graph.d.length; e++) {
+    if (graph.d[e] >= threshold) break; // edges are sorted
+    uf.union(graph.a[e], graph.b[e]);
   }
   const labels = new Int32Array(graph.n).fill(-1);
   const clusters: number[][] = [];

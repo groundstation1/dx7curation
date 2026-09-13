@@ -43,14 +43,6 @@ interface Axis {
    * where the only question left is which way is which.
    */
   short?: string;
-  /**
-   * What the two ends mean, when the axis knows better than the table does.
-   *
-   * The fixed table cannot name the ends of an axis that is discovered rather
-   * than declared - a name component is whatever the words in this corpus
-   * turned out to be - so such an axis carries its own.
-   */
-  ends?: [string, string];
   value: (i: number) => number;
 }
 
@@ -106,7 +98,7 @@ const AXIS_ENDS: Record<string, [string, string]> = {
 };
 
 function axisEnds(id: AxisId): [string, string] {
-  return axisById(id).ends ?? AXIS_ENDS[id] ?? ['low', 'high'];
+  return AXIS_ENDS[id] ?? ['low', 'high'];
 }
 
 /**
@@ -1858,13 +1850,7 @@ function renderControls(): void {
       el('select', {
         onchange: (e: Event) => applyPreset((e.target as HTMLSelectElement).value),
       },
-        // A preset whose axes do not exist in this corpus is not offered:
-        // axisById would quietly substitute the first axis and the plot would
-        // not be the one the name promises.
-        ...PRESETS.filter((item) => {
-          const ids = new Set(axes().map((a) => a.id));
-          return ids.has(item.x) && ids.has(item.y);
-        }).map((item) => el('option', { value: item.id, selected: item.id === presetId }, item.label)),
+        ...PRESETS.map((item) => el('option', { value: item.id, selected: item.id === presetId }, item.label)),
         presetId === 'custom' ? el('option', { value: 'custom', selected: true }, 'custom') : null,
       ),
       preset && !isAdvanced() ? el('span', { class: 'preset-note' }, preset.note) : null,
@@ -1934,30 +1920,6 @@ function renderControls(): void {
           disabled: ctx.store.representatives.length === 0,
         }, 'family'),
       )),
-    /*
-     * How much a shared name counts, where you can see it work.
-     *
-     * The families on this map are formed with a nudge from the patch names,
-     * so this is the control that shows what that nudge is doing: flip it to
-     * none and the grouping goes back to the sound alone. It re-forms the
-     * families rather than only redrawing, which is why it is a select and not
-     * a slider - each step is a rebuild.
-     */
-    ctx.store.nameSpace ? adv(el('label', {
-      class: 'field',
-      title: 'How much two patches sharing a word in their names counts as evidence that they belong together. Never affects which patches are treated as copies of each other.',
-    }, 'names count',
-      el('select', {
-        onchange: (e: Event) => {
-          void ctx.store.setNameWeight(Number((e.target as HTMLSelectElement).value));
-        },
-      },
-        ...[[0, 'not at all'], [0.5, 'a little'], [1, 'normally'], [2, 'a lot']].map(([v, label]) =>
-          el('option', {
-            value: String(v),
-            selected: Math.abs(ctx.store.nameWeight - (v as number)) < 1e-6,
-          }, label as string)),
-      ))) : null,
     adv(plot ? el('label', {
       class: 'field',
       title: 'Play a patch blended from the voices nearest the cursor, rather than the nearest single patch. Only ever uses what is currently shown.',
@@ -2399,13 +2361,11 @@ export const view: View = {
      * Drop any saved axis that no longer exists.
      *
      * Settings outlive builds, and an axis can go away - a feature renamed, a
-     * projection that needs data this corpus has not got, a whole family of
-     * axes removed. axisById falls back to the first axis in the list, which
-     * is fine for one axis and catastrophic for two: x and y both land on
-     * variation axis 1 and the map draws every patch on a perfect diagonal,
-     * which looks like the projection has broken rather than like a stale
-     * setting. So they are checked against what actually exists, and a missing
-     * one goes back to its default.
+     * projection that needs data this corpus has not got. axisById falls back
+     * to the first axis in the list, which is fine for one axis and
+     * catastrophic for two: x and y both land on variation axis 1 and the map
+     * draws every patch on a perfect diagonal, which looks like the projection
+     * has broken rather than like a stale setting.
      */
     const available = new Set(axes().map((a) => a.id));
     if (!available.has(xAxisId)) {
