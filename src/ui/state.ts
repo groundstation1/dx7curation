@@ -724,6 +724,25 @@ export class Store {
     return Number.isFinite(v) ? v : null;
   }
 
+  /**
+   * How far apart two voices are, in the space everything else measures in.
+   *
+   * The same numbers the near-duplicate thresholds are quoted against, so a
+   * distance read here and a distance read there mean the same thing.
+   */
+  featureDistance(a: number, b: number): number {
+    const space = this.distanceSpace;
+    if (!space || a === b) return 0;
+    let sum = 0;
+    const ai = a * FEATURE_COUNT;
+    const bi = b * FEATURE_COUNT;
+    for (let d = 0; d < FEATURE_COUNT; d++) {
+      const x = space[ai + d] - space[bi + d];
+      sum += x * x;
+    }
+    return Math.sqrt(sum);
+  }
+
   /** The matrix distances should be measured in. */
   get distanceSpace(): Float32Array | null {
     return this.whitened ?? this.flat;

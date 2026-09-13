@@ -290,7 +290,23 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
   //   family  below the looser threshold; similar but audibly different, and
   //           what the face-off actually compares
   const mergedOthers = merged.filter((m) => m !== i);
-  const contenders = store.familyContenders(i).filter((m) => m !== i);
+  /*
+   * The family, nearest first.
+   *
+   * The list is for comparing this patch against the things it might be
+   * confused with, and that comparison has an order: the one that sounds most
+   * like it is the one worth hearing first, and the far end of a family of
+   * forty is where you stop caring. Cluster membership arrives in index order,
+   * which is the order the files happened to be read in and means nothing.
+   *
+   * Distances are computed once per member rather than inside the comparator,
+   * since a large family would otherwise measure the same pair repeatedly.
+   */
+  const contenders = (() => {
+    const list = store.familyContenders(i).filter((m) => m !== i);
+    const away = new Map(list.map((m) => [m, store.featureDistance(i, m)]));
+    return list.sort((a, b) => (away.get(a) ?? 0) - (away.get(b) ?? 0));
+  })();
 
   if (opts.duplicates !== false) {
     let copiesAcrossMerged = 0;
@@ -366,8 +382,16 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
       panel.appendChild(group);
     };
 
+    /*
+     * The family first, then the copies.
+     *
+     * Both lists were here in the other order, which put the least interesting
+     * one at the top: merged voices are by definition the ones you cannot tell
+     * apart, so there is nothing to listen for, while the family is the set
+     * this patch is actually competing against.
+     */
+    voiceList('Others in this family', contenders, 'similar but audibly different, nearest first');
     voiceList('Merged into this one', mergedOthers, 'these should be indistinguishable; if one is not, raise the merge threshold');
-    voiceList('Others in this family', contenders, 'similar but audibly different');
   }
 
   if (opts.sources !== false) {

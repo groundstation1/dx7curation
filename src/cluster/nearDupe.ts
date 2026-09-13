@@ -123,10 +123,27 @@ export function buildNearDupeGraph(
     for (let i = 0; i < n; i++) blocks[0].push(i);
   }
 
+  /*
+   * Edges are collected with duplicates and de-duplicated at the end.
+   *
+   * There used to be a Set of every pair examined, so that a pair falling in
+   * two blocks was only measured once. It recorded pairs, not edges, and the
+   * number of pairs examined is the number this whole routine exists to avoid
+   * holding: at thirty-five thousand voices it is twenty-seven million keys,
+   * which is a couple of gigabytes, and the worker died without a word.
+   * Analysis finished, the pass appeared to run, and no graph came back -
+   * which is indistinguishable from the pass not having happened, so the
+   * corpus simply had no families. It survived every test because at nine
+   * thousand voices the same Set holds two million.
+   *
+   * Measuring a pair twice costs two distance computations. Remembering every
+   * pair costs the memory of the machine. So the duplicates are allowed
+   * through and removed afterwards, by sorting the edges that were actually
+   * kept - a far smaller set - on their pair key.
+   */
   const ea: number[] = [];
   const eb: number[] = [];
   const ed: number[] = [];
-  const seen = new Set<number>();
   let truncated = false;
 
   for (let bi = 0; bi < blocks.length && !truncated; bi++) {
@@ -138,17 +155,10 @@ export function buildNearDupeGraph(
         const j = members[y];
         const lo = i < j ? i : j;
         const hi = i < j ? j : i;
-        // Cantor-free pair key; safe while n < 2^26.
-        const key = lo * 67108864 + hi;
-        if (seen.has(key)) continue;
         const df = Math.sqrt(sqDistRows(data, i, j, dim)) / featureScale;
-        if (df * featureWeight >= maxDistance) {
-          seen.add(key);
-          continue;
-        }
+        if (df * featureWeight >= maxDistance) continue;
         const dp = paramDistance(unpacked[i], unpacked[j]) / paramScale;
         const d = featureWeight * df + paramWeight * dp;
-        seen.add(key);
         if (d < maxDistance) {
           ea.push(lo);
           eb.push(hi);
@@ -163,7 +173,28 @@ export function buildNearDupeGraph(
     }
   }
 
-  const order = Array.from(ed.keys()).sort((p, q) => ed[p] - ed[q]);
+  /*
+   * Drop the pairs that were found in more than one block.
+   *
+   * By pair key, which sorts every copy of a pair adjacent; the edges are then
+   * re-sorted by distance, which is the order clustering walks them in.
+   * Duplicates would not change which clusters come out - union-find does not
+   * care how many times it is told the same thing - but they would inflate the
+   * candidate count that gets reported and make the threshold sweep slower for
+   * nothing.
+   */
+  const byKey = Array.from(ed.keys()).sort((p, q) => (ea[p] - ea[q]) || (eb[p] - eb[q]));
+  const unique: number[] = [];
+  for (let i = 0; i < byKey.length; i++) {
+    const e = byKey[i];
+    if (i > 0) {
+      const prev = byKey[i - 1];
+      if (ea[e] === ea[prev] && eb[e] === eb[prev]) continue;
+    }
+    unique.push(e);
+  }
+
+  const order = unique.sort((p, q) => ed[p] - ed[q]);
   const a = new Int32Array(order.length);
   const b = new Int32Array(order.length);
   const d = new Float32Array(order.length);
