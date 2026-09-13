@@ -1,0 +1,2 @@
+# Prepared collections: compressed sessions, never worth diffing or merging.
+public/bundles/*.json.gz binary
