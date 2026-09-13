@@ -140,7 +140,17 @@ function subcategoryColour(category: Category, sub: string, focused = false): st
  * Points overlap heavily at 26,000 voices, so everything is drawn translucent
  * and density reads as brightness. A solid dot would just paint a slab.
  */
-const BASE_ALPHA = 0.28;
+/*
+ * Trimmed from 0.28, because the brightness peaks at the default zoom.
+ *
+ * That peak is inherent rather than a bug in the scaling: zoomed all the way
+ * out is where the whole corpus is packed into the plot and the overlap is
+ * greatest, and zooming in spreads the same points over more area. The
+ * adaptive alpha raises the weight as the crowding eases, which is what fixes
+ * the far-out view being a haze, and the two effects cross near the default.
+ * So the base is set for that crossing rather than for either extreme.
+ */
+const BASE_ALPHA = 0.25;
 const DIMMED_ALPHA = 0.06;
 const BASE_RADIUS = 3.4;
 /** The range a size axis spans, in radius. */
@@ -196,6 +206,14 @@ let xs = new Float32Array(0);
 let ys = new Float32Array(0);
 let visible: number[] = [];
 let hovered = -1;
+/**
+ * A voice the cursor is over in the family or duplicate lists.
+ *
+ * Separate from `hovered` on purpose. Those lists sit beside a patch you have
+ * pinned, and the sidebar has to go on showing that patch while you run down
+ * them - so this marks the map without disturbing anything else.
+ */
+let listed = -1;
 let selected = -1;
 /**
  * Scatter, table, or both.
@@ -523,11 +541,23 @@ function computeLayout(): void {
   const ay = axisById(yAxisId);
   const rawX = new Float32Array(n);
   const rawY = new Float32Array(n);
+  /*
+   * Folding is only possible once there is something to fold by.
+   *
+   * Without the near-duplicate pass there are no representatives, every voice
+   * fails the test, and the plot comes out empty - which reads as a broken map
+   * rather than as a pass that has not run. It matters more now that this
+   * screen is the first thing shown: the layout finishes before the grouping
+   * does, so there is a window where the setting is real and the data is not.
+   */
+  const canFoldSounds = collapse === 'sounds' && store.mergeRepresentatives.length > 0;
+  const canFoldFamily = collapse === 'family' && store.representatives.length > 0;
+
   visible = [];
   for (let i = 0; i < n; i++) {
     if (!store.analysis[i]) continue;
-    if (collapse === 'sounds' && !store.isMergeRepresentative(i)) continue;
-    if (collapse === 'family' && !store.isFamilyRepresentative(i)) continue;
+    if (canFoldSounds && !store.isMergeRepresentative(i)) continue;
+    if (canFoldFamily && !store.isFamilyRepresentative(i)) continue;
     if (searchMode === 'only' && matched && !matched.has(i)) continue;
     rawX[i] = ax.value(i);
     rawY[i] = ay.value(i);
@@ -599,8 +629,46 @@ function colourOf(i: number): string {
   }
 }
 
+/*
+ * How much to shrink every dot, given how crowded the plot is.
+ *
+ * Dot sizes were fixed in pixels, which means the same corpus is a readable
+ * field of points on a wide monitor and an undifferentiated smear in a narrow
+ * pane - the structure is there in both, and in one of them every dot is
+ * sitting on four others. What matters is not the pixel size but how much
+ * room each point has, so the scale follows the spacing: the square root of
+ * area over count, which is the average distance between neighbours if they
+ * were spread evenly.
+ *
+ * Normalised so that the sizes chosen by hand come out unchanged at the size
+ * of plot they were chosen on - about 1200 by 700 with a few thousand points -
+ * and clamped, because a corpus of forty patches should not get dinner plates
+ * and one of forty thousand should still leave something visible.
+ */
+/*
+ * The spacing at which the hand-chosen size and weight are left alone.
+ *
+ * This has to be the ordinary case, not a convenient round number: a large
+ * corpus in a window of a reasonable size, which is about thirty-five thousand
+ * points in fourteen hundred by eight hundred. Calibrating it against a
+ * smaller count instead made every realistic view come out below 1, so the
+ * whole map dimmed - correct in the cramped pane it was tested in, and wrong
+ * everywhere the app is actually used.
+ */
+const REFERENCE_SPACING = Math.sqrt((1400 * 800) / 35000);
+
+function densityScale(w: number, h: number, count: number): number {
+  if (count <= 0) return 1;
+  const spacing = Math.sqrt((w * h) / count);
+  return Math.max(0.45, Math.min(1.8, spacing / REFERENCE_SPACING));
+}
+
+let pointScale = 1;
+
 function radiusOf(i: number): number {
-  return sizes[i] || BASE_RADIUS;
+  // Quantised to a quarter pixel: every distinct radius is a separate cached
+  // sprite per colour, and the scale varies continuously with the zoom.
+  return Math.max(0.55, Math.round((sizes[i] || BASE_RADIUS) * pointScale * 4) / 4);
 }
 
 /**
@@ -700,15 +768,42 @@ function draw(): void {
   const lassoSet = lassoSelection.length ? new Set(lassoSelection) : null;
   const highlight = searchMode === 'highlight' && matched ? matched : null;
 
+  /*
+   * Crowding decides both the size and the weight of a dot.
+   *
+   * Dots are drawn additively, so in a dense region twenty of them stack into
+   * a flat white patch and whatever structure was in there is gone. Easing the
+   * alpha down as the crowding goes up keeps the dense regions readable as
+   * regions - and because zooming in spreads the same points over more area,
+   * it also means the picture gets crisper as you go in, rather than staying
+   * the smear it was.
+   */
+  pointScale = densityScale(w * scale, h * scale, visible.length);
+  // Quantised for the same reason as the radius.
+  const round100 = (v: number) => Math.round(v * 100) / 100;
+  const alpha = round100(Math.max(0.17, Math.min(0.55, BASE_ALPHA * Math.pow(pointScale, 0.7))));
+  const dimAlpha = round100(Math.max(0.04, DIMMED_ALPHA * Math.pow(pointScale, 0.7)));
+
+  /*
+   * Dots land on whole device pixels.
+   *
+   * A sprite drawn at a fractional position is resampled across two pixels in
+   * each direction, and the eye reads the result as out of focus - which it
+   * is. Overlapping dots make it look worse but are not the cause: a single
+   * isolated dot at x.5 is blurred too. Snapping costs nothing and is the
+   * difference between a field of points and a haze.
+   */
+  const snap = (v: number) => Math.round(v * dpr) / dpr;
+
   g.globalAlpha = 1;
   for (const i of drawOrder) {
     const [px, py] = toScreen(i, w, h);
     if (px < -20 || py < -20 || px > w + 20 || py > h + 20) continue;
     const dimmed = (lassoSet && !lassoSet.has(i)) || (highlight && !highlight.has(i));
     const r = radiusOf(i);
-    const spr = sprite(colourOf(i), r, dimmed ? DIMMED_ALPHA : BASE_ALPHA, dpr);
+    const spr = sprite(colourOf(i), r, dimmed ? dimAlpha : alpha, dpr);
     const size = spr.width / dpr;
-    g.drawImage(spr, px - size / 2, py - size / 2, size, size);
+    g.drawImage(spr, snap(px - size / 2), snap(py - size / 2), size, size);
   }
 
   // Pinned voices get a ring so they are findable at a glance.
@@ -726,7 +821,7 @@ function draw(): void {
   g.stroke();
 
   g.globalAlpha = 1;
-  for (const [i, colour] of [[selected, '#ffffff'], [hovered, '#ffca6a']] as const) {
+  for (const [i, colour] of [[selected, '#ffffff'], [hovered, '#ffca6a'], [listed, '#ffca6a']] as const) {
     if (i < 0 || !xs.length || xs[i] === undefined) continue;
     const [px, py] = toScreen(i, w, h);
     g.strokeStyle = colour;
@@ -1327,6 +1422,10 @@ function renderSide(): void {
       // keyboard, and the sound too. Having gone down the family to compare
       // them, what you want next is the one you pinned, and having to click it
       // again to get it back is a step that says nothing.
+      if (listed !== n) {
+        listed = n;
+        draw();
+      }
       if (n < 0) {
         armKeyboard();
         const back = selected >= 0 ? selected : hovered;
@@ -1647,7 +1746,20 @@ const PRESETS: MapPreset[] = [
   },
 ];
 
-let presetId = getSetting('map.preset', 'learned');
+/*
+ * The neighbourhood map is the default.
+ *
+ * It is the one that answers the question a map of sounds is opened with - is
+ * this near the things it sounds like - and it measures better at that than
+ * the principal components do, on the real corpus, by a factor of about four.
+ * The variation axes stay one selection away for the times you want the other
+ * kind of honesty: a projection where the distances mean something globally.
+ *
+ * Until the layout has been computed the preset does not exist, so the fall
+ * back below hands it to the old default rather than letting axisById put both
+ * axes on the same thing.
+ */
+let presetId = getSetting('map.preset', 'neighbourhood');
 
 function applyPreset(id: string): void {
   const preset = PRESETS.find((item) => item.id === id);
@@ -2399,6 +2511,16 @@ export const view: View = {
      * has broken rather than like a stale setting.
      */
     const available = new Set(axes().map((a) => a.id));
+    const chosen = PRESETS.find((item) => item.id === presetId);
+    if (chosen && (!available.has(chosen.x) || !available.has(chosen.y))) {
+      // Its axes are not there - usually the layout has not been computed on
+      // this corpus yet - so fall back rather than drawing a diagonal.
+      const fallback = PRESETS.find((item) => available.has(item.x) && available.has(item.y));
+      if (fallback) applyPreset(fallback.id);
+    } else if (chosen) {
+      xAxisId = chosen.x;
+      yAxisId = chosen.y;
+    }
     if (!available.has(xAxisId)) {
       xAxisId = 'pca1';
       setSetting('map.xAxis', xAxisId);

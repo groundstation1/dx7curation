@@ -44,6 +44,7 @@ let container: HTMLElement;
 let unsubscribe: (() => void) | null = null;
 let analysisAbort: AbortController | null = null;
 let dupeAbort: AbortController | null = null;
+let embedAbort: AbortController | null = null;
 /** Set while the chain is running, and cleared if any step is cancelled. */
 let advancing = false;
 let lastNote = '';
@@ -176,12 +177,33 @@ async function runDupes(): Promise<void> {
   }
 }
 
+async function runEmbedding(): Promise<void> {
+  if (embedAbort) return;
+  embedAbort = new AbortController();
+  render();
+  try {
+    await ctx.store.buildEmbedding({ signal: embedAbort.signal });
+  } catch (err) {
+    if ((err as Error).name !== 'AbortError') lastNote = `Laying out the map failed: ${(err as Error).message}`;
+    throw err;
+  } finally {
+    embedAbort = null;
+    render();
+  }
+}
+
 /**
  * Carry the corpus as far as it can go on its own.
  *
- * Analysis then near-duplicates, each only if it has not already been done.
- * Cancelling one stops the chain rather than rolling straight into the next
- * thing you just said no to.
+ * Analysis, then near-duplicates, then the map layout - each only if it has
+ * not already been done. Cancelling one stops the chain rather than rolling
+ * straight into the next thing you just said no to.
+ *
+ * The layout is in the chain rather than behind a button because it is the
+ * default view, and being told on arrival that the map you are looking at is
+ * the second best one and the good one is a button elsewhere is not a choice
+ * worth offering. It is also why adding patches re-runs it: the coordinates
+ * are per-voice, so new arrivals have no position at all until it does.
  */
 async function autoAdvance(): Promise<void> {
   if (advancing || !autoPipeline()) {
@@ -192,6 +214,7 @@ async function autoAdvance(): Promise<void> {
   try {
     if (ctx.store.voices.length > 0 && !ctx.store.analysisComplete) await runAnalysis();
     if (ctx.store.analysisComplete && !ctx.store.graph) await runDupes();
+    if (ctx.store.analysisComplete && !ctx.store.embedding && ctx.store.voices.length > 8) await runEmbedding();
   } catch {
     // Cancelled, or failed and already reported. Either way the chain stops
     // and the buttons come back so it can be started again by hand.
@@ -206,7 +229,7 @@ function pipelinePanel(): HTMLElement {
   const store = ctx.store;
   const panel = el('div', { class: 'panel' });
   const pending = store.voices.length - store.analysedCount;
-  const running = analysisAbort !== null || dupeAbort !== null;
+  const running = analysisAbort !== null || dupeAbort !== null || embedAbort !== null;
 
   const state = running
     ? 'working'
@@ -214,7 +237,9 @@ function pipelinePanel(): HTMLElement {
       ? 'needs analysis'
       : !store.graph
         ? 'needs de-duplication'
-        : 'ready';
+        : !store.embedding
+          ? 'needs a map'
+          : 'ready';
 
   panel.appendChild(el('div', { class: 'row' },
     el('h2', { style: { margin: 0 } }, state === 'ready' ? 'Ready' : 'Getting ready'),
@@ -226,11 +251,14 @@ function pipelinePanel(): HTMLElement {
         onclick: () => {
           analysisAbort?.abort();
           dupeAbort?.abort();
+          embedAbort?.abort();
         },
       }, 'Stop')
       : state !== 'ready'
         ? el('button', { class: 'btn primary', onclick: () => void autoAdvance() },
-          pending > 0 ? `Analyse ${fmtInt(pending)} voices` : 'Find near-duplicates')
+          pending > 0
+            ? `Analyse ${fmtInt(pending)} voices`
+            : !store.graph ? 'Find near-duplicates' : 'Lay out the map')
         : null,
   ));
 
@@ -256,24 +284,13 @@ function pipelinePanel(): HTMLElement {
    * without it, so it is not part of the automatic pipeline. It is here rather
    * than on the map because this is where the other expensive passes live.
    */
-  if (!running && store.analysedCount > 8 && store.analysedCount === store.voices.length) {
-    panel.appendChild(el('div', { class: 'row', style: { marginTop: '10px' } },
-      el('button', {
-        class: store.embedding ? 'btn' : 'btn primary',
-        onclick: async () => {
-          try {
-            await store.buildEmbedding();
-          } catch (err) {
-            if ((err as Error).name !== 'AbortError') lastNote = (err as Error).message;
-          }
-          render();
-        },
-      }, store.embedding ? 'Lay out the neighbourhood map again' : 'Lay out a neighbourhood map'),
+  if (!running && store.embedding) {
+    const redo = el('div', { class: 'row', style: { marginTop: '10px' } },
+      el('button', { class: 'btn', onclick: () => void runEmbedding().catch(() => {}) }, 'Lay out the map again'),
       el('span', { class: 'note', style: { flex: '1 1 260px' } },
-        store.embedding
-          ? 'Browse shows it as "What sits near what".'
-          : 'A second way to draw Browse: patches that sound alike placed together, rather than along the directions the corpus varies in most.'),
-    ));
+        'It settles from a fixed start, so this gives the same answer unless the corpus changed.'),
+    );
+    panel.appendChild(adv(redo) ?? el('span'));
   }
 
   if (isAdvanced()) {

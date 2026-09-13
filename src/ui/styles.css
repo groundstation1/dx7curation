@@ -1055,9 +1055,19 @@ kbd {
  * inserted into the grid, so the columns stay two and a scrolling sidebar
  * cannot carry it off.
  */
+/*
+ * The handle sits in the gutter between the plot and the sidebar.
+ *
+ * The offset has to count the layout's own right padding as well as the
+ * sidebar and half the gap, because an absolutely positioned child is placed
+ * against the padding box - which includes that padding - rather than against
+ * the content box the grid columns live in. Leaving it out put the handle a
+ * full gutter to the right, on top of the sidebar's edge instead of in the
+ * gap: measured at 551 where the gutter's centre was 541.
+ */
 .side-handle {
   position: absolute; top: 0; bottom: 0;
-  right: calc(var(--side-w, 300px) + var(--gut) / 2);
+  right: calc(var(--side-w, 300px) + var(--gut) * 1.5);
   width: 16px; margin-right: -8px; z-index: 6;
   cursor: col-resize; touch-action: none;
 }
@@ -1068,7 +1078,8 @@ kbd {
   background: var(--raise-2); transition: background 0.12s;
 }
 .side-handle:hover::after, .side-handle.dragging::after { background: var(--accent); }
-/* That layout has a wider gutter, so the handle centres further out. */
+/* That layout has a 24px gap and no padding of its own, so half the gap is
+   the whole correction. */
 .detail-layout .side-handle { right: calc(var(--side-w, 300px) + 12px); }
 
 /*
