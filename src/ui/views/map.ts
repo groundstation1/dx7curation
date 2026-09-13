@@ -284,6 +284,19 @@ let markFavourites = getSetting('map.markFavourites', true);
  * mapLabels.ts - none of it touches the layout.
  */
 let showLabels = getSetting('map.labels', true);
+/**
+ * How tightly the words are allowed to pack.
+ *
+ * What decides whether a label is drawn is whether it collides with one
+ * already placed, so the way to ask for more of them is to let them sit closer
+ * together - not to raise a cap, which would only stack them on top of each
+ * other. This scales the box each word reserves: wide boxes mean a few words
+ * spread over the whole plot, tight boxes mean the map is covered in them.
+ * The right answer depends on the screen and on whether you are reading the
+ * names or the dots, which is exactly the kind of thing that should be a knob
+ * rather than a decision made here.
+ */
+let labelDensity = getSetting('map.labelDensity', 0.5);
 let labels: MapLabel[] = [];
 
 /*
@@ -1126,7 +1139,32 @@ function draw(): void {
  * A dark casing under every word, because these sit over twenty thousand
  * coloured dots and there is no background colour to rely on.
  */
-const LABEL_LIMIT = 20;
+/*
+ * High enough that collisions decide, not the cap.
+ *
+ * Twenty was an arbitrary number standing in front of a hundred and twenty-six
+ * qualifying regions, so most of the map went unnamed for a reason that had
+ * nothing to do with the map: whole areas with a perfectly good word waiting
+ * were blank because nineteen other words happened to rank above them. The
+ * collision test is the honest limiter - it lets through exactly as many as
+ * there is room to read - and this is now only a ceiling on how much work one
+ * frame can do.
+ */
+const LABEL_LIMIT = 140;
+
+/*
+ * Box inflation, from the density knob. Below one the words may touch.
+ *
+ * The count falls off as the square of this, since it is an area that has to
+ * be clear, so the useful part of the range is all at the top. Measured on a
+ * 1500px plot of the shipped library: 12 words at the left, 34 in the middle,
+ * 69 at the right. Spanning 2.1 to 0.5 put the left-hand half of the slider
+ * between 25 and 34 - a knob that did nothing for the first half of its
+ * travel.
+ */
+function labelSpacing(): number {
+  return 3.0 - 2.5 * Math.max(0, Math.min(1, labelDensity));
+}
 
 function drawLabels(g: CanvasRenderingContext2D, w: number, h: number): void {
   if (!showLabels || !onNeighbourhoodMap() || labels.length === 0) return;
@@ -1157,8 +1195,12 @@ function drawLabels(g: CanvasRenderingContext2D, w: number, h: number): void {
      * first thing you read.
      */
     g.font = `400 ${size}px "Space Mono", ui-monospace, monospace`;
-    const half = g.measureText(label.text).width / 2 + 6;
-    const box: [number, number, number, number] = [px - half, py - size, px + half, py + size];
+    // The reserved box, not the drawn one: inflating it spaces the words out
+    // without changing how any of them look.
+    const gap = labelSpacing();
+    const half = (g.measureText(label.text).width / 2 + 6) * gap;
+    const tall = size * gap;
+    const box: [number, number, number, number] = [px - half, py - tall, px + half, py + tall];
     if (taken.some((t) => box[0] < t[2] && box[2] > t[0] && box[1] < t[3] && box[3] > t[1])) continue;
     taken.push(box);
     drawn++;
@@ -2411,9 +2453,27 @@ function renderControls(): void {
           showLabels = (e.target as HTMLInputElement).checked;
           setSetting('map.labels', showLabels);
           computeLabels();
+          renderControls();
           draw();
         },
       }), 'name regions') : null,
+
+    // Behind the switch: the default is readable, and this is the second
+    // question about a feature most people will not have a first question
+    // about. Only while the words are actually on screen.
+    adv(plot && onNeighbourhoodMap() && showLabels ? el('label', {
+      class: 'field',
+      title: 'How closely the words may sit. Further right fits more of them in; further left leaves only the ones covering the most patches.',
+    }, 'label density',
+      el('input', {
+        type: 'range', min: 0, max: 100, value: Math.round(labelDensity * 100),
+        style: { width: '88px' },
+        oninput: (e: Event) => {
+          labelDensity = Number((e.target as HTMLInputElement).value) / 100;
+          setSetting('map.labelDensity', labelDensity);
+          draw();
+        },
+      })) : null),
 
     el('span', { class: 'bar-sep' }),
 

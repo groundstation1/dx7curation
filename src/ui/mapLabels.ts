@@ -33,6 +33,11 @@
  * Measured on the shipped library, the top twenty come out as PIANO, BASS,
  * RHODES, CLAV, STRINGS, STEINWAY, ORGAN, SAX, HARP, BRASS, PLUCK, PIPES,
  * TIMPANI, PICCOLO, FLUTE, HARPSICHORD - which is a map legend.
+ *
+ * A hundred and twenty-six regions qualify on that library, covering 80% of
+ * the patches in it. They are all returned, ranked; how many reach the screen
+ * is decided by what fits without overlapping, which is the caller's problem
+ * and which is why zooming in shows more of them rather than different ones.
  */
 
 /** A word, and where on the plot it belongs. Coordinates are the plot's own. */
@@ -94,12 +99,30 @@ const GY = 22;
 const MIN_CELL = 30;
 /** And a word needs this many carriers, and this share of the cell. */
 const MIN_HITS = 5;
-const MIN_SHARE = 0.06;
+/*
+ * Three percent, not six.
+ *
+ * At six, a third of the corpus - ten and a half thousand patches across
+ * forty-nine populated cells - got no label at all, and in every one of those
+ * cells it was this test that stopped it: never the carrier count, never the
+ * lift. The cells that fail it are the big mixed ones, five and six hundred
+ * voices with a long tail of names, where the commonest word is real but is
+ * four percent of what is there. Six percent was not measuring confidence, it
+ * was measuring how homogeneous a neighbourhood happened to be.
+ *
+ * The lift test is what keeps a weak share honest: three percent of six
+ * hundred is eighteen patches, and they still have to be at least twice as
+ * concentrated here as in the corpus at large. Coverage goes from 61% of the
+ * corpus to 80%, and the words that appear are CLARINET, OBOE, TROMBONE,
+ * SITAR, VIBE, CHIMES, ORCHESTRA, CELLO, MARIMBA - not noise.
+ */
+const MIN_SHARE = 0.03;
 /** Twice its corpus rate, below which "unusual" is not the word for it. */
 const MIN_LIFT = 2;
-/** The same word can name two places - there really are two organ regions -
- *  but not five, which is what an unmerged PIANO does to a plot. */
-const MAX_PER_WORD = 2;
+/** The same word can name a few places - there really are two organ regions
+ *  and three distinct piano ones - but not nine, which is what an unmerged
+ *  PIANO does to a plot. */
+const MAX_PER_WORD = 3;
 
 /*
  * Words that mean the same thing are not merged, and should not be.
