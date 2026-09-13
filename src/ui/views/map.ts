@@ -1866,6 +1866,31 @@ function renderSide(): void {
  * Set rather than applied: the caller is on another screen and this module may
  * not be mounted, and mounting runs the filter anyway.
  */
+/**
+ * Open Browse with one patch already picked out.
+ *
+ * Set before the view is mounted, the way presetSearch is: the module state is
+ * what mount reads, so this is how another screen hands the map a destination.
+ */
+export function presetSelect(index: number, opts: { play?: boolean } = {}): void {
+  selected = index;
+  focusRating = '';
+  focusCategory = '';
+  searchText = '';
+  playOnMount = !!opts.play;
+}
+
+/**
+ * Whether the patch this screen was opened on should sound by itself.
+ *
+ * Arriving from a link is the one case where nothing was hovered and nothing
+ * clicked, and the whole point of the link was the sound - so it is treated as
+ * a deliberate click rather than as a sweep, and obeys the same setting. A
+ * browser may still refuse to make noise before the page has been touched;
+ * there is nothing to be done about that but leave the patch armed and ready.
+ */
+let playOnMount = false;
+
 export function presetSearch(text: string, scope: SearchScope = 'all'): void {
   searchText = text;
   searchScope = scope;
@@ -3102,6 +3127,12 @@ export const view: View = {
     renderSide();
     attachCanvasEvents();
     draw();
+
+    if (playOnMount && selected >= 0) {
+      playOnMount = false;
+      armKeyboard();
+      void ctx.player.unlock().then(() => void audition(selected, false, 'click'));
+    }
 
     const onResize = () => applyMode();
     window.addEventListener('resize', onResize);

@@ -44,10 +44,42 @@ const MANIFEST = 'bundles/manifest.json';
  * request rather than racing.
  */
 let pending: Promise<BundleEntry[]> | null = null;
+/*
+ * The answer, once it exists, for callers that cannot wait.
+ *
+ * Holding only the promise meant the collection card was always appended a
+ * frame or two after the screen it belongs to, so the first thing anybody saw
+ * was one card, and then two - a visible jolt on the one screen that is
+ * nothing but those cards. Keeping the resolved list as well lets the second
+ * and every later render draw both at once, and `prefetch` means even the
+ * first usually can.
+ */
+let resolved: BundleEntry[] | null = null;
 
 export function availableBundles(): Promise<BundleEntry[]> {
-  if (!pending) pending = loadManifest();
+  if (!pending) {
+    pending = loadManifest().then((list) => {
+      resolved = list;
+      return list;
+    });
+  }
   return pending;
+}
+
+/** What is already known, or null if the manifest has not landed yet. */
+export function bundlesNow(): BundleEntry[] | null {
+  return resolved;
+}
+
+/**
+ * Ask for the manifest before anything needs it.
+ *
+ * It is a couple of hundred bytes next to a corpus that takes seconds to read
+ * out of the database, so starting it at boot means it is always there by the
+ * time a screen wants to draw it.
+ */
+export function prefetchBundles(): void {
+  void availableBundles();
 }
 
 async function loadManifest(): Promise<BundleEntry[]> {

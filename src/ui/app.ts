@@ -8,6 +8,8 @@ import { mountSoundBar } from './soundBar.ts';
 import { advancedSwitch, isAdvanced, subscribeAdvanced } from './advanced.ts';
 import { activeTask, taskDisplayClaimed, subscribeTasks } from './task.ts';
 import { loadBlock, loadingBrand } from './loading.ts';
+import { prefetchBundles } from './bundles.ts';
+import { captureIncomingLink, hasPendingLink, peekPendingLink, takePendingLink } from './patchLink.ts';
 import type { AutoPlay } from '../audio/player.ts';
 import { keyboard } from '../audio/keyboard.ts';
 
@@ -193,9 +195,69 @@ export class App {
     });
   }
 
+  /**
+   * A patch that arrived in the URL, dealt with before anything is chosen.
+   *
+   * Two outcomes, and which one you get is decided by the parameters rather
+   * than by the name: a voice whose bytes you already have is the one you
+   * already rated, so it is opened rather than added a second time under
+   * whatever the sender happened to call it. Anything else is genuinely new
+   * and is kept, unpinned - arriving in a link is not a judgement, and
+   * deciding is what the rest of the app is for.
+   *
+   * Returns where to go, or null to carry on as normal.
+   */
+  private async openIncoming(): Promise<ViewId | null> {
+    if (!hasPendingLink()) return null;
+    /*
+     * With nothing in the library, the patch is not imported at all.
+     *
+     * Importing it made a corpus of one, and the first thing the app then
+     * offered was to load the collection - which is a whole session and
+     * therefore a replacement, so it asked whether to "replace all 1 patches".
+     * Arriving from a link and immediately being asked to destroy the thing
+     * you arrived with is a fine piece of nonsense.
+     *
+     * So an empty library gets a landing screen instead: the patch, playable,
+     * and the offer of the rest beside it. Nothing is written, nothing is
+     * replaced, and taking up the offer simply forgets the patch - which is
+     * the right trade for a link somebody sent you rather than a file you
+     * chose to keep.
+     */
+    if (store.voices.length === 0) return 'corpus';
+
+    /*
+     * A patch you already have opens. Anything else is offered, not taken.
+     *
+     * Matched on the parameters rather than the name, so the copy you rated
+     * wins over whatever the sender called theirs. A patch that is genuinely
+     * new is not written to the library behind your back - somebody sending
+     * you a sound is not you deciding to keep it - so that case goes to the
+     * landing screen, which puts the choice on a button.
+     */
+    const packed = peekPendingLink();
+    if (!packed) return null;
+    const at = store.indexOfPacked(packed);
+    if (at < 0) return 'corpus';
+
+    takePendingLink();
+    const map = TABS.find((t) => t.id === 'map');
+    if (!map?.enabled()) return 'corpus';
+    const { presetSelect } = await import('./views/map.ts');
+    presetSelect(at, { play: true });
+    return 'map';
+  }
+
   async start(): Promise<void> {
     // Preferences the user set last time, applied before anything renders so
     // no control ever shows a default it is not actually using.
+    // Read before anything else touches the address bar, and taken off it at
+    // once so a reload does not import the same patch again.
+    captureIncomingLink();
+    // Two hundred bytes, wanted by the first screen, fetched during the
+    // seconds the corpus takes to load.
+    prefetchBundles();
+
     this.player.setVolume(getSetting('audio.volume', this.player.getVolume()));
     this.player.setMuted(getSetting('audio.muted', false));
     this.player.autoPlay = getSetting<AutoPlay>('audio.autoPlay', 'hover');
@@ -227,9 +289,27 @@ export class App {
     }
     // Land on the map when there is something to look at. Sources is the right
     // first screen exactly once, when the corpus is empty.
-    const startAt: ViewId = TABS.find((t) => t.id === 'map')!.enabled() ? 'map' : 'corpus';
+    const incoming = await this.openIncoming();
+    const startAt: ViewId = incoming
+      ?? (TABS.find((t) => t.id === 'map')!.enabled() ? 'map' : 'corpus');
     this.booting = false;
     await this.go(startAt);
+
+    /*
+     * A link that arrives while the app is already open.
+     *
+     * Going from the site to the site-with-a-fragment is a same-document
+     * navigation: nothing reloads, `start` never runs again, and the patch
+     * would simply be ignored - which is exactly what happens when somebody
+     * with the app open clicks a link a friend sent them. The fragment is the
+     * only thing that changed, so the fragment is what to listen to.
+     */
+    window.addEventListener('hashchange', () => {
+      if (!captureIncomingLink()) return;
+      void this.openIncoming().then((where) => {
+        if (where) void this.go(where);
+      });
+    });
 
     mountPianoRoll();
 

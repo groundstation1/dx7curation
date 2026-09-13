@@ -17,6 +17,7 @@ import { downloadBytes, el, patchFile } from './dom.ts';
 import { algorithmPanel } from './algorithmDiagram.ts';
 import { CATEGORIES, CATEGORY_LABELS, subcategoryLabel, type Category } from '../cluster/category.ts';
 import { categoryColour } from './colour.ts';
+import { patchLinkFor } from './patchLink.ts';
 import { P } from '../sysex/voice.ts';
 import { buildSingleVoice } from '../sysex/write.ts';
 import type { Store } from './state.ts';
@@ -107,6 +108,31 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
       // reads this, and wanting exactly the one you are looking at - to load
       // on the device, to send to someone, to keep - is a good deal more
       // common than wanting all forty thousand.
+      /*
+       * The patch itself, as a link.
+       *
+       * 128 bytes of sysex fits in a URL, so sending somebody a sound needs no
+       * upload and no account: they open the link and it is there, already
+       * playing. If they have it, it opens theirs - matched on the parameters,
+       * not the name, so their copy with their rating on it wins.
+       */
+      el('button', {
+        class: 'voice-dl',
+        title: 'Copy a link that carries this patch',
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          const button = e.currentTarget as HTMLButtonElement;
+          const url = patchLinkFor(v.packed, v.name);
+          void navigator.clipboard.writeText(url).then(() => {
+            button.textContent = 'copied';
+            window.setTimeout(() => { button.textContent = '\u21d7 link'; }, 1400);
+          }, () => {
+            // Clipboard refused - no permission, or an insecure origin. The
+            // link still exists, so show it rather than failing silently.
+            window.prompt('Copy this link:', url);
+          });
+        },
+      }, '\u21d7 link'),
       el('button', {
         class: 'voice-dl',
         title: 'Download this patch as a single-voice .syx',

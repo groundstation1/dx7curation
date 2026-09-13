@@ -973,6 +973,19 @@ export class Store {
     return id >= 0 ? this.mergeClusters.clusters[id] : [index];
   }
 
+  /**
+   * Where a voice with exactly these parameters sits, or -1.
+   *
+   * The key excludes the ten-byte name field, which is what makes this the
+   * right question to ask of a patch that arrived from somewhere else: two
+   * files calling the same sound RHODES and E.PIANO are the same sound, and
+   * the one you already rated is the one you want opened.
+   */
+  indexOfPacked(packed: Uint8Array): number {
+    const key = packedKeyOf(packed);
+    return this.voices.findIndex((v) => packedKeyOf(v.packed) === key);
+  }
+
   /** The voice that stands in for `index` once near-identical copies are merged. */
   mergeRepresentativeOf(index: number): number {
     if (!this.mergeClusters || index >= this.mergeClusters.labels.length) return index;
@@ -988,7 +1001,11 @@ export class Store {
    * keep one is that you want it in the final 128. It has no features until the
    * next analysis pass, which the corpus screen will offer.
    */
-  async addSynthesised(unpacked: Uint8Array, name: string, note: string): Promise<number | null> {
+  async addSynthesised(
+    unpacked: Uint8Array, name: string, note: string,
+    opts: { pinned?: boolean; bank?: string } = {},
+  ): Promise<number | null> {
+    const pin = opts.pinned ?? true;
     const clean = Uint8Array.from(unpacked);
     setVoiceName(clean, name);
     const packed = packVoice(clean);
@@ -996,7 +1013,7 @@ export class Store {
     const existing = this.voices.findIndex((v) => packedKeyOf(v.packed) === key);
     if (existing >= 0) {
       // The blend landed exactly on a patch that is already here.
-      if (!this.voices[existing].pinned) await this.togglePin(existing);
+      if (pin && !this.voices[existing].pinned) await this.togglePin(existing);
       return existing;
     }
     await addVoices([{
@@ -1004,8 +1021,8 @@ export class Store {
       packed,
       unpacked: clean,
       name: voiceName(clean),
-      sources: [{ file: note, bank: 'interpolated', slot: 0, name: voiceName(clean), container: 'raw', checksumOk: null }],
-      pinned: true,
+      sources: [{ file: note, bank: opts.bank ?? 'interpolated', slot: 0, name: voiceName(clean), container: 'raw', checksumOk: null }],
+      pinned: pin,
       clampedBytes: 0,
       userSupplied: true,
     }]);

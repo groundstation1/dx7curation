@@ -34,15 +34,34 @@ for (let i = 0; i < N; i++) {
 store.projection = proj;
 const indices = Array.from({ length: N }, (_, i) => i);
 
+/*
+ * Measured in CPU time, not wall time.
+ *
+ * The question is whether this pass hands the thread back often enough for a
+ * page to repaint, and wall-clock between two callbacks cannot answer it: it
+ * counts the time the scheduler gave our thread to somebody else as though we
+ * had spent it blocking. Alone that is invisible, and under the full suite -
+ * twenty-six files in parallel, or two cores on a CI runner - it is most of
+ * the number. This test failed in the suite and passed on its own, which is
+ * the signature of measuring the machine rather than the code.
+ *
+ * CPU time is what the slice actually consumed, whatever else the box was
+ * doing, so the same threshold now means what it always claimed to mean.
+ */
+const cpuMs = () => {
+  const u = process.cpuUsage();
+  return (u.user + u.system) / 1000;
+};
+
 let slices = 0;
 let longestBlock = 0;
-let last = performance.now();
+let last = cpuMs();
 const t0 = performance.now();
 const order = await store.coverageOrder(indices, (done, total) => {
   slices++;
-  longestBlock = Math.max(longestBlock, performance.now() - last);
+  longestBlock = Math.max(longestBlock, cpuMs() - last);
   if (done > total) fail++;
-  last = performance.now();
+  last = cpuMs();
 });
 const elapsed = performance.now() - t0;
 
@@ -52,7 +71,7 @@ check('it yielded rather than running straight through', slices >= 4, `${slices}
 // The contract: never more than about one slice plus the cost of the single
 // longest pick. A frame is 16 ms, so this stays inside "the page still moves".
 check('no slice held the thread for long', longestBlock < 60,
-  `longest ${longestBlock.toFixed(0)} ms over ${elapsed.toFixed(0)} ms total`);
+  `longest ${longestBlock.toFixed(0)} ms of CPU, over ${elapsed.toFixed(0)} ms total`);
 
 // The first pick is the most central, and the second is the furthest from it:
 // the property the whole ordering exists for.

@@ -931,6 +931,11 @@ select:disabled { cursor: not-allowed; }
 .voice-head { display: flex; align-items: flex-start; gap: 10px; }
 .voice-name { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Labelled, not a lone arrow: an icon by itself in a corner is a guess. */
+/* There are two of these now, and `margin-left: auto` on both split the free
+   space between them - so the first sat marooned in the middle of the header.
+   Only the first takes the space; the pair then hugs the right edge together,
+   spaced by the header's own gap. */
+.voice-dl + .voice-dl { margin-left: 0; }
 .voice-dl {
   margin-left: auto; flex: none;
   padding: 5px 9px; border: none; border-radius: var(--radius-sm);
@@ -1488,6 +1493,14 @@ table.data.fixed { table-layout: fixed; }
   padding-bottom: 14px; margin-bottom: 2px;
 }
 .splash-restore { margin-top: 14px; display: flex; justify-content: center; }
+/* The two quiet ways to keep a linked patch, or to decline it: under the one
+   loud button, side by side, at the weight of a footnote. */
+.link-keep { display: flex; justify-content: center; gap: 8px; margin-top: 10px; }
+/* The algorithm diagram on the landing screen: given room, because on that
+   screen it is the only thing there is to look at. The card is already a
+   surface, so the panel does not need one of its own. */
+.link-diagram { margin: 14px 0 2px; }
+.link-diagram .algo-diagram { background: none; padding: 0; }
 .btn.wide { width: 100%; justify-content: center; text-align: center; }
 /* The drop zone inside a splash card draws nothing: the card is the target. */
 .drop-inner { text-align: left; }

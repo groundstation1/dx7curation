@@ -20,7 +20,7 @@ import type { View, ViewContext } from '../app.ts';
 import { adv, disclosure, isAdvanced } from '../advanced.ts';
 import { clearSettings, getSetting, setSetting } from '../settings.ts';
 import { gzip, readSessionBytes } from '../session.ts';
-import { availableBundles, fetchBundle, type BundleEntry } from '../bundles.ts';
+import { availableBundles, bundlesNow, fetchBundle, type BundleEntry } from '../bundles.ts';
 import { Store } from '../state.ts';
 import { SIZE_BUCKETS } from '../../cluster/nearDupe.ts';
 import { listenForSysex, listInputs, midiSupported, requestBulkDump, requestMidi, type MidiPort } from '../../midi/webmidi.ts';
@@ -31,6 +31,13 @@ import { categoryColour } from '../colour.ts';
 import { FEATURE_DEFS } from '../../features/vector.ts';
 import { runTask } from '../task.ts';
 import { loadBlock, loadingBrand, type LoadBlock, type LoadBands } from '../loading.ts';
+import { dropPendingLink, peekPendingLink, patchLinkFor } from '../patchLink.ts';
+import { unpackVoice, voiceName } from '../../sysex/voice.ts';
+import { buildSingleVoice } from '../../sysex/write.ts';
+import { DEMO_PHRASE } from '../../engine/phrase.ts';
+import { keyboard } from '../../audio/keyboard.ts';
+import { P } from '../../sysex/voice.ts';
+import { algorithmPanel } from '../algorithmDiagram.ts';
 
 const SWEEP_POINTS = [0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.16, 0.22, 0.3];
 
@@ -238,10 +245,16 @@ function choicesRow(): HTMLElement {
    */
   const scratch = dropCard();
   choices.appendChild(scratch);
-  void availableBundles().then((list) => {
+  const fill = (list: BundleEntry[]) => {
     for (const entry of list) choices.insertBefore(bundleCard(entry), scratch);
     if (list.length > 0) choices.classList.add('two');
-  });
+  };
+  // Already known on every render but the very first, and usually on that one
+  // too because the boot prefetches it - so the pair arrives together instead
+  // of the collection dropping in a moment after the screen.
+  const known = bundlesNow();
+  if (known) fill(known);
+  else void availableBundles().then(fill);
   return choices;
 }
 
@@ -278,6 +291,144 @@ function armDropTarget(host: HTMLElement): void {
     if (files.length) void routeDropped(files, false, result);
   });
   host.appendChild(result);
+}
+
+/**
+ * Somebody sent you a patch and you have never been here before.
+ *
+ * The whole of this app is about a corpus, and there is no corpus - so none of
+ * it applies. What applies is the one sound in the URL: hear it, keep the file
+ * if you want it, and be told what the place you have landed in is for.
+ *
+ * Nothing is written to the database. The patch is played straight out of the
+ * bytes in the link, which the engine is perfectly happy to do, so arriving
+ * here costs nothing and leaves nothing behind. Taking up the offer on the
+ * right forgets it, which is the correct weight for a link: you were shown a
+ * sound, not handed a library.
+ */
+function linkLanding(packed: Uint8Array): HTMLElement {
+  const unpacked = unpackVoice(packed);
+  const name = voiceName(unpacked) || '(unnamed)';
+  // Armed straight away, so a MIDI or typing keyboard plays it without anyone
+  // having to find a button first.
+  keyboard.setPatch(unpacked);
+
+  const play = el('button', {
+    class: 'btn primary big wide',
+    onclick: () => {
+      void ctx.player.unlock().then(() => ctx.player.audition(`link:${name}`, unpacked, DEMO_PHRASE));
+    },
+  }, 'Play it');
+
+  const patchCard = el('div', { class: 'splash-card primary' },
+    el('h2', {}, name),
+    el('p', {}, 'Somebody sent you this patch. It travelled inside the link — ',
+      'there is no copy of it anywhere but the address bar you just opened.'),
+    el('p', { class: 'muted' },
+      `algorithm ${(unpacked[P.algorithm] & 31) + 1}`,
+      `  ·  feedback ${unpacked[P.feedback] & 7}`),
+    /*
+     * The same diagram the sidebar draws, because this one can be drawn.
+     *
+     * Most of the voice panel is measurements, and there are none here - the
+     * patch was never imported, so it has no features, no category and no
+     * neighbours. The algorithm is different: it is read straight out of the
+     * bytes, and it is the part that tells you what kind of instrument you are
+     * looking at. Clicking an operator opens its envelope, exactly as it does
+     * everywhere else in the app.
+     */
+    el('div', { class: 'link-diagram' },
+      algorithmPanel(unpacked[P.algorithm] & 31, unpacked)),
+    el('div', { class: 'splash-act' }, play),
+    el('div', { class: 'link-keep' },
+      el('button', {
+        class: 'btn quiet',
+        onclick: () => downloadBytes(buildSingleVoice(unpacked), patchFile(name)),
+      }, '\u2193 .syx'),
+      el('button', {
+        class: 'btn quiet',
+        onclick: (e: Event) => {
+          const b = e.currentTarget as HTMLButtonElement;
+          void navigator.clipboard.writeText(patchLinkFor(packed, name)).then(() => {
+            b.textContent = 'copied';
+            window.setTimeout(() => { b.textContent = '\u21d7 link'; }, 1400);
+          }, () => {});
+        },
+      }, '\u21d7 link')),
+  );
+
+  /*
+   * What is offered beside the patch depends on whether there is a library.
+   *
+   * With nothing here, the useful offer is the app itself - this is somebody's
+   * first sight of it. With a library already in place the patch is simply not
+   * in it, and the only thing anyone wants is a button that puts it there.
+   */
+  const store = ctx.store;
+  const offer = store.voices.length === 0
+    ? el('div', { class: 'splash-card' },
+      el('h2', {}, 'The rest of it'),
+      el('p', {}, 'DX7 curator cuts tens of thousands of patches down to the hundred and ',
+        'twenty-eight worth keeping. Bring your own, or start from a library of thirty thousand.'),
+      el('div', { class: 'splash-fine' }, 'Everything stays on your machine.'),
+      el('div', { class: 'splash-act' }, el('button', {
+        class: 'btn big wide',
+        onclick: () => {
+          // Let go of here. It was never in the library, so there is nothing
+          // to remove - and the link still works if they kept it.
+          dropPendingLink();
+          ctx.player.stop();
+          render();
+        },
+      }, 'Have a look')))
+    : el('div', { class: 'splash-card primary' },
+      el('h2', {}, 'Not in your library'),
+      el('p', {}, `None of your ${fmtInt(store.voices.length)} patches has these parameters. `,
+        'Add it and it gets measured, grouped and placed on the map with the rest, and can be '
+        + 'rated and built into a bank.'),
+      el('div', { class: 'splash-act' }, el('button', {
+        class: 'btn primary big wide',
+        onclick: async () => {
+          dropPendingLink();
+          const at = await store.addSynthesised(unpacked, name, 'shared link', {
+            pinned: false, bank: 'link',
+          });
+          await autoAdvance();
+          if (at !== null && at >= 0 && store.projection) {
+            const map = await import('./map.ts');
+            map.presetSelect(at, { play: true });
+            ctx.go('map');
+            return;
+          }
+          render();
+        },
+      }, 'Add to library')),
+      el('div', { class: 'link-keep' }, el('button', {
+        class: 'btn quiet',
+        onclick: () => {
+          dropPendingLink();
+          ctx.player.stop();
+          ctx.go(store.projection ? 'map' : 'corpus');
+        },
+      }, 'Not now')));
+
+  /*
+   * It plays by itself, because the link was about the sound.
+   *
+   * Treated as a click rather than a hover, so it obeys the same setting as
+   * every other deliberate audition and stays silent for anyone who has turned
+   * auto-play off. A browser may refuse to make noise before the page has been
+   * touched, and nothing can be done about that - which is why the button is
+   * there, and why the keyboard is armed either way.
+   */
+  if (ctx.player.mayPlay('click')) {
+    void ctx.player.unlock().then(() => ctx.player.audition(`link:${name}`, unpacked, DEMO_PHRASE));
+  }
+
+  return el('div', { class: 'onboard splash' },
+    loadingBrand(),
+    el('div', { class: 'splash-choices two' }, patchCard, offer),
+  );
 }
 
 function onboarding(): HTMLElement {
@@ -1070,6 +1221,18 @@ function render(): void {
    * switch - and land on a Sources screen with no way back to the two things
    * you might now want to do. The advanced panels still follow it.
    */
+  /*
+   * A patch in the URL takes the screen, before the splash gets it.
+   *
+   * Only while the library is empty: with a corpus to put it in, a link is
+   * handled by opening or importing the patch and this never runs.
+   */
+  const incoming = peekPendingLink();
+  if (incoming) {
+    container.appendChild(el('div', { class: 'splash-scrim' }, linkLanding(incoming)));
+    return;
+  }
+
   if (store.voices.length === 0 && !splashDismissed) {
     /*
      * Lifted off the page, on a scrim.
