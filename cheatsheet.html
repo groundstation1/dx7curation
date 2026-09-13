@@ -126,6 +126,14 @@
    * way. Asking for a weight that exists on disk gets the real glyphs.
    */
   .cell svg text { font-weight: 700; font-size: 23px; }
+  /* Who modulates whom is the content of these pictures, and at print size the
+     component's screen weight left the connections thinner than the box
+     outlines they join. */
+  .cell svg path[stroke="var(--muted)"] { stroke-width: 2.8; }
+  /* The feedback loop is the one line that is not a connection between two
+     operators - it is an operator wired to itself - so it is drawn as a
+     different kind of line rather than the same line in a different place. */
+  .cell svg path[stroke="var(--accent-2)"]:not([stroke-linejoin]) { stroke-dasharray: 7 5; }
 
 </style>
 </head><body>
