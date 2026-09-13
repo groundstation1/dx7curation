@@ -89,6 +89,42 @@ export function nameSimilarity(v: NameVectors, i: number, j: number): number {
   return dot > 0 ? Math.min(1, dot) : 0;
 }
 
+/**
+ * How much two names have to agree before the agreement counts for anything,
+ * and how far it may then pull.
+ *
+ * Both off a sweep over nine thousand voices of a real corpus.
+ *
+ * The floor matters more than the pull. Without it the hint fires on any
+ * overlap at all, and the joins in the 0.2 to 0.6 band are junk - a patch
+ * called BASS SYNTH drawn toward one called AnlgBrass3 because both say
+ * "synth". At 0.7 that band is gone and what is left is the kind of pair this
+ * exists for: FRENCHORNN with BrassLo/Hi, PureRhodes with RHODES 4, CHIMESTRG2
+ * with ChimeStrg2 - one idea spelled differently by different people.
+ *
+ * What no threshold fixes, and is worth knowing: the largest family grows
+ * either way, 107 to about 142 out of nine thousand. That is not weak links
+ * chaining - at perfect agreement it still reaches 134 - it is what happens to
+ * connected components when edges are added at all.
+ */
+export const NAME_MIN_AGREEMENT = 0.7;
+export const NAME_PULL = 0.15;
+
+/**
+ * The agreement function to hand to clustering: similarity, floored.
+ *
+ * Below the floor it returns 0 rather than a small number, because a weak
+ * overlap is not weak evidence - it is a different word doing the matching.
+ */
+export function nameCloseness(
+  v: NameVectors, minAgreement = NAME_MIN_AGREEMENT,
+): (a: number, b: number) => number {
+  return (a, b) => {
+    const agreement = nameSimilarity(v, a, b);
+    return agreement >= minAgreement ? agreement : 0;
+  };
+}
+
 export interface NameSpace {
   /** How many components came out. Zero when there was nothing to reduce. */
   dims: number;

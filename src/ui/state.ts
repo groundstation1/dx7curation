@@ -20,7 +20,7 @@ import { ANALYSIS_VERSION, fitStandardizer, standardize, FEATURE_COUNT, FEATURE_
 import type { DupeRequest, DupeResponse } from '../workers/nearDupe.worker.ts';
 import { clusterAtThreshold, chooseRepresentatives, thresholdSweep, type NearDupeGraph, type NearDupeClusters, type SweepRow } from '../cluster/nearDupe.ts';
 import { pca } from '../cluster/pca.ts';
-import { buildNameSpace, nameSimilarity, type NameSpace } from '../cluster/nameSpace.ts';
+import { buildNameSpace, nameCloseness, NAME_PULL, type NameSpace } from '../cluster/nameSpace.ts';
 import { fitWhitener, whitenAll, redundancyRatio, redundancyWeights, type Whitener } from '../cluster/whiten.ts';
 import { fitTaste, predictRating, tasteWeights, type TasteModel } from '../cluster/taste.ts';
 import { lda } from '../cluster/lda.ts';
@@ -31,16 +31,6 @@ import { analyzeAll, type PoolProgress } from '../workers/pool.ts';
 import { isZip, extractZip } from '../util/zip.ts';
 import { runTask, type TaskHandle } from './task.ts';
 
-/**
- * How far a shared name may pull two voices together, as a fraction of the
- * distance between them.
- *
- * A quarter: enough that a pair sitting just outside the family threshold is
- * brought in when a person gave both the same word, and far too little to
- * reach anything the measurements call unrelated. Scaled by `nameWeight`, so
- * the dial that turns names off turns this off with it.
- */
-const NAME_PULL = 0.25;
 import { applyResult, newStanding, ratingOffset, type Standing } from '../rank/elo.ts';
 
 /**
@@ -1015,16 +1005,20 @@ export class Store {
      * direct evidence of and the feature vector only ever approximates.
      *
      * So the graph stays audio-only, the merge level reads it raw, and the
-     * family level shrinks an edge by up to NAME_PULL when the two voices were
-     * given the same words by a person. It can only move pairs the audio
-     * already nominated - nothing far away is dragged in - and on this corpus
-     * ninety-three percent of pairs share no word at all, so it is a nudge
-     * applied to a small minority rather than a smear over everything.
+     * family level shrinks an edge by up to NAME_PULL when two voices were
+     * given clearly the same words by a person - clearly, because the
+     * agreement floor in nameSpace.ts throws away the weak overlaps that are
+     * the ones producing nonsense. It can only move pairs the audio already
+     * nominated, and on this corpus ninety-three percent of pairs share no
+     * word at all, so it is a nudge to a small minority rather than a smear.
+     *
+     * Measured over nine thousand of these voices: fifteen hundred pairs
+     * brought in, two hundred and fifty more voices in a family, and the
+     * largest family growing from 107 to 142 - which is the cost, and is why
+     * the dial exists.
      */
     const vectors = this.nameSpace?.vectors;
-    const closeness = vectors && this.nameWeight > 0
-      ? (a: number, b: number) => nameSimilarity(vectors, a, b)
-      : undefined;
+    const closeness = vectors && this.nameWeight > 0 ? nameCloseness(vectors) : undefined;
     this.clusters = clusterAtThreshold(this.graph, this.threshold, closeness, NAME_PULL * this.nameWeight);
     this.representatives = chooseRepresentatives(this.clusters.clusters, space, FEATURE_COUNT);
     this.representativeSet = null;

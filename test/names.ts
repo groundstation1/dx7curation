@@ -9,7 +9,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { buildNameVocabulary, nameColumns, nameConceptIds, nameWords } from '../src/features/nameTokens.ts';
-import { buildNameSpace, nameSimilarity } from '../src/cluster/nameSpace.ts';
+import { buildNameSpace, nameCloseness, nameSimilarity, NAME_MIN_AGREEMENT, NAME_PULL } from '../src/cluster/nameSpace.ts';
 import { clusterAtThreshold, type NearDupeClusters } from '../src/cluster/nearDupe.ts';
 import { fitTaste } from '../src/cluster/taste.ts';
 
@@ -240,17 +240,25 @@ const close = (x: number, y: number) => nameSimilarity(named.vectors, x, y);
 check('two patches a person called fat agree', close(0, 1) > 0.3, close(0, 1).toFixed(2));
 check('two patches with nothing in common do not', close(2, 3) === 0);
 
+// A weak overlap is not weak evidence, it is a different word doing the
+// matching, so it has to count for nothing rather than for a little.
+const floored = nameCloseness(named.vectors);
+check('a clear agreement survives the floor', floored(0, 1) === close(0, 1));
+check('a weak one is discarded rather than scaled down',
+  nameCloseness(named.vectors, 1.01)(0, 1) === 0);
+
 const same = (c: NearDupeClusters, x: number, y: number) => c.labels[x] === c.labels[y];
 const without = clusterAtThreshold(graph, 0.3);
 check('without the hint the near pair stays apart', !same(without, 0, 1));
-const withHint = clusterAtThreshold(graph, 0.3, close, 0.25);
+const withHint = clusterAtThreshold(graph, 0.3, floored, NAME_PULL);
 check('with it they group', same(withHint, 0, 1));
 check('and the far pair is still not reachable', !same(withHint, 2, 3));
 check('and exactly one pair was joined, not a cascade',
   withHint.clusterCount === graph.n - 1, `${withHint.clusterCount} groups of ${graph.n}`);
 
 // The dial has to actually turn it off.
-const off = clusterAtThreshold(graph, 0.3, close, 0);
+const off = clusterAtThreshold(graph, 0.3, floored, 0);
+check('the shipped floor is a real one', NAME_MIN_AGREEMENT > 0.5 && NAME_MIN_AGREEMENT <= 1);
 check('a pull of zero is the old behaviour', !same(off, 0, 1));
 
 console.log(fail === 0 ? '\nall name checks passed' : `\n${fail} check(s) failed`);
