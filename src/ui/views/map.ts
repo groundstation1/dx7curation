@@ -228,7 +228,16 @@ let selected = -1;
  * existed at all was a line item in a menu of seventeen.
  */
 type Mode = 'map' | 'split' | 'list';
-let mode: Mode = getSetting<Mode>('map.mode', 'split');
+/*
+ * The plot alone by default.
+ *
+ * Split was the default on the reasoning that showing both says what the
+ * screen can do. It also halves the only thing anybody came here for: the map
+ * is the view you read by sweeping it, and a plot given half the height is a
+ * plot you zoom before you can use. The table is one click away and keeps
+ * whatever state you leave it in, so anyone who wants it has it.
+ */
+let mode: Mode = getSetting<Mode>('map.mode', 'map');
 /** How tall the plot is in split mode, dragged by the divider. */
 let plotHeight = getSetting('map.plotHeight', 340);
 let splitEl: HTMLElement | null = null;
@@ -282,12 +291,18 @@ type Collapse = 'copies' | 'sounds' | 'family';
  * in it forty times. Collapsing to families also puts the map in the units the
  * rating queue has always used: what you see is what you would be asked about.
  *
+ * One per distinct sound by default, rather than one per family. A family is
+ * the unit the rating queue works in, but it groups things that are audibly
+ * different, so collapsing to it hides sounds you have never heard behind a
+ * representative - fine for a work queue, wrong for a map you are exploring.
+ * Distinct sounds is the finest grouping that still removes the copies.
+ *
  * The stored value wins if there is one; failing that, an old checkbox that
  * was explicitly switched off still means "show me everything".
  */
 const storedCollapse = getSetting<Collapse | ''>('map.collapse', '');
 let collapse: Collapse = storedCollapse
-  || (getSetting('map.collapseMerged', true) ? 'family' : 'copies');
+  || (getSetting('map.collapseMerged', true) ? 'sounds' : 'copies');
 /** Kept as a constant: the transport's play setting is the switch now. */
 const hoverAudition = true;
 let auditionNote = getSetting('audition.note', 60);

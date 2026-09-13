@@ -44,10 +44,22 @@ port.on('message', (req: MeasureRequest) => {
     const a = extractAcoustic(renderProbe(unpacked));
     const s = extractStructural(unpacked);
     const cat = categorize(a, s, voiceName(unpacked));
+    /*
+     * The per-segment detail is dropped, exactly as the app's own analyse
+     * worker drops it.
+     *
+     * `segments` is the working material the summary features were derived
+     * from - a full analysis of every rendered segment - and nothing reads it
+     * once the vector exists. Keeping it made a collection of thirty thousand
+     * voices 55 MB where the same corpus out of the app is 15: five thousand
+     * characters a voice, eighty-three percent of the acoustic record, and not
+     * one of them ever looked at again.
+     */
+    const { segments: _segments, ...acoustic } = a;
     out.push({
       index: item.index,
       vector: buildVector(a, s),
-      acoustic: a,
+      acoustic,
       structural: s,
       category: cat.category,
       subcategory: cat.sub,

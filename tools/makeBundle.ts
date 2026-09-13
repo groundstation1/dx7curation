@@ -27,7 +27,7 @@ import type { MeasureRequest, MeasureResult } from './measure.worker.ts';
 // is kept free of the engine, so the test is passed in.
 import { isCarrier } from '../src/engine/fmcore.ts';
 import { parseSysexFile } from '../src/sysex/parse.ts';
-import { clampVoice, packedKeyOf, unpackVoice, voiceName } from '../src/sysex/voice.ts';
+import { clampVoice, isInitVoice, packedKeyOf, unpackVoice, voiceName } from '../src/sysex/voice.ts';
 import { renderProbe } from '../src/render/probe.ts';
 import { extractAcoustic } from '../src/features/acoustic.ts';
 import { extractStructural } from '../src/features/structural.ts';
@@ -87,6 +87,16 @@ for (const path of syxFiles) {
   for (const v of report.voices) {
     const packed = v.packed;
     const { voice: unpacked } = clampVoice(unpackVoice(packed));
+    /*
+     * The same two rejections the app makes on ingest.
+     *
+     * An untouched INIT VOICE and a patch whose carriers are all at zero are
+     * both real entries in these archives and neither is a sound. Leaving them
+     * in gave a collection six hundred voices larger than the one the app
+     * produces from the identical files, which is a difference nobody could
+     * explain later.
+     */
+    if (isInitVoice(unpacked) || isSilentByParams(unpacked, isCarrier)) continue;
     const key = packedKeyOf(packed);
     const src = {
       file: v.sourceFile, bank: v.bank, slot: v.slot, name: voiceName(unpacked),
