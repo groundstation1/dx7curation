@@ -23,7 +23,7 @@ export interface View {
   flush?: boolean;
 }
 
-export type ViewId = 'corpus' | 'map' | 'rate' | 'rank' | 'faceoff' | 'build';
+export type ViewId = 'corpus' | 'map' | 'rate' | 'rank' | 'faceoff' | 'build' | 'about';
 
 interface TabSpec {
   id: ViewId;
@@ -33,9 +33,25 @@ interface TabSpec {
   hint: string;
   /** Tabs that are only worth the room when you have asked for everything. */
   advancedOnly?: boolean;
+  /** Reachable by name, but never drawn in the row. */
+  hidden?: boolean;
 }
 
+/**
+ * The credits, reachable but not in the tab row.
+ *
+ * Kept in the same table so that `go` has one way to find a view, and marked
+ * hidden so `renderTabs` leaves it out.
+ */
 const TABS: TabSpec[] = [
+  {
+    id: 'about',
+    label: 'About',
+    load: async () => (await import('./views/about.ts')).view,
+    enabled: () => true,
+    hint: '',
+    hidden: true,
+  },
   {
     id: 'corpus',
     label: 'Sources',
@@ -122,6 +138,19 @@ export class App {
       el('div', { class: 'spacer' }),
       this.taskEl,
       this.statusEl,
+      /*
+       * A link rather than a tab.
+       *
+       * The tab row is the sequence of the work - sources, browse, rate, rank,
+       * build - and reads as one because nothing else is in it. Credits are
+       * not a step in that, and putting them there would cost the row its
+       * meaning to save one click on a page most people open once.
+       */
+      el('button', {
+        class: 'about-link',
+        title: 'What this is built on',
+        onclick: () => void this.go('about'),
+      }, 'about'),
       advancedSwitch(),
     );
     clear(this.root);
@@ -178,6 +207,7 @@ export class App {
   private renderTabs(): void {
     clear(this.tabsEl);
     for (const tab of TABS) {
+      if (tab.hidden) continue;
       if (tab.advancedOnly && !isAdvanced()) continue;
       const enabled = tab.enabled();
       this.tabsEl.appendChild(

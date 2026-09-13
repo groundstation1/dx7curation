@@ -1,9 +1,0 @@
-[
-  {
-    "name": "Factory cartridges",
-    "file": "bundles/factory.json.gz",
-    "voices": 123,
-    "bytes": 223015,
-    "note": "The four Yamaha ROM cartridges, for trying the app out."
-  }
-]
