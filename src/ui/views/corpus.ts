@@ -50,6 +50,20 @@ let embedAbort: AbortController | null = null;
 /** Set while the chain is running, and cleared if any step is cancelled. */
 let advancing = false;
 let lastNote = '';
+/**
+ * Show the splash even though there is a corpus.
+ *
+ * Set by clicking the wordmark. The first screen is the one place the two ways
+ * in are offered, and it used to exist only while the library was empty - so
+ * once you had patches there was no way to look at a shipped collection again,
+ * and no way back to the choice at all.
+ */
+let forceSplash = false;
+
+/** Called from the header. */
+export function openSplash(): void {
+  forceSplash = true;
+}
 /** Device read-back: which output to ask, and what has arrived so far. */
 let deviceOutputs: MidiPort[] = [];
 let deviceOutputId = '';
@@ -148,7 +162,19 @@ function onboarding(): HTMLElement {
         'About 40,000 voices. Duplicates collapse on import, and the rest is automatic.')),
   );
 
+  const store = ctx.store;
   const page = el('div', { class: 'onboard splash' },
+    // A way back, when there is something to go back to.
+    store.voices.length > 0
+      ? el('div', { class: 'row', style: { justifyContent: 'center', marginBottom: '10px' } },
+        el('button', {
+          class: 'btn',
+          onclick: () => {
+            forceSplash = false;
+            render();
+          },
+        }, `Back to ${fmtInt(store.voices.length)} patches`))
+      : null,
     el('div', { class: 'splash-brand' },
       el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
     el('p', { class: 'lede' }, 'Everything stays on this machine. Nothing is uploaded.'),
@@ -168,6 +194,7 @@ function onboarding(): HTMLElement {
 }
 
 function bundleCard(entry: BundleEntry): HTMLElement {
+  const ask = el('div', { class: 'muted', style: { marginTop: '8px' } });
   // Rounded to the unit that makes it a real number: "0 MB" for a small
   // collection says the download is free, which is not what it means.
   const size = entry.bytes
@@ -180,7 +207,18 @@ function bundleCard(entry: BundleEntry): HTMLElement {
     el('button', {
       class: 'btn primary big',
       onclick: async () => {
+        /*
+         * Replacing is asked about, because this button can now be reached
+         * with a library already in place. A collection is a whole session, so
+         * loading one is not a merge - it is everything you have, gone.
+         */
+        if (ctx.store.voices.length > 0) {
+          const ok = await askInPage(ask,
+            `Replace all ${fmtInt(ctx.store.voices.length)} patches in this browser with ${entry.name}?`);
+          if (!ok) return;
+        }
         try {
+          forceSplash = false;
           await runTask(`fetching ${entry.name}`, async (task) => {
             const bytes = await fetchBundle(entry, (done, total) => {
               task.set(total ? done / total : null, `${(done / 1e6).toFixed(0)} of ${(total / 1e6).toFixed(0)} MB`);
@@ -198,10 +236,12 @@ function bundleCard(entry: BundleEntry): HTMLElement {
     }, 'Load it'),
     el('div', { class: 'muted', style: { marginTop: '8px', fontSize: '11.5px' } },
       [count, size].filter(Boolean).join('  ·  ')),
+    ask,
   );
 }
 
 async function ingest(files: File[], pinned: boolean): Promise<void> {
+  forceSplash = false;
   try {
     await ctx.store.ingestFiles(files, { pinned, userSupplied: pinned });
   } catch (err) {
@@ -908,7 +948,7 @@ function render(): void {
    * switch - and land on a Sources screen with no way back to the two things
    * you might now want to do. The advanced panels still follow it.
    */
-  if (store.voices.length === 0) {
+  if (store.voices.length === 0 || forceSplash) {
     container.appendChild(onboarding());
     if (isAdvanced()) {
       container.appendChild(el('div', { class: 'stack page-narrow', style: { marginTop: 'var(--gut)' } },

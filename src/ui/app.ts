@@ -132,8 +132,24 @@ export class App {
       // between every child, bare text nodes included, so spelling the name out
       // at this level made the word space the same size as the gap after the
       // mark.
-      el('div', { class: 'brand' },
-        el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
+      /*
+       * The wordmark goes home, which here means the first screen.
+       *
+       * That screen holds the two ways in - your own files, or a prepared
+       * collection - and it used to exist only while the library was empty, so
+       * having imported anything there was no route back to it. A logo that
+       * returns you to the start is the convention every other app has trained
+       * people on, and it costs no room in a bar that has none.
+       */
+      el('button', {
+        class: 'brand',
+        title: 'Back to the start',
+        onclick: async () => {
+          const corpus = await import('./views/corpus.ts');
+          corpus.openSplash();
+          await this.go('corpus');
+        },
+      }, el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
       this.tabsEl,
       el('div', { class: 'spacer' }),
       this.taskEl,
@@ -286,7 +302,18 @@ export class App {
   private generation = 0;
 
   async go(id: ViewId): Promise<void> {
-    const tab = TABS.find((t) => t.id === id) ?? TABS[0];
+    let tab = TABS.find((t) => t.id === id) ?? TABS[0];
+    /*
+     * A disabled destination falls back to Sources rather than refusing.
+     *
+     * Refusing is right for a click on a greyed-out tab, which cannot happen
+     * anyway - the button is disabled. It is wrong for everything else that
+     * calls this, and the case that bites is deleting the corpus while some
+     * other screen is open: every tab but Sources switches off, the call to
+     * move goes nowhere, and you are left looking at a view of a library that
+     * no longer exists with no indication of what happened.
+     */
+    if (!tab.enabled()) tab = TABS.find((t) => t.id === 'corpus') ?? tab;
     if (!tab.enabled()) return;
     const mine = ++this.generation;
 

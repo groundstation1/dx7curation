@@ -294,7 +294,12 @@ function render(): void {
       }, `mod ${Math.round(keyboard.modWheel * 100)}%`)
       : null,
 
-    el('span', { style: { flex: '1' } }),
+    /*
+     * No spacer before it: the gear belongs to the controls, not to the far
+     * edge. Pushed right it read as a separate thing at the end of an empty
+     * stretch of bar, and on a wide screen it was a long way from everything
+     * it opens.
+     */
     el('button', {
       class: open ? 'sound-more on' : 'sound-more',
       title: 'Sound settings: MIDI input, bend range, mod wheel dead zone, typing keyboard',
