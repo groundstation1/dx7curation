@@ -240,12 +240,40 @@ function pipelinePanel(): HTMLElement {
     bits.push(`${fmtInt(store.mergeClusters.clusterCount)} distinct sounds`);
     bits.push(`${fmtInt(store.clusters.clusterCount)} families to rate`);
   }
+  if (store.embedding) bits.push('neighbourhood map ready');
   panel.appendChild(el('p', { class: 'hint', style: { margin: '6px 0 0' } }, bits.join('  ·  ')));
 
   if (store.staleFeatures > 0) {
     panel.appendChild(el('p', { class: 'warn', style: { margin: '8px 0 0' } },
       `${fmtInt(store.staleFeatures)} voices were analysed by an older build and have to be redone. `,
       'Ratings and pins are untouched.'));
+  }
+
+  /*
+   * The neighbourhood layout, offered rather than run.
+   *
+   * It is a few seconds of work and the map has a perfectly usable projection
+   * without it, so it is not part of the automatic pipeline. It is here rather
+   * than on the map because this is where the other expensive passes live.
+   */
+  if (!running && store.analysedCount > 8 && store.analysedCount === store.voices.length) {
+    panel.appendChild(el('div', { class: 'row', style: { marginTop: '10px' } },
+      el('button', {
+        class: store.embedding ? 'btn' : 'btn primary',
+        onclick: async () => {
+          try {
+            await store.buildEmbedding();
+          } catch (err) {
+            if ((err as Error).name !== 'AbortError') lastNote = (err as Error).message;
+          }
+          render();
+        },
+      }, store.embedding ? 'Lay out the neighbourhood map again' : 'Lay out a neighbourhood map'),
+      el('span', { class: 'note', style: { flex: '1 1 260px' } },
+        store.embedding
+          ? 'Browse shows it as "What sits near what".'
+          : 'A second way to draw Browse: patches that sound alike placed together, rather than along the directions the corpus varies in most.'),
+    ));
   }
 
   if (isAdvanced()) {

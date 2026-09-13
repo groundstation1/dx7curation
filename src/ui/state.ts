@@ -18,6 +18,7 @@ import { isCarrier } from '../engine/fmcore.ts';
 import { isInitVoice, isSilentByParams } from '../sysex/voice.ts';
 import { ANALYSIS_VERSION, fitStandardizer, standardize, FEATURE_COUNT, type Standardizer } from '../features/vector.ts';
 import type { DupeRequest, DupeResponse } from '../workers/nearDupe.worker.ts';
+import type { EmbedRequest, EmbedResponse } from '../workers/embed.worker.ts';
 import { clusterAtThreshold, chooseRepresentatives, thresholdSweep, type NearDupeGraph, type NearDupeClusters, type SweepRow } from '../cluster/nearDupe.ts';
 import { pca } from '../cluster/pca.ts';
 import { fitWhitener, whitenAll, redundancyRatio, redundancyWeights, type Whitener } from '../cluster/whiten.ts';
@@ -148,6 +149,23 @@ export class Store {
   /** 0 disables taste weighting of distances, 1 applies it fully. */
   tasteStrength = 1;
   graph: NearDupeGraph | null = null;
+  /*
+   * The neighbourhood map: n * 2 coordinates, or null until it is asked for.
+   *
+   * The variation axes answer "which way does the corpus vary most", which is
+   * a fact about the corpus rather than about any two patches in it, and it
+   * shows: a family that near-duplicate detection groups perfectly can still
+   * be smeared across the plot because some strong unrelated direction runs
+   * through it. This is the other kind of map - laid out so that things close
+   * in the feature space come out close on screen - and it is computed from
+   * the same distances the families are built from, which is why it agrees
+   * with them.
+   *
+   * Expensive enough to be explicit about (a few seconds, in a worker) and
+   * small enough to keep (two floats a voice), so it is computed on request
+   * and stored.
+   */
+  embedding: Float32Array | null = null;
   /**
    * The looser of the two thresholds: groups voices into families that get a
    * face-off, where members are similar but still audibly different.
@@ -283,6 +301,15 @@ export class Store {
           await yieldToPaint();
           this.graph = savedGraph;
           this.applyThreshold(this.threshold, this.mergeThreshold, false);
+        }
+
+        // Cheap to keep and slow to make, so it comes back with everything
+        // else. Tied to the corpus size: add patches and it is stale.
+        const savedEmbedding = await kvGet<{ n: number; coords: Float32Array }>('embedding');
+        if (savedEmbedding && savedEmbedding.n === this.voices.length) {
+          this.embedding = savedEmbedding.coords instanceof Float32Array
+            ? savedEmbedding.coords
+            : Float32Array.from(savedEmbedding.coords as ArrayLike<number>);
         }
       }
     });
@@ -713,6 +740,57 @@ export class Store {
    * entire run and there was no way to stop it. Aborting terminates the worker,
    * which is the only way to stop a synchronous loop that is already going.
    */
+  /**
+   * Lay the map out from neighbourhoods instead of from variance.
+   *
+   * Runs on `distanceSpace` - the same matrix the near-duplicate pass and the
+   * families use - so the picture inherits whatever makes those feel right.
+   * Started from the PCA projection, so the result keeps the global
+   * arrangement people are already used to rather than arriving rotated at
+   * random.
+   */
+  async buildEmbedding(opts: { signal?: AbortSignal } = {}): Promise<void> {
+    const space = this.distanceSpace;
+    if (!space || this.voices.length < 8) throw new Error('run the analysis pass first');
+    const n = this.voices.length;
+
+    const own = new AbortController();
+    const signal = opts.signal ?? own.signal;
+    const worker = new Worker(new URL('../workers/embed.worker.ts', import.meta.url), { type: 'module' });
+    try {
+      const coords = await runTask('laying out the neighbourhood map', (task) => new Promise<Float32Array>((resolve, reject) => {
+        const stop = () => {
+          worker.terminate();
+          reject(new DOMException('cancelled', 'AbortError'));
+        };
+        if (signal.aborted) return stop();
+        signal.addEventListener('abort', stop, { once: true });
+        worker.onmessage = (ev: MessageEvent<EmbedResponse>) => {
+          const msg = ev.data;
+          if (msg.type === 'progress') task.set(msg.done / msg.total, msg.stage);
+          else if (msg.type === 'done') resolve(msg.coords);
+          else reject(new Error(msg.message));
+        };
+        worker.onerror = (e) => reject(new Error(e.message || 'the layout worker failed'));
+        const data = Float32Array.from(space);
+        const request: EmbedRequest = {
+          type: 'embed',
+          data,
+          n,
+          dim: FEATURE_COUNT,
+          init: this.projection ? Float32Array.from(this.projection) : undefined,
+        };
+        worker.postMessage(request, [data.buffer]);
+      }), { cancel: () => own.abort() });
+
+      this.embedding = coords;
+      await kvSet('embedding', { n, coords });
+      this.emit();
+    } finally {
+      worker.terminate();
+    }
+  }
+
   async buildClusters(opts: {
     maxDistance?: number;
     blockSize?: number;
@@ -1503,6 +1581,7 @@ export class Store {
     this.analysis = [];
     this.standardizer = null;
     this.flat = null;
+    this.embedding = null;
     this.graph = null;
     this.clusters = null;
     this.representatives = [];

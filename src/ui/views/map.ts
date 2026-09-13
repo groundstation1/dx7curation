@@ -43,6 +43,13 @@ interface Axis {
    * where the only question left is which way is which.
    */
   short?: string;
+  /**
+   * What the two ends mean, when the axis knows better than the table does.
+   *
+   * An empty pair means the direction is not a quantity and saying "low" and
+   * "high" about it would be a lie.
+   */
+  ends?: [string, string];
   value: (i: number) => number;
 }
 
@@ -98,7 +105,7 @@ const AXIS_ENDS: Record<string, [string, string]> = {
 };
 
 function axisEnds(id: AxisId): [string, string] {
-  return AXIS_ENDS[id] ?? ['low', 'high'];
+  return axisById(id).ends ?? AXIS_ENDS[id] ?? ['low', 'high'];
 }
 
 /**
@@ -349,6 +356,20 @@ function axes(): Axis[] {
     const pct = (i: number) => ((store.pcaExplained[i] ?? 0) * 100).toFixed(0);
     list.push({ id: 'pca1', label: `variation axis 1 (${pct(0)}%)`, short: 'variation axis 1', value: (i) => p[i * 2] });
     list.push({ id: 'pca2', label: `variation axis 2 (${pct(1)}%)`, short: 'variation axis 2', value: (i) => p[i * 2 + 1] });
+  }
+  /*
+   * The neighbourhood map.
+   *
+   * First in the list when it exists, because it is the one that answers the
+   * question people actually bring to a map of sounds: is this near the things
+   * it sounds like. Its two axes have no meaning individually - they are the
+   * two directions of a layout, not measurements of anything - so they are
+   * only ever offered as a pair, and the ends are left unlabelled.
+   */
+  if (store.embedding && store.embedding.length >= store.voices.length * 2) {
+    const e = store.embedding;
+    list.push({ id: 'embed1', label: 'neighbourhood map (across)', short: 'neighbourhood map', ends: ['', ''], value: (i) => e[i * 2] });
+    list.push({ id: 'embed2', label: 'neighbourhood map (down)', short: '', ends: ['', ''], value: (i) => e[i * 2 + 1] });
   }
   if (store.ldaProjection) {
     const p = store.ldaProjection;
@@ -1589,6 +1610,10 @@ interface MapPreset {
 
 const PRESETS: MapPreset[] = [
   {
+    id: 'neighbourhood', label: 'What sits near what', x: 'embed1', y: 'embed2', colour: 'category',
+    note: 'laid out so that patches which sound alike land together; distance between groups means nothing',
+  },
+  {
     id: 'learned', label: 'Everything at once', x: 'pca1', y: 'pca2', colour: 'category',
     note: 'the two directions the corpus varies most in',
   },
@@ -1850,7 +1875,13 @@ function renderControls(): void {
       el('select', {
         onchange: (e: Event) => applyPreset((e.target as HTMLSelectElement).value),
       },
-        ...PRESETS.map((item) => el('option', { value: item.id, selected: item.id === presetId }, item.label)),
+        // A preset whose axes this corpus has not got is not offered:
+        // axisById would substitute the first axis for both and the plot would
+        // come out as a diagonal line.
+        ...PRESETS.filter((item) => {
+          const ids = new Set(axes().map((a) => a.id));
+          return ids.has(item.x) && ids.has(item.y);
+        }).map((item) => el('option', { value: item.id, selected: item.id === presetId }, item.label)),
         presetId === 'custom' ? el('option', { value: 'custom', selected: true }, 'custom') : null,
       ),
       preset && !isAdvanced() ? el('span', { class: 'preset-note' }, preset.note) : null,
