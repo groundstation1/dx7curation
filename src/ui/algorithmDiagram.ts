@@ -181,9 +181,20 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
     const top = byOp.get(g.feedback[0]);
     const bottom = byOp.get(g.feedback[g.feedback.length - 1]);
     if (top && bottom && top.op === bottom.op) {
-      const cx = xOf(top.column) + box / 2 - 2;
-      const cy = yOf(top.depth) - box / 2 + 2;
-      const r = 8;
+      /*
+       * The curl is a fraction of the box, not a fixed eight pixels.
+       *
+       * Every other measurement here scales with `box`, so a constant radius
+       * meant the loop was proportionally whatever the caller's size happened
+       * to make it - a third of a box on screen and a fifth of one on the
+       * printed sheet, which draws it at forty. The fractions are chosen to
+       * land on the old numbers at the default box of 26, so the app's own
+       * diagrams are where they were.
+       */
+      const inset = box * 0.077;
+      const cx = xOf(top.column) + box / 2 - inset;
+      const cy = yOf(top.depth) - box / 2 + inset;
+      const r = box * 0.31;
       root.appendChild(svg('path', {
         d: `M ${cx - r} ${cy} A ${r} ${r} 0 1 1 ${cx} ${cy + r}`,
         fill: 'none',
@@ -194,7 +205,7 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
         opacity: loopOpacity,
       }));
       root.appendChild(svg('path', {
-        d: `M ${cx - 4.2} ${cy + r - 3.4} L ${cx} ${cy + r} L ${cx - 4.2} ${cy + r + 3.4}`,
+        d: `M ${cx - r * 0.53} ${cy + r - r * 0.43} L ${cx} ${cy + r} L ${cx - r * 0.53} ${cy + r + r * 0.43}`,
         fill: 'none',
         stroke: 'var(--accent-2)',
         'stroke-width': loopWidth,
