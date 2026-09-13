@@ -1,28 +1,50 @@
 DX7 curator
 Copyright (c) 2026 groundstation1
 
-Space pirate licence: no usage allowed, officially.
 
----
+                      THE SPACE PIRATE LICENCE
+                     no usage allowed, officially
 
-All rights reserved.
 
-No permission is granted to use, copy, modify, merge, publish, distribute,
-sublicense or sell this software or any part of it, except as set out below.
-Reading the source is welcome; reusing it is not.
+ARTICLE I — ON OWNERSHIP
+  This software is mine. I made it, largely by telling a computer it was
+  wrong until it stopped being wrong.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED.
+ARTICLE II — ON LOOKING
+  You may look at it. Looking is free and always will be. Read the
+  comments; they are the best part and they know it.
 
----
+ARTICLE III — ON EVERYTHING ELSE
+  You may not use it, copy it, modify it, ship it, sell it, fold it into
+  a product, or otherwise treat it as yours. No permission is granted for
+  any of that. None. Not a little. Not for a good cause.
 
-IMPORTANT: this licence covers only the parts of this repository written by
-the copyright holder above. It does not, and cannot, apply to the third-party
-work this project is built from. Those parts carry their own licences, granted
-by their own authors, and nothing here revokes or narrows them.
+ARTICLE IV — ON ENFORCEMENT
+  If you do it anyway you are a space pirate, and we both know there is no
+  space police. You go on the list. It is a long list, it is kept badly,
+  and nobody has ever read it.
 
-In particular the DX7 synthesis engine under src/engine/ is a port of msfa and
-is licensed under Apache 2.0 by Google Inc. and Pascal Gauthier. You may use
-that code under those terms regardless of anything written above.
+ARTICLE V — ON WARRANTY
+  There isn't one. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+  ANY KIND, EXPRESS OR IMPLIED. If it eats your patches, bricks your
+  synth, or produces a sound that cannot afterwards be unheard, that is
+  between you and the sound.
 
-See THIRD-PARTY-NOTICES.md for the full list.
+
+- - - - - - - - and now the part that is not a joke - - - - - - - -
+
+Articles I to V cover only the parts of this repository that I wrote. They
+do not reach the work it is built on, and they could not even if I wanted
+them to: those authors granted rights that are not mine to take back.
+
+In particular, the DX7 synthesis engine under src/engine/ is a port of
+msfa and is licensed under Apache License 2.0 by Google Inc. and Pascal
+Gauthier. You may use, copy, modify and redistribute that code under those
+terms regardless of anything written above. The patch data shipped in
+public/bundles/ is released into the public domain under CC0 1.0 and is
+likewise free for anyone to take.
+
+The full list, with the notices those licences require, is in
+THIRD-PARTY-NOTICES.md, and a copy of the Apache licence is in licenses/.
+
+So: plunder my half if you must. The engine was never mine to guard.
