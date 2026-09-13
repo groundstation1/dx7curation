@@ -39,7 +39,6 @@ const SWEEP_POINTS = [0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.16, 0.22, 0.3];
 const SOURCE_ROWS = 24;
 
 /** Where to get a lot of patches at once, for someone who has none. */
-const BULK_SOURCE = 'https://bobbyblues.recup.ch/yamaha_dx7/dx7_patches.html';
 
 let ctx: ViewContext;
 let container: HTMLElement;
@@ -154,12 +153,10 @@ function onboarding(): HTMLElement {
     el('h2', {}, 'Start from scratch'),
     el('p', { class: 'muted' }, 'Drop in your own .syx files, folders or a zip.'),
     dropZone(true),
-    el('div', { class: 'tipoff' },
-      el('div', {}, 'Want a lot at once? Take ', el('b', {}, 'ALL THE WEB PATCHES'), ' from ',
-        el('a', { href: BULK_SOURCE, target: '_blank', rel: 'noreferrer' }, 'bobbyblues.recup.ch'),
-        ' and drop the zip straight in.'),
-      el('div', { class: 'muted', style: { marginTop: '6px' } },
-        'About 40,000 voices. Duplicates collapse on import, and the rest is automatic.')),
+    // The pointer to an outside archive lived here to answer "where do I get a
+    // lot of these", which the collection beside it now answers without
+    // sending anybody off to find a zip. Still credited on the about page,
+    // where a source belongs.
   );
 
   const store = ctx.store;

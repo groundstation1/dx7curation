@@ -650,11 +650,6 @@ kbd {
 .onboard .lede { color: var(--muted); margin: 0 0 26px; font-size: 13.5px; }
 .onboard .dropzone { padding: 52px 30px; }
 .onboard .drop-big { font-size: 16px; color: var(--text); margin-bottom: 10px; }
-.onboard .tipoff {
-  margin-top: 16px; padding: 15px 18px; text-align: left;
-  background: var(--surface); border-radius: var(--radius);
-}
-.onboard .tipoff b { color: var(--accent-2); }
 .onboard a { color: var(--accent); }
 .onboard .panel { margin-top: 8px; text-align: left; }
 
@@ -1239,7 +1234,6 @@ table.data.fixed { table-layout: fixed; }
 .splash-card h2 { margin: 0 0 6px; font-size: 17px; letter-spacing: -0.01em; }
 .splash-card p { margin: 0 0 14px; font-size: 13px; }
 .splash-card .dropzone { padding: 30px 20px; }
-.splash-card .tipoff { margin-top: 14px; }
 .btn.big { font-size: 14px; padding: 10px 18px; }
 
 /* ------------------------------------------------- the described pulldown */
