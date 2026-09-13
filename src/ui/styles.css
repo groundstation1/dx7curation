@@ -1407,15 +1407,22 @@ table.data.fixed { table-layout: fixed; }
  * the cards then float with nothing holding them together; a few points of
  * lift is enough to read as one panel without becoming a box.
  */
+/*
+ * A panel with room around its contents. It is the only thing on the screen,
+ * so crowding it saves nothing - and the padding grows with the viewport,
+ * because 28px that looks generous in a small window looks like a margin
+ * error on a wide monitor.
+ */
 .splash-scrim .splash {
   grid-row: 2; margin: 24px 0; width: 100%;
-  background: #0b0d11; border-radius: var(--radius);
-  padding: 8px 28px 30px; position: relative;
+  background: #10131a; border-radius: var(--radius);
+  padding: clamp(20px, 3.2vw, 46px) clamp(20px, 3.6vw, 56px) clamp(26px, 3.6vw, 52px);
+  position: relative;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 /* Top right, where a close button is, and quiet until wanted. */
 .splash-close {
-  position: absolute; top: 12px; right: 14px;
+  position: absolute; top: 14px; right: 16px;
   background: none; border: none; cursor: pointer;
   color: var(--muted); font-size: 20px; line-height: 1;
   padding: 4px 9px; border-radius: var(--radius-sm);

@@ -211,10 +211,20 @@ function dropZone(big: boolean, host?: HTMLElement): HTMLElement {
  * The collection is offered only if it is actually there. Nothing here tells
  * anybody about a set they cannot have.
  */
-function onboarding(): HTMLElement {
-  if (splashBusy) return splashProgress();
+/**
+ * The two ways to get patches in: a prepared collection, or your own files.
+ *
+ * The same pair on both screens. It was the splash's alone, which made the
+ * collection unreachable the moment you had anything - and the fixes for that
+ * kept being routes back to a screen you had finished with. Sources shows the
+ * choices at the top and its own business underneath; the splash is the same
+ * choices when there is no business yet.
+ *
+ * The collection appears only if one has actually been shipped. Nothing here
+ * tells anybody about a set they cannot have.
+ */
+function choicesRow(): HTMLElement {
   const choices = el('div', { class: 'splash-choices' });
-
   /*
    * The card is the drop target.
    *
@@ -224,6 +234,16 @@ function onboarding(): HTMLElement {
    * symmetry - this side came out taller than the collection beside it.
    */
   const scratch = dropCard();
+  void availableBundles().then((list) => {
+    for (const entry of list) choices.appendChild(bundleCard(entry));
+    choices.appendChild(scratch);
+    if (list.length > 0) choices.classList.add('two');
+  });
+  return choices;
+}
+
+function onboarding(): HTMLElement {
+  if (splashBusy) return splashProgress();
 
   const page = el('div', { class: 'onboard splash' },
     splashBusy ? null : el('button', {
@@ -236,7 +256,7 @@ function onboarding(): HTMLElement {
     }, '×'),
     el('div', { class: 'splash-brand' },
       el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
-    choices,
+    choicesRow(),
     el('div', { class: 'splash-restore' }, exportPanel()),
   );
 
@@ -274,11 +294,6 @@ function onboarding(): HTMLElement {
   // Asynchronous, and the screen is complete without it: the shipped
   // collection appears beside "start from scratch" if there is one, and
   // nothing moves if there is not.
-  void availableBundles().then((list) => {
-    for (const entry of list) choices.appendChild(bundleCard(entry));
-    choices.appendChild(scratch);
-    if (list.length > 0) choices.classList.add('two');
-  });
   return page;
 }
 
@@ -1236,57 +1251,15 @@ function render(): void {
     lastNote = '';
   }
 
-  if (store.voices.length === 0) {
-    page.appendChild(el('div', { class: 'panel' }, dropZone(true)));
-  } else {
+  // The same two choices the first screen offers, at the top of the screen you
+  // would go to in order to make either of them.
+  page.appendChild(choicesRow());
+  if (store.voices.length > 0) {
     page.appendChild(pipelinePanel());
-    const more = el('div', { class: 'panel' },
-      el('h2', {}, 'Add more'),
-      dropZone(false),
-      store.lastIngest ? lastImport(store.lastIngest) : null,
-    );
-    page.appendChild(more);
+    if (store.lastIngest) {
+      page.appendChild(el('div', { class: 'panel' }, lastImport(store.lastIngest)));
+    }
 
-    /*
-     * The shipped collection, offered here too.
-     *
-     * It used to live only on the first screen, which meant that once you had
-     * imported anything there was no way to reach it again - and the fix for
-     * that was briefly a route back to a screen you had finished with. It is
-     * simpler for the option to be where you already go to add patches. It
-     * replaces rather than merges, which is why it asks.
-     */
-    void availableBundles().then((list) => {
-      if (list.length === 0) return;
-      const ask = el('div', { class: 'muted' });
-      more.appendChild(el('div', { class: 'row', style: { marginTop: '12px' } },
-        ...list.map((entry) => el('button', {
-          class: 'btn',
-          onclick: async () => {
-            const ok = await askInPage(ask,
-              `Replace all ${fmtInt(ctx.store.voices.length)} patches with ${entry.name}?`);
-            if (!ok) return;
-            try {
-              await runTask(`Fetching ${entry.name}`, async (task) => {
-                const bytes = await fetchBundle(entry, (done, total) => {
-                  task.set(total ? done / total : null, `${(done / 1e6).toFixed(0)} of ${(total / 1e6).toFixed(0)} MB`);
-                });
-                task.stage('unpacking');
-                await ctx.store.importSession(await readSessionBytes(bytes), { bundle: entry.name });
-              });
-              await autoAdvance();
-              ctx.go('map');
-              return;
-            } catch (err) {
-              if ((err as Error).name !== 'AbortError') lastNote = `Could not load ${entry.name}: ${(err as Error).message}`;
-            }
-            render();
-          },
-        }, `Load ${entry.name}`)),
-        el('span', { class: 'note' }, 'Replaces everything here.'),
-      ));
-      more.appendChild(ask);
-    });
   }
 
   if (store.voices.length > 0 && (store.ratings.size > 0 || store.tasteModel)) {
