@@ -76,7 +76,18 @@ function scaleRate(midinote: number, sensitivity: number): number {
   return (sensitivity * x) >> 3;
 }
 
-function scaleCurve(group: number, depth: number, curve: number): number {
+/**
+ * Keyboard level scaling, exported so the cheat sheet can plot the real thing.
+ *
+ * `group` is a distance from the break point and is never negative - both
+ * sides of scaleLevel pass it as a magnitude - so the sign of the result comes
+ * from the curve alone. That is the whole content of the four curve names: a
+ * + curve adds level as you move away from the break point, in whichever
+ * direction it was set, and a - curve takes it away. Drawn by hand it came out
+ * as four lines running through the break point, which is a picture of one
+ * particular pairing of left and right curves rather than of the curve types.
+ */
+export function scaleCurve(group: number, depth: number, curve: number): number {
   let scale: number;
   if (curve === 0 || curve === 3) {
     scale = (group * depth * 329) >> 12;

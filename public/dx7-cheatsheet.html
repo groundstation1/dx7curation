@@ -1650,10 +1650,10 @@ table.data.fixed { table-layout: fixed; }
   .fig .hold { stroke-dasharray: 0.1 2.4; stroke-linecap: round; }
   /* Four line styles for four curves. They all meet at the break point and all
      arrive at the same two corners, so shape alone cannot tell them apart. */
-  .fig .lin-up { }
-  .fig .exp-up { stroke-dasharray: 3.2 1.6; }
-  .fig .exp-dn { stroke-dasharray: 0.1 2; stroke-linecap: round; stroke-width: 1.1; }
-  .fig .lin-dn { stroke-dasharray: 4.5 1.4 0.1 1.4; stroke-linecap: round; }
+  .fig .lin-plus { }
+  .fig .exp-plus { stroke-dasharray: 3.2 1.6; }
+  .fig .exp-minus { stroke-dasharray: 0.1 2; stroke-linecap: round; stroke-width: 1.1; }
+  .fig .lin-minus { stroke-dasharray: 4.5 1.4 0.1 1.4; stroke-linecap: round; }
   .fig text { font-family: inherit; font-size: 4px; fill: var(--text); }
   .fig .sm { font-size: 3.5px; }
   .fig .mid { text-anchor: middle; }
@@ -1765,40 +1765,7 @@ table.data.fixed { table-layout: fixed; }
 
   <div class="tile">
     <h2>Keyboard level scaling</h2>
-    <svg class="fig" viewBox="0 0 100 52">
-      <!--
-        Four lines, each through the break point and mirrored either side of
-        it: the label says what the curve does going up the keyboard, and the
-        left half is the same curve going down. Four dash patterns rather than
-        labels on the ends, because at full depth every curve arrives at the
-        same two corners - labelling them there would make four lines look
-        like eight half-lines.
-      -->
-      <path class="ln thin" d="M16 6H96V38H16Z"/>
-      <path class="ln thin" d="M16 22H96"/>
-      <path class="ln dash" d="M56 6V38"/>
-
-      <path class="ln lin-up" d="M16 38L56 22L96 6"/>
-      <path class="ln exp-up" d="M16 38C29 26 45 22.6 56 22C68 21.4 82 18.5 96 6"/>
-      <path class="ln exp-dn" d="M16 6C29 18 45 21.4 56 22C68 22.6 82 25.5 96 38"/>
-      <path class="ln lin-dn" d="M16 6L56 22L96 38"/>
-
-      <text class="sm mid" x="56" y="4.4">break point</text>
-      <text class="sm end" x="14" y="8.5">more</text>
-      <text class="sm end" x="14" y="23">0</text>
-      <text class="sm end" x="14" y="37.5">less</text>
-      <text class="sm" x="16" y="43.5">L CURVE, L DEPTH</text>
-      <text class="sm end" x="96" y="43.5">R CURVE, R DEPTH</text>
-
-      <path class="ln lin-up" d="M6 49h7"/>
-      <text class="sm" x="15" y="50.3">+LIN</text>
-      <path class="ln exp-up" d="M30 49h7"/>
-      <text class="sm" x="39" y="50.3">+EXP</text>
-      <path class="ln exp-dn" d="M54 49h7"/>
-      <text class="sm" x="63" y="50.3">&minus;EXP</text>
-      <path class="ln lin-dn" d="M78 49h7"/>
-      <text class="sm" x="87" y="50.3">&minus;LIN</text>
-    </svg>
+    <svg class="fig" viewBox="0 0 100 52"><path class="ln thin" d="M16 6H96V38H16Z"/><path class="ln thin" d="M16 22H96"/><path class="ln dash" d="M56 6V38"/><path class="ln lin-plus" d="M16 6.06L17.25 6.56L18.5 7.07L19.75 7.57L21 8.07L22.25 8.57L23.5 9.07L24.75 9.58L26 10.08L27.25 10.58L28.5 11.08L29.75 11.58L31 12.02L32.25 12.53L33.5 13.03L34.75 13.53L36 14.03L37.25 14.53L38.5 15.04L39.75 15.54L41 16.04L42.25 16.54L43.5 17.04L44.75 17.55L46 18.05L47.25 18.55L48.5 19.05L49.75 19.55L51 20.05L52.25 20.56L53.5 21.06L54.75 21.56L56 22L57.25 21.56L58.5 21.06L59.75 20.56L61 20.05L62.25 19.55L63.5 19.05L64.75 18.55L66 18.05L67.25 17.55L68.5 17.04L69.75 16.54L71 16.04L72.25 15.54L73.5 15.04L74.75 14.53L76 14.03L77.25 13.53L78.5 13.03L79.75 12.53L81 12.02L82.25 11.58L83.5 11.08L84.75 10.58L86 10.08L87.25 9.58L88.5 9.07L89.75 8.57L91 8.07L92.25 7.57L93.5 7.07L94.75 6.56L96 6.06"/><path class="ln exp-plus" d="M16 6.44L17.25 7.19L18.5 8.2L19.75 9.2L21 10.2L22.25 11.21L23.5 12.15L24.75 13.15L26 14.16L27.25 15.16L28.5 16.16L29.75 17.04L31 17.92L32.25 18.55L33.5 19.11L34.75 19.62L36 19.99L37.25 20.37L38.5 20.62L39.75 20.87L41 21.06L42.25 21.18L43.5 21.37L44.75 21.5L46 21.56L47.25 21.62L48.5 21.69L49.75 21.75L51 21.81L52.25 21.87L53.5 21.94L54.75 22L56 22L57.25 22L58.5 21.94L59.75 21.87L61 21.81L62.25 21.75L63.5 21.69L64.75 21.62L66 21.56L67.25 21.5L68.5 21.37L69.75 21.18L71 21.06L72.25 20.87L73.5 20.62L74.75 20.37L76 19.99L77.25 19.62L78.5 19.11L79.75 18.55L81 17.92L82.25 17.04L83.5 16.16L84.75 15.16L86 14.16L87.25 13.15L88.5 12.15L89.75 11.21L91 10.2L92.25 9.2L93.5 8.2L94.75 7.19L96 6.44"/><path class="ln exp-minus" d="M16 37.56L17.25 36.81L18.5 35.8L19.75 34.8L21 33.8L22.25 32.79L23.5 31.85L24.75 30.85L26 29.84L27.25 28.84L28.5 27.84L29.75 26.96L31 26.08L32.25 25.45L33.5 24.89L34.75 24.38L36 24.01L37.25 23.63L38.5 23.38L39.75 23.13L41 22.94L42.25 22.82L43.5 22.63L44.75 22.5L46 22.44L47.25 22.38L48.5 22.31L49.75 22.25L51 22.19L52.25 22.13L53.5 22.06L54.75 22L56 22L57.25 22L58.5 22.06L59.75 22.13L61 22.19L62.25 22.25L63.5 22.31L64.75 22.38L66 22.44L67.25 22.5L68.5 22.63L69.75 22.82L71 22.94L72.25 23.13L73.5 23.38L74.75 23.63L76 24.01L77.25 24.38L78.5 24.89L79.75 25.45L81 26.08L82.25 26.96L83.5 27.84L84.75 28.84L86 29.84L87.25 30.85L88.5 31.85L89.75 32.79L91 33.8L92.25 34.8L93.5 35.8L94.75 36.81L96 37.56"/><path class="ln lin-minus" d="M16 37.94L17.25 37.44L18.5 36.93L19.75 36.43L21 35.93L22.25 35.43L23.5 34.93L24.75 34.42L26 33.92L27.25 33.42L28.5 32.92L29.75 32.42L31 31.98L32.25 31.47L33.5 30.97L34.75 30.47L36 29.97L37.25 29.47L38.5 28.96L39.75 28.46L41 27.96L42.25 27.46L43.5 26.96L44.75 26.45L46 25.95L47.25 25.45L48.5 24.95L49.75 24.45L51 23.95L52.25 23.44L53.5 22.94L54.75 22.44L56 22L57.25 22.44L58.5 22.94L59.75 23.44L61 23.95L62.25 24.45L63.5 24.95L64.75 25.45L66 25.95L67.25 26.45L68.5 26.96L69.75 27.46L71 27.96L72.25 28.46L73.5 28.96L74.75 29.47L76 29.97L77.25 30.47L78.5 30.97L79.75 31.47L81 31.98L82.25 32.42L83.5 32.92L84.75 33.42L86 33.92L87.25 34.42L88.5 34.93L89.75 35.43L91 35.93L92.25 36.43L93.5 36.93L94.75 37.44L96 37.94"/><text class="sm mid" x="56" y="4.4">break point</text><text class="sm end" x="14" y="8.5">louder</text><text class="sm end" x="14" y="23">as set</text><text class="sm end" x="14" y="38">quieter</text><text class="sm" x="16" y="43.5">low notes</text><text class="sm end" x="96" y="43.5">high notes</text><path class="ln lin-plus" d="M6 49h7"/><text class="sm" x="15" y="50.3">+LIN</text><path class="ln exp-plus" d="M29 49h7"/><text class="sm" x="38" y="50.3">+EXP</text><path class="ln exp-minus" d="M52 49h7"/><text class="sm" x="61" y="50.3">−EXP</text><path class="ln lin-minus" d="M75 49h7"/><text class="sm" x="84" y="50.3">−LIN</text></svg>
   </div>
 </div>
 

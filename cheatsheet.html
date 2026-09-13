@@ -90,10 +90,10 @@
   .fig .hold { stroke-dasharray: 0.1 2.4; stroke-linecap: round; }
   /* Four line styles for four curves. They all meet at the break point and all
      arrive at the same two corners, so shape alone cannot tell them apart. */
-  .fig .lin-up { }
-  .fig .exp-up { stroke-dasharray: 3.2 1.6; }
-  .fig .exp-dn { stroke-dasharray: 0.1 2; stroke-linecap: round; stroke-width: 1.1; }
-  .fig .lin-dn { stroke-dasharray: 4.5 1.4 0.1 1.4; stroke-linecap: round; }
+  .fig .lin-plus { }
+  .fig .exp-plus { stroke-dasharray: 3.2 1.6; }
+  .fig .exp-minus { stroke-dasharray: 0.1 2; stroke-linecap: round; stroke-width: 1.1; }
+  .fig .lin-minus { stroke-dasharray: 4.5 1.4 0.1 1.4; stroke-linecap: round; }
   .fig text { font-family: inherit; font-size: 4px; fill: var(--text); }
   .fig .sm { font-size: 3.5px; }
   .fig .mid { text-anchor: middle; }
@@ -205,40 +205,7 @@
 
   <div class="tile">
     <h2>Keyboard level scaling</h2>
-    <svg class="fig" viewBox="0 0 100 52">
-      <!--
-        Four lines, each through the break point and mirrored either side of
-        it: the label says what the curve does going up the keyboard, and the
-        left half is the same curve going down. Four dash patterns rather than
-        labels on the ends, because at full depth every curve arrives at the
-        same two corners - labelling them there would make four lines look
-        like eight half-lines.
-      -->
-      <path class="ln thin" d="M16 6H96V38H16Z"/>
-      <path class="ln thin" d="M16 22H96"/>
-      <path class="ln dash" d="M56 6V38"/>
-
-      <path class="ln lin-up" d="M16 38L56 22L96 6"/>
-      <path class="ln exp-up" d="M16 38C29 26 45 22.6 56 22C68 21.4 82 18.5 96 6"/>
-      <path class="ln exp-dn" d="M16 6C29 18 45 21.4 56 22C68 22.6 82 25.5 96 38"/>
-      <path class="ln lin-dn" d="M16 6L56 22L96 38"/>
-
-      <text class="sm mid" x="56" y="4.4">break point</text>
-      <text class="sm end" x="14" y="8.5">more</text>
-      <text class="sm end" x="14" y="23">0</text>
-      <text class="sm end" x="14" y="37.5">less</text>
-      <text class="sm" x="16" y="43.5">L CURVE, L DEPTH</text>
-      <text class="sm end" x="96" y="43.5">R CURVE, R DEPTH</text>
-
-      <path class="ln lin-up" d="M6 49h7"/>
-      <text class="sm" x="15" y="50.3">+LIN</text>
-      <path class="ln exp-up" d="M30 49h7"/>
-      <text class="sm" x="39" y="50.3">+EXP</text>
-      <path class="ln exp-dn" d="M54 49h7"/>
-      <text class="sm" x="63" y="50.3">&minus;EXP</text>
-      <path class="ln lin-dn" d="M78 49h7"/>
-      <text class="sm" x="87" y="50.3">&minus;LIN</text>
-    </svg>
+    <div id="scaling"></div>
   </div>
 </div>
 
@@ -254,6 +221,9 @@
   // renders. Without a voice it draws plain numbered boxes, which is what a
   // general reference wants - the envelope glyphs are per-patch.
   const { algorithmDiagram } = await import('/src/ui/algorithmDiagram.ts');
+  // Plotted from the engine, not drawn by hand: see scalingFigure.ts.
+  const { scalingFigureSvg } = await import('/src/ui/scalingFigure.ts');
+  document.getElementById('scaling').innerHTML = scalingFigureSvg();
   const host = document.getElementById('algos');
   /** Millimetres per viewBox unit. A box is 40 units, so it prints at 4.35mm. */
   const MM_PER_UNIT = 4.35 / 40;

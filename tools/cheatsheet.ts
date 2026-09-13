@@ -16,11 +16,10 @@
  * That component draws into the DOM and Node has no DOM - but it only ever
  * calls four methods on one, so it gets four methods.
  *
- * The two figures at the top are not in that category. They are schematics of
- * the envelope stages and of the four scaling curve shapes, drawn by hand the
- * way the manual draws them, and they are only as right as the person who drew
- * them. They say what the controls are called and roughly what they do; they
- * are not plots of the tables.
+ * The scaling curves are plotted from the engine too, for a reason: drawn by
+ * hand they came out wrong, and wrong in a way that looked entirely plausible.
+ * The envelope figure is still a schematic - it names the stages rather than
+ * plotting any patch - and is only as right as the hand that drew it.
  */
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -74,6 +73,7 @@ class Node_ {
 };
 
 const { algorithmDiagram } = await import('../src/ui/algorithmDiagram.ts');
+const { scalingFigureSvg } = await import('../src/ui/scalingFigure.ts');
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p: string) => readFileSync(join(root, p), 'utf8');
@@ -112,6 +112,7 @@ const out = read('cheatsheet.html')
   // to do, and left in place it would fail on a file:// open rather than
   // merely do nothing.
   .replace(/<script type="module">[\s\S]*?<\/script>\s*/, '')
-  .replace('<div class="algos" id="algos"></div>', `<div class="algos">\n${cells.join('\n')}\n</div>`);
+  .replace('<div class="algos" id="algos"></div>', `<div class="algos">\n${cells.join('\n')}\n</div>`)
+  .replace('<div id="scaling"></div>', scalingFigureSvg());
 
 process.stdout.write(out);
