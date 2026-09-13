@@ -135,6 +135,28 @@ function render(): void {
       'A tool for cutting tens of thousands of freely available DX7 patches down to the '
       + 'hundred and twenty-eight worth keeping. Nothing leaves this browser.'),
 
+    /*
+     * The one thing on this page that is not a credit.
+     *
+     * It is here because it is the only other screen the app has that is about
+     * the DX7 rather than about your corpus, and because a reference you print
+     * once wants to be findable rather than in the way. It opens in its own
+     * tab: it is a page of paper pretending to be a web page, and it prints
+     * black on white however dark the app is.
+     */
+    el('div', { class: 'panel sheet-link' },
+      el('div', {},
+        el('h2', {}, 'DX7 Cheat sheet'),
+        el('p', { class: 'note' },
+          'For printing out, or for building patches on the move. '
+          + 'A little bonus for you :)')),
+      el('a', {
+        class: 'btn primary',
+        href: 'dx7-cheatsheet.html',
+        target: '_blank',
+        rel: 'noreferrer',
+      }, 'Open it')),
+
     el('div', { class: 'panel' },
       el('h2', {}, 'The patches'),
       el('p', { class: 'note' },

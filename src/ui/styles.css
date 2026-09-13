@@ -1454,6 +1454,13 @@ table.data.fixed { table-layout: fixed; }
 .credit-lic { margin-top: 5px; font-size: 10.5px; color: var(--muted); opacity: 0.72; }
 .credit-what { margin: 6px 0 0; font-size: 12.5px; line-height: 1.65; color: var(--muted); max-width: 68ch; }
 
+/* The cheat sheet's row on the About page: the description on the left, the
+   one thing you came here to press on the right. */
+.sheet-link { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.sheet-link h2 { margin-top: 0; }
+.sheet-link .note { margin-bottom: 0; }
+.sheet-link .btn { margin-left: auto; flex: none; text-decoration: none; }
+
 /*
  * The first screen while something is loading into it.
  *

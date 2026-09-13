@@ -40,6 +40,11 @@ jobs:
       # that would not compile locally cannot become the live site.
       - run: npm run typecheck
       - run: npm test
+      # The printable sheet is cheatsheet.html with the stylesheet, the fonts
+      # and the thirty-two diagrams baked into it. A copy is committed so the
+      # file exists in a checkout, but it is rebuilt here so the published one
+      # cannot be a stale commit from before an engine or diagram change.
+      - run: node tools/cheatsheet.ts > public/dx7-cheatsheet.html
       - run: npx vite build --base=/${{ github.event.repository.name }}/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

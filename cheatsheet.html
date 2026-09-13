@@ -15,17 +15,34 @@
 <link rel="stylesheet" href="/src/ui/styles.css">
 <style>
   /*
-   * Black on white, everywhere, on screen as well as on paper.
+   * The app's colours on screen, black on white on paper.
    *
-   * This page is a print artefact rather than a screen of the app, so it is not
-   * worth having it look like one thing in the browser and another in the tray.
-   * Redefining the palette is enough: every part of the algorithm diagram takes
-   * its colour from these.
+   * Everything here draws through the palette variables, the algorithm diagram
+   * included, so the two versions of this page are one stylesheet and eight
+   * redefinitions rather than two documents that could drift. On a screen it is
+   * a page of the app and looks like one; in a print tray it is ink on paper
+   * and a dark background would be forty grams of toner.
+   */
+  /*
+   * One palette, two polarities. Not the app's.
+   *
+   * Inheriting the app's colours put blue carriers and amber feedback loops on
+   * a sheet whose printed form is pure black and white, so the two versions
+   * were different drawings rather than one drawing on two grounds. White on
+   * near-black is what this is on a screen; black on white is what it is on
+   * paper; nothing else is anything.
    */
   :root {
-    --bg: #fff; --surface: #fff; --raise: #fff; --raise-2: #000;
-    --text: #000; --muted: #000; --accent: #000; --accent-2: #000;
-    --on-accent: #fff; --hair: #000;
+    --bg: #0b0d11; --surface: #0b0d11; --raise: #0b0d11; --raise-2: #fff;
+    --text: #fff; --muted: #fff; --accent: #fff; --accent-2: #fff;
+    --on-accent: #0b0d11; --hair: #fff;
+  }
+  @media print {
+    :root {
+      --bg: #fff; --surface: #fff; --raise: #fff; --raise-2: #000;
+      --text: #000; --muted: #000; --accent: #000; --accent-2: #000;
+      --on-accent: #fff; --hair: #000;
+    }
   }
   @page { size: A4 portrait; margin: 9mm; }
   * { box-sizing: border-box; }
@@ -33,7 +50,7 @@
      somebody made, printed from that program - setting it in Helvetica caps
      would be dressing it up as a photocopy of a Yamaha service sheet. */
   html, body {
-    margin: 0; padding: 0; background: #fff; color: #000;
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
     font-family: var(--ui);
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
@@ -47,15 +64,25 @@
      it on the right. */
   .brand { margin-left: auto; display: flex; align-items: center; gap: 2mm;
            font-family: 'Chango', var(--mono); font-size: 4.6mm; font-weight: 400; }
+  /* Under the sheet rather than in its header: the header is part of what
+     gets printed, and a control living inside the thing it acts on has to be
+     taken back out again on paper. On screen only, for the same reason. */
+  .print-row { display: flex; justify-content: center; margin: 8mm 0 4mm; }
+  .print {
+    font: inherit; font-size: 3.4mm; cursor: pointer;
+    padding: 2.2mm 7mm; border-radius: 1mm;
+    background: var(--text); color: var(--bg); border: none;
+  }
+  @media print { .print-row { display: none; } }
   .brand::before, .brand::after {
-    content: ''; height: 0.75em; width: 1.78em; background: #000; border-radius: 0.4mm;
+    content: ''; height: 0.75em; width: 1.78em; background: var(--text); border-radius: 0.4mm;
   }
 
   .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; margin-bottom: 7mm; }
   .tile { padding: 0; }
   .tile h2 { font-size: 3.4mm; margin: 0 0 2.5mm; font-weight: 700; }
   .fig { width: 100%; height: auto; display: block; }
-  .fig .ln { fill: none; stroke: #000; stroke-width: 1; stroke-linejoin: round; }
+  .fig .ln { fill: none; stroke: var(--text); stroke-width: 1; stroke-linejoin: round; }
   .fig .thin { stroke-width: 0.45; }
   .fig .dash { stroke-dasharray: 2 1.6; stroke-width: 0.4; }
   /* Held for as long as you hold the key, or for as long as the patch goes on
@@ -67,12 +94,12 @@
   .fig .exp-up { stroke-dasharray: 3.2 1.6; }
   .fig .exp-dn { stroke-dasharray: 0.1 2; stroke-linecap: round; stroke-width: 1.1; }
   .fig .lin-dn { stroke-dasharray: 4.5 1.4 0.1 1.4; stroke-linecap: round; }
-  .fig text { font-family: inherit; font-size: 4px; }
+  .fig text { font-family: inherit; font-size: 4px; fill: var(--text); }
   .fig .sm { font-size: 3.5px; }
   .fig .mid { text-anchor: middle; }
   .fig .end { text-anchor: end; }
   .fig .bold { font-weight: 700; }
-  .fig .dot { fill: #000; }
+  .fig .dot { fill: var(--text); }
 
   h2.section { font-size: 3.4mm; margin: 0 0 5mm; font-weight: 700; }
   h2.section span { font-weight: 400; }
@@ -112,8 +139,8 @@
    */
   .cell { display: grid; grid-template-columns: 9mm 1fr; column-gap: 2mm;
           align-items: end; width: 100%; }
-  .cell .n { font-size: 7mm; font-weight: 700; color: #8a8a8a; line-height: 0.82;
-             text-align: right; padding-bottom: 0.8mm; }
+  .cell .n { font-size: 7mm; font-weight: 700; color: var(--text); opacity: 0.55;
+             line-height: 0.82; text-align: right; padding-bottom: 0.8mm; }
   .cell svg { justify-self: start; }
   /* Sized in the script, from each drawing's own viewBox: see there. */
   .cell svg { display: block; }
@@ -215,6 +242,8 @@
 
 <h2 class="section">The algorithms</h2>
 <div class="algos" id="algos"></div>
+
+<div class="print-row"><button class="print" onclick="window.print()">Print this sheet</button></div>
 
 
 

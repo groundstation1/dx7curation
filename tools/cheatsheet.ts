@@ -8,7 +8,7 @@
  * thirty-two diagrams - into one file that opens from disk, on any machine,
  * with no network and no server.
  *
- *   node tools/cheatsheet.ts > docs/dx7-cheatsheet.html
+ *   node tools/cheatsheet.ts > public/dx7-cheatsheet.html
  *
  * The algorithms are drawn by the app's own component rather than
  * reimplemented, which is the point: those cannot drift from what the engine
