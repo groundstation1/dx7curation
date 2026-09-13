@@ -1,0 +1,57 @@
+# Build the app and publish it to GitHub Pages.
+#
+# Nothing built is committed: the site is produced here from source on every
+# push to master and handed straight to Pages, so `dist/` stays ignored and
+# there is no second repository to keep in step.
+#
+# The base path is the repository name, because a project Pages site is served
+# from https://<user>.github.io/<repo>/ rather than from a domain root. It is
+# passed here rather than set in vite.config.ts so that the dev server keeps
+# serving from / and local development is unaffected.
+name: Deploy to Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a run finish rather than cancelling it: a half-deployed site is worse
+# than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Typechecks and runs the suite before anything is published, so a build
+      # that would not compile locally cannot become the live site.
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx vite build --base=/${{ github.event.repository.name }}/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

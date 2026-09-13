@@ -1,0 +1,28 @@
+DX7 curator
+Copyright (c) 2026 cougarten
+
+Space pirate licence: no usage allowed, officially.
+
+---
+
+All rights reserved.
+
+No permission is granted to use, copy, modify, merge, publish, distribute,
+sublicense or sell this software or any part of it, except as set out below.
+Reading the source is welcome; reusing it is not.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED.
+
+---
+
+IMPORTANT: this licence covers only the parts of this repository written by
+the copyright holder above. It does not, and cannot, apply to the third-party
+work this project is built from. Those parts carry their own licences, granted
+by their own authors, and nothing here revokes or narrows them.
+
+In particular the DX7 synthesis engine under src/engine/ is a port of msfa and
+is licensed under Apache 2.0 by Google Inc. and Pascal Gauthier. You may use
+that code under those terms regardless of anything written above.
+
+See THIRD-PARTY-NOTICES.md for the full list.
