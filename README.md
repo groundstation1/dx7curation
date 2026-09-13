@@ -1,5 +1,7 @@
 # DX7 curator
 
+**<https://groundstation1.github.io/dx7curation/>**
+
 ![The Browse screen: thirty thousand patches laid out so that ones which sound alike sit together, each region labelled with the word its patches are actually named, and the selected voice broken down in the sidebar.](docs/browse.png)
 
 Tens of thousands of free Yamaha DX7 patches exist. A synth holds 128. This is a

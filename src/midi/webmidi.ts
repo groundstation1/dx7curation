@@ -40,7 +40,7 @@ export function midiSupported(): boolean {
 
 export async function requestMidi(): Promise<MidiState> {
   if (!midiSupported()) {
-    return { supported: false, granted: false, outputs: [], error: 'This browser has no WebMIDI. Chrome is required, or export the .syx files instead.' };
+    return { supported: false, granted: false, outputs: [], error: 'This browser has no WebMIDI. Chrome, Edge or Firefox will do it; otherwise export the .syx files instead.' };
   }
   try {
     const nav = navigator as unknown as { requestMIDIAccess(o: { sysex: boolean }): Promise<MIDIAccessLike> };

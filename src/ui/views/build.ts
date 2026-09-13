@@ -604,7 +604,7 @@ function midiPanel(): HTMLElement {
   const panel = el('div', { class: 'panel' }, el('h3', { style: { marginTop: 0 } }, 'Send to the device'));
   if (!midiSupported()) {
     panel.appendChild(el('p', { class: 'warn' },
-      'This browser has no WebMIDI. Use Chrome, or export the four files and load them through DXcompanion.uk or dx7-to-fm1.dev.'));
+      'This browser has no WebMIDI. Chrome, Edge or Firefox will do it - Firefox asks permission per site. Otherwise export the four files and load them through DXcompanion.uk or dx7-to-fm1.dev.'));
     return panel;
   }
   panel.appendChild(el('p', { class: 'hint' },
