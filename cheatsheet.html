@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>DX7 cheat sheet</title>
+<!--
+  A one-page DX7 reference, for printing.
+
+  The algorithms are the app's own diagram component, not a redrawing of it:
+  same routing flags the engine renders with, same code that draws them in the
+  sidebar. It paints entirely through CSS variables, so turning the sheet black
+  on white is a matter of redefining eight of them below rather than writing a
+  second diagram that could drift from the first.
+
+  Open it from the dev server and print to A4 portrait.
+-->
+<link rel="stylesheet" href="/src/ui/styles.css">
+<style>
+  /*
+   * Black on white, everywhere, on screen as well as on paper.
+   *
+   * This page is a print artefact rather than a screen of the app, so it is not
+   * worth having it look like one thing in the browser and another in the tray.
+   * Redefining the palette is enough: every part of the algorithm diagram takes
+   * its colour from these.
+   */
+  :root {
+    --bg: #fff; --surface: #fff; --raise: #fff; --raise-2: #000;
+    --text: #000; --muted: #000; --accent: #000; --accent-2: #000;
+    --on-accent: #fff; --hair: #000;
+  }
+  @page { size: A4 portrait; margin: 9mm; }
+  * { box-sizing: border-box; }
+  /* The app's own typeface, not a manual's. This is a page about a program
+     somebody made, printed from that program - setting it in Helvetica caps
+     would be dressing it up as a photocopy of a Yamaha service sheet. */
+  html, body {
+    margin: 0; padding: 0; background: #fff; color: #000;
+    font-family: var(--ui);
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  body { width: 192mm; margin: 0 auto; padding: 5mm 0; }
+  @media print { body { width: auto; padding: 0; } }
+
+  header { display: flex; align-items: center; gap: 4mm; margin-bottom: 5mm; }
+  h1 { font-size: 6.4mm; margin: 0; font-weight: 700; }
+  /* The app's own wordmark, in the app's own display face, with the two blocks
+     it always wears. Bookends the title: what this is on the left, what drew
+     it on the right. */
+  .brand { margin-left: auto; display: flex; align-items: center; gap: 2mm;
+           font-family: 'Chango', var(--mono); font-size: 4.6mm; font-weight: 400; }
+  .brand::before, .brand::after {
+    content: ''; height: 0.75em; width: 1.78em; background: #000; border-radius: 0.4mm;
+  }
+
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; margin-bottom: 7mm; }
+  .tile { padding: 0; }
+  .tile h2 { font-size: 3.4mm; margin: 0 0 2.5mm; font-weight: 700; }
+  .fig { width: 100%; height: auto; display: block; }
+  .fig .ln { fill: none; stroke: #000; stroke-width: 1; stroke-linejoin: round; }
+  .fig .thin { stroke-width: 0.45; }
+  .fig .dash { stroke-dasharray: 2 1.6; stroke-width: 0.4; }
+  /* Four line styles for four curves. They all meet at the break point and all
+     arrive at the same two corners, so shape alone cannot tell them apart. */
+  .fig .lin-up { }
+  .fig .exp-up { stroke-dasharray: 3.2 1.6; }
+  .fig .exp-dn { stroke-dasharray: 0.1 2; stroke-linecap: round; stroke-width: 1.1; }
+  .fig .lin-dn { stroke-dasharray: 4.5 1.4 0.1 1.4; stroke-linecap: round; }
+  .fig text { font-family: inherit; font-size: 4px; }
+  .fig .sm { font-size: 3.5px; }
+  .fig .mid { text-anchor: middle; }
+  .fig .end { text-anchor: end; }
+  .fig .bold { font-weight: 700; }
+  .fig .dot { fill: #000; }
+
+  h2.section { font-size: 3.4mm; margin: 0 0 5mm; font-weight: 700; }
+  h2.section span { font-weight: 400; }
+
+  /*
+   * The carriers land on a common line across each row.
+   *
+   * Bottom-aligned rather than centred: every algorithm has its output row at
+   * the foot of its own drawing, so aligning the feet puts all four carrier
+   * rows of a row on one line and the page gets a horizontal rhythm instead of
+   * thirty-two drawings floating at thirty-two heights.
+   */
+  .algos { display: grid; grid-template-columns: repeat(4, 1fr);
+           gap: 4mm 2mm; align-items: end; }
+  /*
+   * The number beside the drawing rather than over it, and large enough to
+   * find without reading. Grey, because it is an index: on a sheet you are
+   * scanning for algorithm 22, the numbers want to be the thing you can see
+   * from a foot away, and the diagrams want to be the thing you read once you
+   * have stopped. Both at full black would compete.
+   */
+  /* Numbers in a column of their own, so they line up down the page, with the
+     drawing centred in what is left - the widths run from one box to six, and
+     left-aligning them left every column visibly ragged. */
+  /* The number in a gutter of its own, so the numbers line up down the page
+     however wide the drawing beside them turns out to be. */
+  /*
+   * The number sits on the carrier line, not in the middle of the drawing.
+   *
+   * Centred, it rode up and down with the height of the algorithm beside it -
+   * a three-deep one pushed its number twelve pixels higher than the two-deep
+   * one next to it, and a row of four read as four different heights even
+   * though the drawings themselves were aligned to the pixel. The carriers are
+   * the one line every algorithm has, so that is the line to hang everything
+   * off. The padding is the drawing's own bottom margin, which is all that
+   * sits between the carrier row and the foot of its box.
+   */
+  .cell { display: grid; grid-template-columns: 9mm 1fr; column-gap: 2mm;
+          align-items: end; width: 100%; }
+  .cell .n { font-size: 7mm; font-weight: 700; color: #8a8a8a; line-height: 0.82;
+             text-align: right; padding-bottom: 0.8mm; }
+  .cell svg { justify-self: start; }
+  /* Sized in the script, from each drawing's own viewBox: see there. */
+  .cell svg { display: block; }
+  /*
+   * 700, not the component's 600.
+   *
+   * Only 400 and 700 of Space Mono are loaded, so a request for 600 leaves the
+   * browser free to synthesise one by smearing the regular - which at these
+   * sizes comes out visibly wobbly, every digit leaning a slightly different
+   * way. Asking for a weight that exists on disk gets the real glyphs.
+   */
+  .cell svg text { font-weight: 700; }
+
+</style>
+</head><body>
+
+<header>
+  <h1>DX7 cheat sheet</h1>
+  <div class="brand"><span class="brand-name">DX7<span class="brand-sp"></span>curator</span></div>
+</header>
+
+<div class="tiles">
+  <div class="tile">
+    <h2>Operator envelope</h2>
+    <svg class="fig" viewBox="0 0 100 52">
+      <path class="ln thin" d="M14 44H97"/>
+      <path class="ln" d="M16 44L31 10L49 19L67 26L75 26L89 38L97 38"/>
+      <path class="ln dash" d="M16 44V6"/>
+      <path class="ln dash" d="M75 44V6"/>
+      <circle class="dot" cx="31" cy="10" r="1.1"/>
+      <circle class="dot" cx="49" cy="19" r="1.1"/>
+      <circle class="dot" cx="67" cy="26" r="1.1"/>
+      <circle class="dot" cx="75" cy="26" r="1.1"/>
+      <circle class="dot" cx="89" cy="38" r="1.1"/>
+      <text class="mid bold" x="31" y="7.4">L1</text>
+      <text class="mid bold" x="51.5" y="16">L2</text>
+      <text class="mid bold" x="71" y="23">L3</text>
+      <text class="mid bold" x="93" y="35">L4</text>
+      <text class="mid" x="26" y="37">R1</text>
+      <text class="mid" x="40" y="21">R2</text>
+      <text class="mid" x="56" y="28">R3</text>
+      <text class="mid" x="82" y="38.5">R4</text>
+      <text class="sm mid" x="66" y="32.5">sustain</text>
+      <text class="sm mid" x="16" y="49">key on</text>
+      <text class="sm mid" x="75" y="49">key off</text>
+      <text class="sm end" x="12" y="11">loud</text>
+      <text class="sm end" x="12" y="44">off</text>
+    </svg>
+  </div>
+
+  <div class="tile">
+    <h2>Keyboard level scaling</h2>
+    <svg class="fig" viewBox="0 0 100 52">
+      <!--
+        Four lines, each through the break point and mirrored either side of
+        it: the label says what the curve does going up the keyboard, and the
+        left half is the same curve going down. Four dash patterns rather than
+        labels on the ends, because at full depth every curve arrives at the
+        same two corners - labelling them there would make four lines look
+        like eight half-lines.
+      -->
+      <path class="ln thin" d="M16 6H96V38H16Z"/>
+      <path class="ln thin" d="M16 22H96"/>
+      <path class="ln dash" d="M56 6V38"/>
+
+      <path class="ln lin-up" d="M16 38L56 22L96 6"/>
+      <path class="ln exp-up" d="M16 38C29 26 45 22.6 56 22C68 21.4 82 18.5 96 6"/>
+      <path class="ln exp-dn" d="M16 6C29 18 45 21.4 56 22C68 22.6 82 25.5 96 38"/>
+      <path class="ln lin-dn" d="M16 6L56 22L96 38"/>
+
+      <text class="sm mid" x="56" y="4.4">break point</text>
+      <text class="sm end" x="14" y="8.5">more</text>
+      <text class="sm end" x="14" y="23">0</text>
+      <text class="sm end" x="14" y="37.5">less</text>
+      <text class="sm" x="16" y="43.5">L CURVE, L DEPTH</text>
+      <text class="sm end" x="96" y="43.5">R CURVE, R DEPTH</text>
+
+      <path class="ln lin-up" d="M6 49h7"/>
+      <text class="sm" x="15" y="50.3">+LIN</text>
+      <path class="ln exp-up" d="M30 49h7"/>
+      <text class="sm" x="39" y="50.3">+EXP</text>
+      <path class="ln exp-dn" d="M54 49h7"/>
+      <text class="sm" x="63" y="50.3">&minus;EXP</text>
+      <path class="ln lin-dn" d="M78 49h7"/>
+      <text class="sm" x="87" y="50.3">&minus;LIN</text>
+    </svg>
+  </div>
+</div>
+
+<h2 class="section">The algorithms</h2>
+<div class="algos" id="algos"></div>
+
+
+
+<script type="module">
+  // The app's own diagram, so the sheet cannot disagree with what the engine
+  // renders. Without a voice it draws plain numbered boxes, which is what a
+  // general reference wants - the envelope glyphs are per-patch.
+  const { algorithmDiagram } = await import('/src/ui/algorithmDiagram.ts');
+  const host = document.getElementById('algos');
+  /** Millimetres per viewBox unit. A box is 40 units, so it prints at 4.35mm. */
+  const MM_PER_UNIT = 4.35 / 40;
+  for (let alg = 0; alg < 32; alg++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    const n = document.createElement('div');
+    n.className = 'n';
+    n.textContent = String(alg + 1);
+    /*
+     * A big box, then scaled down by CSS.
+     *
+     * The component's gaps are fixed pixels against a box that defaults to 26,
+     * which is right on screen and far too airy at print density - eight rows
+     * of it came to half a metre. Asking for a much larger box shrinks the
+     * gaps relative to it, so the same drawing arrives dense; the printed size
+     * is then set once, in millimetres, by the stylesheet.
+     */
+    const fig = algorithmDiagram(alg, { box: 40 });
+    /*
+     * One scale for all thirty-two, not one width.
+     *
+     * Setting a width in millimetres looks right until you notice that the
+     * component's viewBox is only as wide as the algorithm needs - so
+     * algorithm 1, which is two columns of four, got stretched to the same
+     * width as the six-wide ones and came out nearly three inches tall.
+     * Scaling from each drawing's own viewBox instead means an operator box is
+     * the same size on every one of them, which is the whole point of putting
+     * them on one sheet.
+     */
+    const [, , vw, vh] = fig.getAttribute('viewBox').split(/\s+/).map(Number);
+    fig.setAttribute('width', `${(vw * MM_PER_UNIT).toFixed(2)}mm`);
+    fig.setAttribute('height', `${(vh * MM_PER_UNIT).toFixed(2)}mm`);
+    cell.append(n, fig);
+    host.appendChild(cell);
+  }
+</script>
+</body></html>

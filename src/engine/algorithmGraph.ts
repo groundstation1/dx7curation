@@ -152,11 +152,27 @@ export function algorithmGraph(algorithm: number): AlgorithmGraph {
     for (let op = 0; op < 6; op++) column[op] -= minCol;
   }
 
-  const nodes: AlgorithmNode[] = [];
+  /*
+   * Mirrored, so operator 1 sits at the bottom left.
+   *
+   * Columns come out of the traversal in sysex order, which runs from operator
+   * 6 down to operator 1 - so the pictures came out as mirror images of the
+   * ones printed on the instrument, where the low-numbered operators are on
+   * the left. Nobody reading a DX7 algorithm reads it in sysex order, and a
+   * diagram that disagrees with the front panel is worse than no diagram.
+   *
+   * Presentation only: the edges are keyed by operator, so which side of the
+   * picture a box is drawn on changes nothing about what modulates what. The
+   * front-panel checks in test/algograph.ts assert the chains and the
+   * carriers, both of which are untouched by this.
+   */
   let widest = 0;
+  for (let op = 0; op < 6; op++) widest = Math.max(widest, column[op]);
+  for (let op = 0; op < 6; op++) column[op] = widest - column[op];
+
+  const nodes: AlgorithmNode[] = [];
   for (let op = 0; op < 6; op++) {
     nodes.push({ op, label: 6 - op, carrier: depth[op] === 0, depth: depth[op], column: column[op] });
-    widest = Math.max(widest, column[op]);
   }
 
   return {

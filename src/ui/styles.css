@@ -88,6 +88,8 @@
   --text: #e8eaf0;
   --muted: #868e9e;
   --accent: #6ea8fe;
+  /* Text that sits on top of --accent. */
+  --on-accent: #10131a;
   --accent-2: #ffca6a;
   --good: #7bd88f;
   --bad: #f2777a;

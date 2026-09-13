@@ -290,7 +290,11 @@ export function algorithmDiagram(algorithm: number, opts: DiagramOptions = {}): 
         x: x + box / 2, y: y + box / 2,
         'text-anchor': 'middle', 'dominant-baseline': 'central',
         'font-size': Math.round(box * 0.5), 'font-weight': '600',
-        fill: n.carrier ? '#10131a' : 'var(--text)',
+        // A variable rather than the literal it was, so a stylesheet that
+        // repaints this diagram - the printed cheat sheet turns it black on
+        // white - can keep the carrier numbers legible against whatever the
+        // carrier fill has become.
+        fill: n.carrier ? 'var(--on-accent)' : 'var(--text)',
       });
       label.textContent = String(n.label);
       cell.appendChild(label);
