@@ -1,5 +1,7 @@
 # DX7 curator
 
+![The Browse screen: thirty thousand patches laid out so that ones which sound alike sit together, each region labelled with the word its patches are actually named, and the selected voice broken down in the sidebar.](docs/browse.png)
+
 There are tens of thousands of free Yamaha DX7 patches on the internet and room
 for 128 on the synth. This is a browser app for closing that gap. It renders
 every voice you give it, measures what it sounds like, collapses the duplicates,
@@ -15,8 +17,3 @@ live in IndexedDB and nothing is uploaded. Chrome only, because it needs WebMIDI
 npm install
 npm run dev
 ```
-
-[NOTES.md](NOTES.md) has the decisions worth knowing about.
-[LICENSE](LICENSE) is not open source, but the FM engine it is built on is:
-it is a port of msfa and stays Apache 2.0. See
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
