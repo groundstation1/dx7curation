@@ -295,6 +295,11 @@ let showLabels = getSetting('map.labels', true);
  * The right answer depends on the screen and on whether you are reading the
  * names or the dots, which is exactly the kind of thing that should be a knob
  * rather than a decision made here.
+ *
+ * The middle of the travel is the default, and is the default because it was
+ * looked at: roughly thirty words on a large monitor, which is enough to name
+ * every part of the map worth naming and few enough that the dots underneath
+ * are still the picture. Both ends are useful and neither is a good arrival.
  */
 let labelDensity = getSetting('map.labelDensity', 0.5);
 let labels: MapLabel[] = [];
