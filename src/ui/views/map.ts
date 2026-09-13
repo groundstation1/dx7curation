@@ -24,6 +24,7 @@ import { DEMO_PHRASE, HOVER_PHRASE, singleNotePhrase } from '../../engine/phrase
 import { keyboard } from '../../audio/keyboard.ts';
 import { matchesQuery, parseQuery, isActiveQuery, type SearchQuery, type SearchScope } from '../search.ts';
 import { getSetting, setSetting } from '../settings.ts';
+import { richSelect } from '../menu.ts';
 import { adv, isAdvanced } from '../advanced.ts';
 import { loopPhrase, usePhrase } from '../soundBar.ts';
 import { blendWeights, dominantAlgorithm, interpolateVoices, inverseDistanceWeights, voiceHash, type InterpolationResult } from '../../engine/interpolate.ts';
@@ -321,6 +322,14 @@ let focusRating: '' | 'unrated' | 1 | 2 | 3 | 4 | 5 = '';
  */
 let orUnrated = false;
 let matched: Set<number> | null = null;
+/**
+ * Which patches count, by where they came from.
+ *
+ * Only offered when the corpus actually holds a prepared collection, because
+ * until then everything is yours and the control would be a pulldown with one
+ * meaningful entry.
+ */
+let focusOrigin: '' | 'mine' | 'bundled' = '';
 
 // interpolation
 let interpolateMode = getSetting('map.interpolate', false);
@@ -1505,11 +1514,13 @@ export function presetSearch(text: string, scope: SearchScope = 'all'): void {
 
 function applyFilters(): void {
   query = parseQuery(searchText);
-  const filtering = isActiveQuery(query) || focusCategory !== '' || focusRating !== '';
+  const filtering = isActiveQuery(query) || focusCategory !== '' || focusRating !== '' || focusOrigin !== '';
   matched = filtering ? new Set<number>() : null;
   if (matched) {
     const store = ctx.store;
     for (let i = 0; i < store.voices.length; i++) {
+      if (focusOrigin === 'mine' && !store.isMine(i)) continue;
+      if (focusOrigin === 'bundled' && store.isMine(i)) continue;
       const cat = store.categoryOf(i);
       if (focusCategory && cat !== focusCategory) continue;
       if (focusSub && store.subcategoryOf(i) !== focusSub) continue;
@@ -1972,7 +1983,6 @@ function renderControls(): void {
       return optgroup;
     }));
 
-  const preset = PRESETS.find((item) => item.id === presetId);
 
   /**
    * One group of related controls, behind a small caps label.
@@ -2004,25 +2014,38 @@ function renderControls(): void {
     // The caption belongs to the pulldown it describes, so it sits beside it
     // and truncates rather than being exiled to the end of the bar where it is
     // no longer obviously about anything.
-    plot ? group('view',
-      el('select', {
-        onchange: (e: Event) => applyPreset((e.target as HTMLSelectElement).value),
-      },
-        // A preset whose axes this corpus has not got is not offered:
-        // axisById would substitute the first axis for both and the plot would
-        // come out as a diagonal line.
+    /*
+     * The explanation belongs in the option, not beside the pulldown.
+     *
+     * Next to it, it describes the view you are already looking at - the one
+     * moment you need it least. Inside, it is there while you are choosing
+     * between nine of them, which is the only time "what is this one" is
+     * actually being asked. A native select cannot hold it as anything but
+     * more label, in the same weight and colour as the name, so this is not
+     * one: richSelect draws the explanation as explanation.
+     *
+     * A preset whose axes this corpus has not got is left out entirely -
+     * axisById would substitute the first axis for both and the plot would
+     * come out as a diagonal line.
+     */
+    plot ? group('view', richSelect({
+      value: presetId,
+      title: 'Which pair of axes to plot, and what the dots are coloured by',
+      onChange: (id) => applyPreset(id),
+      options: [
         ...PRESETS.filter((item) => {
           const ids = new Set(axes().map((a) => a.id));
           return ids.has(item.x) && ids.has(item.y);
-        }).map((item) => el('option', { value: item.id, selected: item.id === presetId }, item.label)),
-        presetId === 'custom' ? el('option', { value: 'custom', selected: true }, 'custom') : null,
-      ),
-      preset && !isAdvanced() ? el('span', { class: 'preset-note' }, preset.note) : null,
-    ) : null,
+        }).map((item) => ({ value: item.id, label: item.label, note: item.note })),
+        ...(presetId === 'custom'
+          ? [{ value: 'custom', label: 'custom', note: 'axes you chose yourself' }]
+          : []),
+      ],
+    })) : null,
 
     el('span', { class: 'bar-sep' }),
 
-    group('show', showSelect(), focusCategory ? subSelect() : null),
+    group('show', showSelect(), focusCategory ? subSelect() : null, originSelect()),
 
     searchControl(),
 
@@ -2139,6 +2162,31 @@ function renderControls(): void {
 }
 
 /** The one filter that earns a permanent slot: which slice am I looking at. */
+/**
+ * Yours, or the set that came with the app.
+ *
+ * The point of tagging a bundled collection is being able to put it away
+ * again: after dropping a few of your own banks into forty thousand shipped
+ * ones, "show me only what I brought" is the first thing you want and there is
+ * otherwise no way to ask for it.
+ */
+function originSelect(): HTMLElement | null {
+  const names = ctx.store.bundleNames();
+  if (names.length === 0) return null;
+  const label = names.length === 1 ? names[0] : 'what came with the app';
+  return el('select', {
+    title: 'Whether to show the patches you added, the ones that came with the app, or both.',
+    onchange: (e: Event) => {
+      focusOrigin = (e.target as HTMLSelectElement).value as typeof focusOrigin;
+      applyFilters();
+    },
+  },
+    el('option', { value: '', selected: focusOrigin === '' }, 'from anywhere'),
+    el('option', { value: 'mine', selected: focusOrigin === 'mine' }, 'only what I added'),
+    el('option', { value: 'bundled', selected: focusOrigin === 'bundled' }, `only ${label}`),
+  );
+}
+
 function showSelect(): HTMLElement {
   return el('select', {
     onchange: (e: Event) => {

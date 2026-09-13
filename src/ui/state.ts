@@ -484,21 +484,40 @@ export class Store {
       }
     }
 
+    /*
+     * Three long steps, each of which reports.
+     *
+     * All three used to happen behind one bar that had already been set to
+     * 100%, so an import into a large library sat at "writing to the database,
+     * 0s left" for as long as a minute and looked hung. Two of them are not
+     * even writes: reading thirty-nine thousand voices and thirty-five
+     * thousand feature rows back out, through the unpaged `getAll` that the
+     * startup path abandoned years ago for being one opaque await of several
+     * seconds. Paged, they say where they are.
+     */
     task.stage('writing to the database');
-    task.set(1);
+    task.set(0);
     opts.onProgress?.('writing to the database', files.length, files.length);
-    const { added, merged } = await addVoices(pending);
+    const { added, merged } = await addVoices(pending, (done, total) => {
+      task.set(total ? done / total : null, `${fmtCount(done)} of ${fmtCount(total)}`);
+    });
     summary.added = added;
     summary.merged = merged;
     summary.skipped = [...skipTally].map(([reason, count]) => ({ reason, count }));
 
-    const rows = await getAllVoices();
+    task.stage('reading the corpus back');
+    const rows = await getAllVoicesPaged((done, total) => {
+      task.set(total ? done / total : null, `${fmtCount(done)} of ${fmtCount(total)}`);
+    });
     this.voices = rows.map(toLoaded);
     this.reindex();
     const previous = this.analysis;
     this.analysis = new Array(this.voices.length).fill(null);
     // Keep analysis for voices that were already there.
-    const featureRows = await getAllFeatures();
+    task.stage('matching up measurements');
+    const featureRows = await getAllFeaturesPaged((done, total) => {
+      task.set(total ? done / total : null, `${fmtCount(done)} of ${fmtCount(total)}`);
+    });
     this.staleFeatures = 0;
     for (const f of featureRows) {
       const ix = this.indexById.get(f.voiceId);
@@ -746,6 +765,30 @@ export class Store {
       sum += x * x;
     }
     return Math.sqrt(sum);
+  }
+
+  /**
+   * Whether a voice is one you brought yourself.
+   *
+   * True if any copy of it arrived from outside a prepared collection, which
+   * is the generous reading and the right one: a patch you uploaded is yours
+   * however many bundled sets also happen to carry it. Every source written
+   * before bundles existed has no tag, so an old library is entirely yours
+   * without anything having to be migrated.
+   */
+  isMine(index: number): boolean {
+    const sources = this.voices[index]?.sources;
+    if (!sources || sources.length === 0) return true;
+    return sources.some((src) => !src.bundle);
+  }
+
+  /** The names of every prepared collection represented in the corpus. */
+  bundleNames(): string[] {
+    const out = new Set<string>();
+    for (const v of this.voices) {
+      for (const src of v.sources) if (src.bundle) out.add(src.bundle);
+    }
+    return [...out].sort();
   }
 
   /** The matrix distances should be measured in. */
@@ -1591,9 +1634,13 @@ export class Store {
    * Destructive by nature - a session is a whole state, not a set of edits -
    * so the caller is expected to have asked first.
    */
-  async importSession(json: string): Promise<{ voices: number }> {
+  async importSession(json: string, opts: { bundle?: string } = {}): Promise<{ voices: number }> {
     const data = JSON.parse(json) as SessionFile;
     if (data.format !== SESSION_FORMAT) throw new Error('that file is not a full session');
+    // A shipped collection is tagged by the manifest that offered it, so an
+    // ordinary session exported from the app can be published as one without
+    // being edited first.
+    if (opts.bundle) data.bundle = opts.bundle;
     const rows = data.voices ?? [];
 
     await runTask('restoring the session', async (task) => {

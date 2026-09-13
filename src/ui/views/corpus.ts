@@ -20,6 +20,7 @@ import type { View, ViewContext } from '../app.ts';
 import { adv, disclosure, isAdvanced } from '../advanced.ts';
 import { getSetting, setSetting } from '../settings.ts';
 import { gzip, readSessionBytes } from '../session.ts';
+import { availableBundles, fetchBundle, type BundleEntry } from '../bundles.ts';
 import { Store } from '../state.ts';
 import { SIZE_BUCKETS } from '../../cluster/nearDupe.ts';
 import { listenForSysex, listInputs, midiSupported, requestBulkDump, requestMidi, type MidiPort } from '../../midi/webmidi.ts';
@@ -120,10 +121,24 @@ function dropZone(big: boolean): HTMLElement {
  * and an onboarding page that only offers .syx files leaves that person with
  * nowhere to put their file.
  */
+/**
+ * The first screen: the mark, and the two ways in.
+ *
+ * An empty app has exactly one question to ask and it was asking it as a file
+ * dialog with a paragraph of advice underneath. Starting with a prepared
+ * collection is the other answer, and where one has been shipped it is the
+ * better one - a corpus to listen to immediately instead of fifteen minutes
+ * of rendering before anything makes a sound.
+ *
+ * The collection is offered only if it is actually there. Nothing here tells
+ * anybody about a set they cannot have.
+ */
 function onboarding(): HTMLElement {
-  return el('div', { class: 'onboard' },
-    el('h1', {}, 'Start with some patches'),
-    el('p', { class: 'lede' }, 'Everything stays on this machine. Nothing is uploaded.'),
+  const choices = el('div', { class: 'splash-choices' });
+
+  const scratch = el('div', { class: 'splash-card' },
+    el('h2', {}, 'Start from scratch'),
+    el('p', { class: 'muted' }, 'Drop in your own .syx files, folders or a zip.'),
     dropZone(true),
     el('div', { class: 'tipoff' },
       el('div', {}, 'Want a lot at once? Take ', el('b', {}, 'ALL THE WEB PATCHES'), ' from ',
@@ -131,7 +146,58 @@ function onboarding(): HTMLElement {
         ' and drop the zip straight in.'),
       el('div', { class: 'muted', style: { marginTop: '6px' } },
         'About 40,000 voices. Duplicates collapse on import, and the rest is automatic.')),
+  );
+
+  const page = el('div', { class: 'onboard splash' },
+    el('div', { class: 'splash-brand' },
+      el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
+    el('p', { class: 'lede' }, 'Everything stays on this machine. Nothing is uploaded.'),
+    choices,
     el('div', { style: { marginTop: '18px' } }, exportPanel()),
+  );
+
+  // Asynchronous, and the screen is complete without it: the shipped
+  // collection appears beside "start from scratch" if there is one, and
+  // nothing moves if there is not.
+  void availableBundles().then((list) => {
+    for (const entry of list) choices.appendChild(bundleCard(entry));
+    choices.appendChild(scratch);
+    if (list.length > 0) choices.classList.add('two');
+  });
+  return page;
+}
+
+function bundleCard(entry: BundleEntry): HTMLElement {
+  // Rounded to the unit that makes it a real number: "0 MB" for a small
+  // collection says the download is free, which is not what it means.
+  const size = entry.bytes
+    ? (entry.bytes >= 1e6 ? `${(entry.bytes / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(entry.bytes / 1024))} KB`) + ' download'
+    : '';
+  const count = entry.voices ? `${fmtInt(entry.voices)} patches` : '';
+  return el('div', { class: 'splash-card primary' },
+    el('h2', {}, entry.name),
+    el('p', { class: 'muted' }, entry.note ?? 'Ready to listen to: already measured, grouped and laid out.'),
+    el('button', {
+      class: 'btn primary big',
+      onclick: async () => {
+        try {
+          await runTask(`fetching ${entry.name}`, async (task) => {
+            const bytes = await fetchBundle(entry, (done, total) => {
+              task.set(total ? done / total : null, `${(done / 1e6).toFixed(0)} of ${(total / 1e6).toFixed(0)} MB`);
+            });
+            task.stage('unpacking');
+            const text = await readSessionBytes(bytes);
+            await ctx.store.importSession(text, { bundle: entry.name });
+          });
+          void autoAdvance();
+        } catch (err) {
+          if ((err as Error).name !== 'AbortError') lastNote = `Could not load ${entry.name}: ${(err as Error).message}`;
+        }
+        render();
+      },
+    }, 'Load it'),
+    el('div', { class: 'muted', style: { marginTop: '8px', fontSize: '11.5px' } },
+      [count, size].filter(Boolean).join('  ·  ')),
   );
 }
 
@@ -692,7 +758,7 @@ async function browseSource(key: string): Promise<void> {
  * cannot be mistaken for a phishing dialog, and it is visible in a screenshot
  * when someone reports that a button did nothing.
  */
-function askInPage(host: HTMLElement, question: string): Promise<boolean> {
+function askInPage(host: HTMLElement, question: string, confirmLabel = 'Replace'): Promise<boolean> {
   return new Promise((resolve) => {
     let answered = false;
     const answer = (value: boolean) => {
@@ -705,7 +771,7 @@ function askInPage(host: HTMLElement, question: string): Promise<boolean> {
     host.className = 'warn';
     host.appendChild(el('div', { class: 'row' },
       el('span', {}, question),
-      el('button', { class: 'btn', onclick: () => answer(true) }, 'Replace'),
+      el('button', { class: 'btn danger', onclick: () => answer(true) }, confirmLabel),
       el('button', { class: 'btn', onclick: () => answer(false) }, 'Cancel'),
     ));
   });
@@ -808,8 +874,6 @@ function exportPanel(): HTMLElement {
           downloadBytes(blob, patchFile(`DX7 ratings ${new Date().toISOString().slice(0, 10)}`, 'json'));
         },
       }, `Ratings only (${fmtInt(store.ratings.size)})`),
-      empty ? null : el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load a file…'),
-      empty ? null : restoreInput,
       empty ? null : el('button', {
         class: 'btn',
         title: 'The deduplicated corpus as back-to-back 32-voice bulk dumps, which is what every other DX7 tool reads.',
@@ -818,6 +882,12 @@ function exportPanel(): HTMLElement {
           downloadBytes(bytes, patchFile(`DX7 corpus, ${voices} voices`));
         },
       }, 'Deduped .syx'),
+      // Loading is the opposite of the three beside it and was sitting in the
+      // middle of them, so it reads as one more thing to save until you have
+      // read all four labels. Last, behind a rule.
+      empty ? null : el('span', { class: 'bar-sep' }),
+      empty ? null : el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load a file…'),
+      empty ? null : restoreInput,
     ),
     result,
   );
@@ -830,8 +900,20 @@ function render(): void {
   const store = ctx.store;
   clear(container);
 
-  if (store.voices.length === 0 && !isAdvanced()) {
+  /*
+   * An empty library always gets the splash, advanced or not.
+   *
+   * It used to be hidden whenever the advanced switch was on, which is fine
+   * until you press "delete everything" - a button that only exists under that
+   * switch - and land on a Sources screen with no way back to the two things
+   * you might now want to do. The advanced panels still follow it.
+   */
+  if (store.voices.length === 0) {
     container.appendChild(onboarding());
+    if (isAdvanced()) {
+      container.appendChild(el('div', { class: 'stack page-narrow', style: { marginTop: 'var(--gut)' } },
+        el('div', { class: 'panel' }, disclosure('Read patches off a device', devicePanel, { key: 'device' }))));
+    }
     return;
   }
 
@@ -922,14 +1004,21 @@ function lastImport(s: NonNullable<typeof ctx.store.lastIngest>): HTMLElement {
 
 function dangerZone(): HTMLElement {
   const store = ctx.store;
+  // Asked in the page for the same reason the restore is: a browser may
+  // suppress confirm(), and a suppressed confirm() returns false - which for a
+  // destructive button means it silently does nothing, and for the one beside
+  // it meant a restore that appeared to fail.
+  const ask = el('div', { class: 'muted', style: { marginTop: '10px' } });
   return el('div', {},
     el('div', { class: 'row' },
       el('button', {
         class: 'btn danger',
         disabled: store.ratings.size === 0 && store.faceoffExtras.size === 0,
         onclick: async () => {
-          if (!confirm(`Delete all ${store.ratings.size} ratings and ${store.faceoffExtras.size} face-off results? `
-            + 'The corpus and its analysis are kept. Save a file first if you might want them back.')) return;
+          const ok = await askInPage(ask,
+            `Delete all ${fmtInt(store.ratings.size)} ratings and ${fmtInt(store.faceoffExtras.size)} face-off results? `
+            + 'The patches and their analysis are kept.', 'Delete ratings');
+          if (!ok) return;
           await ctx.store.resetRatings();
           render();
         },
@@ -937,12 +1026,16 @@ function dangerZone(): HTMLElement {
       el('button', {
         class: 'btn danger',
         onclick: async () => {
-          if (!confirm('Delete all voices, features and ratings? This cannot be undone.')) return;
+          const ok = await askInPage(ask,
+            `Delete all ${fmtInt(store.voices.length)} patches, their measurements and every rating? This cannot be undone.`,
+            'Delete everything');
+          if (!ok) return;
           await ctx.store.reset();
           render();
         },
       }, 'Delete everything'),
     ),
+    ask,
   );
 }
 
