@@ -233,10 +233,18 @@ function choicesRow(): HTMLElement {
    * rectangle you can drop files on, and the inner box cost the pair its
    * symmetry - this side came out taller than the collection beside it.
    */
+  /*
+   * Your own files is there immediately; the collection arrives when it does.
+   *
+   * Both cards used to be appended inside the manifest's callback, so the
+   * whole row waited on a network request before anything was drawn - and on
+   * a screen whose entire content is two cards, that reads as the app being
+   * slow to open rather than as one card being fetched.
+   */
   const scratch = dropCard();
+  choices.appendChild(scratch);
   void availableBundles().then((list) => {
-    for (const entry of list) choices.appendChild(bundleCard(entry));
-    choices.appendChild(scratch);
+    for (const entry of list) choices.insertBefore(bundleCard(entry), scratch);
     if (list.length > 0) choices.classList.add('two');
   });
   return choices;

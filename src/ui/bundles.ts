@@ -34,9 +34,25 @@ const MANIFEST = 'bundles/manifest.json';
  * network. The splash simply does not offer a collection, which is a complete
  * and honest state rather than an error anybody can act on.
  */
-export async function availableBundles(): Promise<BundleEntry[]> {
+/*
+ * Fetched once per session.
+ *
+ * The manifest is a static file that cannot change while the app is open, and
+ * the screens that ask for it re-render on every store change - so this was a
+ * revalidating request per render, with the cards waiting on it each time.
+ * The promise is kept, not the result, so simultaneous callers share one
+ * request rather than racing.
+ */
+let pending: Promise<BundleEntry[]> | null = null;
+
+export function availableBundles(): Promise<BundleEntry[]> {
+  if (!pending) pending = loadManifest();
+  return pending;
+}
+
+async function loadManifest(): Promise<BundleEntry[]> {
   try {
-    const res = await fetch(MANIFEST, { cache: 'no-cache' });
+    const res = await fetch(MANIFEST);
     if (!res.ok) return [];
     const data: unknown = await res.json();
     const list = Array.isArray(data) ? data : (data as { bundles?: unknown[] }).bundles;
