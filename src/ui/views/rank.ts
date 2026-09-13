@@ -33,7 +33,7 @@ import { sidebarSplitter } from '../splitter.ts';
 import { categoryColour } from '../colour.ts';
 import { getSetting, setSetting } from '../settings.ts';
 import { usePhrase } from '../soundBar.ts';
-import { isAdvanced } from '../advanced.ts';
+import { adv, isAdvanced } from '../advanced.ts';
 
 let ctx: ViewContext;
 let root: HTMLElement;
@@ -207,7 +207,10 @@ function render(): void {
         el('b', {}, fmtInt(placed)), ' of ', el('b', {}, fmtInt(members.length)), ' settled',
         el('span', { class: 'muted' }, `  ·  ${fmtInt(comparisons)} this session`)),
       el('div', { class: 'row' },
-        el('label', { class: 'field' }, 'band',
+        // Five stars is what this screen is for: the band where the scale has
+        // run out of room. Ordering the threes is a thing you might want and
+        // not a thing to be asked about on arrival.
+        adv(el('label', { class: 'field' }, 'band',
           el('select', {
             onchange: (e: Event) => {
               band = Number((e.target as HTMLSelectElement).value);
@@ -217,7 +220,7 @@ function render(): void {
             },
           }, ...([5, 4, 3, 2, 1] as const).map((r) => el('option', {
             value: r, selected: r === band,
-          }, '★'.repeat(r))))),
+          }, '★'.repeat(r)))))),
         isAdvanced()
           ? el('button', {
             class: 'btn danger',
@@ -267,7 +270,7 @@ function render(): void {
 
   sideEl = el('aside', { class: 'detail-side' });
   const layout = el('div', { class: 'detail-layout' }, page, sideEl);
-  layout.appendChild(sidebarSplitter(layout, { key: 'ui.detailSideWidth', defaultWidth: 300 }));
+  layout.appendChild(sidebarSplitter(layout, { key: 'ui.detailSideWidth', defaultWidth: 380 }));
   root.appendChild(layout);
   renderSide();
 }

@@ -92,7 +92,7 @@ const COLUMNS: Column[] = [
       return el('span', { class: 'list-name' },
         el('i', { style: { background: cat ? categoryColour(cat) : 'var(--raise-2)' } }),
         v.name || '(unnamed)',
-        v.pinned ? el('span', { class: 'warn', title: 'pinned' }, ' ●') : null);
+        v.pinned ? el('span', { class: 'warn', title: 'favourite' }, ' ●') : null);
     },
   },
   {

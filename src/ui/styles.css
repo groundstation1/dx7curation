@@ -539,10 +539,31 @@ kbd {
 .sound-bar .field { gap: 6px; font-size: 11.5px; }
 .sound-bar .btn { padding: 4px 10px; font-size: 11.5px; }
 .sound-bar select { padding: 4px 8px; font-size: 11.5px; }
-.sound-label {
-  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--muted); margin-right: 2px;
+/* The strip's name, at the weight of a name. As muted 10px caps it read as the
+   label of the control next to it rather than as the title of the row. */
+.sound-title {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--text); margin-right: 4px; flex: none;
 }
+/* Mute is an icon, so it gets an icon's frame: square, quiet, and unmistakably
+   pressed when it is on. Red rather than green - it is the state that stops
+   things working, and it has to be findable when you have forgotten about it. */
+.sound-mute {
+  background: none; border: none; cursor: pointer; color: var(--muted);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 24px; padding: 0; border-radius: var(--radius-sm); flex: none;
+  transition: background 0.12s, color 0.12s;
+}
+.sound-mute:hover { color: var(--text); background: var(--raise); }
+.sound-mute.on { color: var(--bad); background: rgba(242, 119, 122, 0.14); }
+.sound-icon { display: inline-flex; }
+.sound-vol:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* A control that is off because something else is set, rather than because it
+   is broken: dimmed, still readable, and carrying a title that says which
+   setting took it away. */
+.field.off { opacity: 0.45; }
+select:disabled { cursor: not-allowed; }
 /* Bigger than the text beside it: it is an icon standing in for a word, and at
    text size it reads as punctuation. */
 .sound-more {
@@ -574,13 +595,38 @@ kbd {
 }
 .sound-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; }
 
+/* Every key the app answers to.
+   Two fixed columns inside a readable measure: with `auto-fit` this spread
+   across the whole window on a wide monitor, so eight short rows arrived as
+   six columns of one-and-a-half rows each, every label wrapping. A reference
+   table is read down a column, so the number of columns cannot depend on how
+   wide the browser happens to be. */
+.sound-shortcuts { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hair); }
+.sound-shortcuts h3 {
+  margin: 0 0 8px; font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--muted); font-weight: 600;
+}
+.sc-list {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 32px; max-width: 620px;
+}
+.sc-row { display: flex; align-items: baseline; gap: 10px; font-size: 11.5px; }
+.sc-keys { flex: none; width: 84px; }
+.sc-what { color: var(--muted); }
+.sc-note { margin: 12px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--muted); max-width: 620px; }
+
 /* The typing keyboard's legend: which letter is which note, and what is down.
    Two rows offset by half a key, so it reads as a keyboard at a glance. */
 .keymap { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; }
 .keyrow { display: flex; gap: 3px; }
-.keyrow:first-child { margin-left: 13px; }
+/* Each row captioned where it is, rather than described in a table underneath.
+   The caption sits at a fixed offset from the left so the three of them line
+   up even though the rows themselves are staggered like a keyboard. */
+.keyrow-wrap { display: grid; grid-template-columns: 264px auto; align-items: center; }
+.keyrow-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.keyrow-wrap:first-child .keyrow { margin-left: 13px; }
 /* Offset the other way, so the three rows step like a keyboard. */
-.keyrow:last-child { margin-left: -7px; }
+.keyrow-wrap:last-child .keyrow { margin-left: -7px; }
 .keycap.gap { background: none; }
 .keycap {
   display: inline-flex; align-items: center; justify-content: center;
@@ -662,7 +708,7 @@ kbd {
  * ends and the next begins without drawing anything at all.
  */
 .map-layout {
-  display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w, 300px);
+  display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w, 380px);
   gap: var(--gut); padding: var(--gut);
   height: 100%; position: relative; background: var(--bg);
 }
@@ -931,13 +977,27 @@ kbd {
   .stat-grid { grid-template-columns: 1fr; }
 }
 
-/* A main column with the voice detail panel beside it, as the map has. */
+/* A main column with the voice detail panel beside it, as the map has.
+ *
+ * Capped, and the cap includes the sidebar. The column was `1fr` on an
+ * uncapped page, so on a wide monitor the content sat at its own readable
+ * width on the left and the sidebar was pinned to the far right edge with a
+ * third of the screen of nothing between them - and anything right-aligned
+ * inside the content, like the rebuild button, ended up a foot from the
+ * sentence it belonged to. Widening the sidebar widens the whole layout, so
+ * dragging it still does what it looks like it does. */
 .detail-layout {
-  display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w, 300px);
+  display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w, 380px);
   gap: 24px; align-items: start; position: relative;
+  max-width: calc(880px + 24px + var(--side-w, 380px)); margin: 0 auto;
 }
+/* Exactly as tall as the space it is in, less this view's own padding. The
+   viewport-based guess it replaces was fifty pixels out, which is why these
+   pages all had a little scroll in them that nothing on the page accounted
+   for. The fallback is only used before the first measurement lands. */
 .detail-side {
-  position: sticky; top: 0; max-height: calc(100vh - 120px); overflow: auto;
+  position: sticky; top: 0; overflow: auto;
+  max-height: calc(var(--view-h, 70vh) - 60px);
   background: var(--surface); border-radius: var(--radius); padding: 16px;
 }
 .detail-side .voice-panel > h3 { font-size: 10.5px; margin: 18px 0 4px; }
@@ -945,6 +1005,15 @@ kbd {
 .ab .voice-panel .detail dd { font-size: 12px; }
 
 /* --------------------------------------------------------------- rating */
+
+/* Anything the app is blocking on, in the middle of the screen it is blocking.
+   The same block on all three of them, so one kind of waiting looks like one
+   kind of waiting. */
+.centre-load {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 26px; min-height: 52vh;
+}
+.boot-load { min-height: 62vh; }
 
 .rate-wrap { max-width: 780px; margin: 0 auto; }
 .rate-card {
@@ -1030,15 +1099,39 @@ kbd {
 .bank li.slot.on { background: rgba(110, 168, 254, 0.16); color: var(--text); }
 .bank li.slot.held { background: rgba(110, 168, 254, 0.26); color: var(--text); }
 
-/* The build's own header: current, or out of date and why. A single accent bar
-   down one edge, which is a flat mark rather than a box. */
-.build-state { box-shadow: inset 3px 0 0 var(--good); }
-.build-state.stale { box-shadow: inset 3px 0 0 var(--accent-2); }
+/* The build's own header: current, or out of date and why.
+   No coloured bar down the edge. The state is already said in words, twice, in
+   the two lines of this panel - a stripe beside them is a third rendering of
+   the same fact in the one register that cannot say which fact it is. A stale
+   build gets a warm tint across the whole panel instead, which reads as a
+   condition of the thing rather than as a decoration attached to it. */
+.build-state.stale {
+  background: linear-gradient(var(--raise), var(--raise));
+  border: 1px solid rgba(255, 202, 106, 0.28);
+}
+
+/* Every MIDI output at once. Sending to the wrong one is silent, so the choice
+   cannot be hidden inside a control that shows one name at a time. */
+.port-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.port {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 11px; border-radius: var(--radius-sm);
+  background: var(--raise); color: var(--muted); font-size: 11.5px; cursor: pointer;
+}
+.port:hover { color: var(--text); }
+.port.on { color: var(--text); background: var(--raise-2); }
+.port input { accent-color: var(--accent); margin: 0; }
 
 /* The single button the Build page is about, and what it is about to do. */
-.build-hero { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
-.build-hero .sum { color: var(--muted); font-size: 12px; }
-.build-hero .sum b { color: var(--text); }
+.build-hero { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }
+/* The counts as figures rather than as a sentence: four numbers read as four
+   numbers, and the two that mean something went short are the two that carry a
+   colour. */
+.build-figs { display: flex; gap: 26px; flex-wrap: wrap; }
+.build-fig .v { font-size: 19px; font-weight: 600; color: var(--text); line-height: 1.2; }
+.build-fig .v.warn { color: var(--accent-2); }
+.build-fig .v.bad { color: var(--bad); }
+.build-fig .k { font-size: 11px; color: var(--muted); margin-top: 1px; }
 
 /*
  * The sidebar's draggable edge. Positioned against the layout rather than
@@ -1057,7 +1150,7 @@ kbd {
  */
 .side-handle {
   position: absolute; top: 0; bottom: 0;
-  right: calc(var(--side-w, 300px) + var(--gut) * 1.5);
+  right: calc(var(--side-w, 380px) + var(--gut) * 1.5);
   width: 16px; margin-right: -8px; z-index: 6;
   cursor: col-resize; touch-action: none;
 }
@@ -1070,7 +1163,7 @@ kbd {
 .side-handle:hover::after, .side-handle.dragging::after { background: var(--accent); }
 /* That layout has a 24px gap and no padding of its own, so half the gap is
    the whole correction. */
-.detail-layout .side-handle { right: calc(var(--side-w, 300px) + 12px); }
+.detail-layout .side-handle { right: calc(var(--side-w, 380px) + 12px); }
 
 /*
  * A source entry: name and slots on one line, the path under it.
@@ -1313,12 +1406,6 @@ table.data.fixed { table-layout: fixed; }
 /* ---------------------------------------------------------------- about */
 
 /* A quiet link in the chrome: findable, and not competing with the tabs. */
-.about-link {
-  font: inherit; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--muted); background: none; border: none; cursor: pointer;
-  padding: 4px 6px; border-radius: var(--pill);
-}
-.about-link:hover { color: var(--text); background: var(--raise); }
 
 .about h1 { font-size: 26px; margin: 0 0 8px; letter-spacing: -0.02em; }
 .about .lede { color: var(--muted); margin: 0 0 4px; font-size: 13px; max-width: 62ch; line-height: 1.6; }
@@ -1332,10 +1419,10 @@ table.data.fixed { table-layout: fixed; }
 .credit-head a { color: var(--accent); }
 .credit-head a:hover { text-decoration: underline; }
 .credit-who { font-size: 11.5px; color: var(--muted); }
-.credit-lic {
-  font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
-  color: var(--muted); background: var(--raise-2); border-radius: var(--pill); padding: 2px 7px;
-}
+/* Under the sentence, not beside the name: a condition of the credit rather
+   than its headline. As an uppercase pill in the heading it outshouted the
+   people it was attached to. */
+.credit-lic { margin-top: 5px; font-size: 10.5px; color: var(--muted); opacity: 0.72; }
 .credit-what { margin: 6px 0 0; font-size: 12.5px; line-height: 1.65; color: var(--muted); max-width: 68ch; }
 
 /*
@@ -1369,9 +1456,15 @@ table.data.fixed { table-layout: fixed; }
 
 /* Fine print inside the card whose promise it is: it is about the files you
    are handing over, not about a collection that ships with the app. */
-.splash-fine { margin: 0 0 14px; font-size: 11px; color: var(--muted); }
 /* A real button, just a quiet one - it was a ghost and read as a caption. */
 .bare { padding: 0; }
+/* The corpus status as a line rather than a card: a rule under it instead of a
+   border around it, so it reads as the state of the page and not as one more
+   section competing with the choices below. */
+.pipeline-state {
+  border-bottom: 1px solid var(--hair);
+  padding-bottom: 14px; margin-bottom: 2px;
+}
 .splash-restore { margin-top: 14px; display: flex; justify-content: center; }
 .btn.wide { width: 100%; justify-content: center; text-align: center; }
 /* The drop zone inside a splash card draws nothing: the card is the target. */

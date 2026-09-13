@@ -18,7 +18,7 @@
 import { clear, downloadBytes, el, fmtInt, pageHead, patchFile } from '../dom.ts';
 import type { View, ViewContext } from '../app.ts';
 import { adv, disclosure, isAdvanced } from '../advanced.ts';
-import { getSetting, setSetting } from '../settings.ts';
+import { clearSettings, getSetting, setSetting } from '../settings.ts';
 import { gzip, readSessionBytes } from '../session.ts';
 import { availableBundles, fetchBundle, type BundleEntry } from '../bundles.ts';
 import { Store } from '../state.ts';
@@ -29,14 +29,10 @@ import { topTerms } from '../../cluster/taste.ts';
 import { CATEGORY_LABELS, type Category } from '../../cluster/category.ts';
 import { categoryColour } from '../colour.ts';
 import { FEATURE_DEFS } from '../../features/vector.ts';
-import { rankSources, sortSources, SOURCE_LEVELS, type SourceLevel, type SourceScore } from '../sourceRanking.ts';
-import { ratingColour } from '../colour.ts';
-import { activeTask, claimTaskDisplay, runTask, subscribeTasks } from '../task.ts';
+import { runTask } from '../task.ts';
+import { loadBlock, loadingBrand, type LoadBlock, type LoadBands } from '../loading.ts';
 
 const SWEEP_POINTS = [0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.16, 0.22, 0.3];
-
-/** How many sources the table shows before it stops. */
-const SOURCE_ROWS = 24;
 
 /** Where to get a lot of patches at once, for someone who has none. */
 
@@ -65,8 +61,6 @@ let splashBusy = false;
  * everything it offers is on Sources anyway, which is what is underneath.
  */
 let splashDismissed = false;
-let splashBar: HTMLElement | null = null;
-let splashUnsub: (() => void) | null = null;
 
 /** Device read-back: which output to ask, and what has arrived so far. */
 let deviceOutputs: MidiPort[] = [];
@@ -106,10 +100,11 @@ function dropCard(): HTMLElement {
   const act = el('div', { class: 'splash-act' }, inner);
   card.append(
     el('h2', {}, 'Your own files'),
-    el('p', {}, 'Drop .syx files, a folder or a zip.'),
-    // Above the button, not below it: the button has to be the last thing in
-    // both cards or it cannot sit on the same line as the one beside it.
-    el('div', { class: 'splash-fine' }, 'Stays on this machine.'),
+    // Both sentences in the one paragraph, because they are one thought and
+    // because a separate line of fine print underneath is a second typographic
+    // register for something nobody was worried about until it appeared.
+    el('p', {}, 'Drop .syx files, a folder or a zip.', el('br'),
+      'Everything stays on your machine.'),
     act,
   );
   const pin = inner.querySelector('.field');
@@ -143,7 +138,7 @@ function dropZone(big: boolean, host?: HTMLElement): HTMLElement {
   const pin = adv(el('label', {
     class: 'field',
     style: big ? { marginBottom: '12px' } : { justifyContent: 'center', marginTop: '12px' },
-  }, pinToggle, 'pin into the final 128'));
+  }, pinToggle, 'mark as favourites'));
 
   const button = el('div', { style: { marginTop: big ? '0' : '10px' } },
     // The same button as the collection's, in the same place, at the same
@@ -316,25 +311,10 @@ function onboarding(): HTMLElement {
  *
  * Driven straight off the task stack, so every stage - fetching, unpacking,
  * writing, reading back - is the same bar moving rather than four of them in
- * sequence.
+ * sequence. The bands are roughly what each stage costs on a large collection,
+ * measured rather than guessed.
  */
-/*
- * Where each stage sits on the one bar.
- *
- * The substeps are separate tasks and each of them counts its own work from
- * zero, so shown raw the bar filled and reset five times over - which reads as
- * five failures rather than one job. Each stage gets a band of the whole
- * instead, and its own progress moves within that band.
- *
- * The widths are roughly what the stages cost on a large collection, measured
- * rather than guessed; they do not have to be exact, only monotonic, because
- * what ruins a progress bar is going backwards and not being slightly wrong
- * about the middle.
- *
- * Anything unrecognised holds the bar where it is rather than moving it
- * somewhere arbitrary - a stage nobody predicted is not a reason to lie.
- */
-const LOAD_STAGES: Array<[RegExp, number, number]> = [
+const LOAD_STAGES: LoadBands = [
   [/^fetching/i, 0, 0.30],
   [/unpacking/i, 0.30, 0.40],
   [/clearing/i, 0.40, 0.42],
@@ -346,51 +326,18 @@ const LOAD_STAGES: Array<[RegExp, number, number]> = [
   [/analysing|near-duplicate|laying out/i, 0.90, 0.99],
 ];
 
+let splashLoad: LoadBlock | null = null;
+
 function splashProgress(): HTMLElement {
-  const label = el('div', { class: 'splash-load-label' }, 'Starting up');
-  const bar = el('div', { class: 'splash-load-bar' }, el('i', { style: { width: '0%' } }));
-  const detail = el('div', { class: 'splash-load-detail muted' }, '');
-  splashBar = el('div', { class: 'onboard splash' },
-    el('div', { class: 'splash-brand' },
-      el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
-    el('div', { class: 'splash-load' }, label, bar, detail),
-  );
-
-  let shown = 0;
-  const paint = () => {
-    const task = activeTask();
-    if (!task) return;
-    label.textContent = task.label;
-
-    const band = LOAD_STAGES.find(([re]) => re.test(task.label));
-    const fill = bar.firstElementChild as HTMLElement;
-    if (band) {
-      const [, from, to] = band;
-      const within = task.fraction === null ? 0 : task.fraction;
-      // Never backwards: a stage that starts lower than the last one finished
-      // is still further through the job than the last one was.
-      shown = Math.max(shown, from + (to - from) * within);
-      bar.classList.remove('indeterminate');
-      fill.style.width = `${(shown * 100).toFixed(1)}%`;
-    } else if (shown === 0) {
-      bar.classList.add('indeterminate');
-      fill.style.width = '100%';
-    }
-    detail.textContent = task.detail || (shown > 0 ? `${Math.round(shown * 100)}%` : '');
-  };
-  splashUnsub?.();
-  splashUnsub = subscribeTasks(paint);
-  claimTaskDisplay(true);
-  paint();
-  return splashBar;
+  splashLoad?.stop();
+  splashLoad = loadBlock({ bands: LOAD_STAGES });
+  return el('div', { class: 'onboard splash' }, loadingBrand(), splashLoad.node);
 }
 
 function endSplashLoad(): void {
   splashBusy = false;
-  claimTaskDisplay(false);
-  splashUnsub?.();
-  splashUnsub = null;
-  splashBar = null;
+  splashLoad?.stop();
+  splashLoad = null;
 }
 
 function bundleCard(entry: BundleEntry): HTMLElement {
@@ -420,7 +367,11 @@ function bundleCard(entry: BundleEntry): HTMLElement {
    * thing on the screen that can no longer be done.
    */
   return el('div', { class: loaded ? 'splash-card spent' : 'splash-card primary' },
-    el('h2', {}, entry.name),
+    // The offer, not the name. What this card is for is "you have no patches
+    // and here are thirty thousand"; which collection it happens to be is the
+    // answer to a question nobody has yet asked, and it is on the About page
+    // and in the filter for when they do.
+    el('h2', {}, 'Start with a huge library'),
     el('p', {}, loaded
       ? 'Already loaded. Everything below is from here unless you added more.'
       : entry.note ?? 'Measured, grouped and mapped already.'),
@@ -472,9 +423,7 @@ function bundleCard(entry: BundleEntry): HTMLElement {
         endSplashLoad();
         render();
       },
-    }, loaded
-      ? 'Loaded'
-      : entry.voices ? `Load ${fmtInt(entry.voices)} patches` : 'Load it')),
+    }, loaded ? 'Loaded' : 'Load library')),
   );
 }
 
@@ -585,9 +534,18 @@ async function autoAdvance(): Promise<void> {
 }
 
 /** Analysis and de-duplication, as one line of status and at most one button. */
+/*
+ * Bare, and at the top.
+ *
+ * This is a status line - one sentence about whether the corpus is ready, and
+ * a button on the days it is not. In a card it read as a section of the page
+ * with its own subject, competing with the two things on the screen you can
+ * actually decide. Out of the card it is what it is: the state of what is
+ * already here, above the ways to add more.
+ */
 function pipelinePanel(): HTMLElement {
   const store = ctx.store;
-  const panel = el('div', { class: 'panel' });
+  const panel = el('div', { class: 'bare pipeline-state' });
   const pending = store.voices.length - store.analysedCount;
   const running = analysisAbort !== null || dupeAbort !== null || embedAbort !== null;
 
@@ -628,13 +586,12 @@ function pipelinePanel(): HTMLElement {
     bits.push(`${fmtInt(store.mergeClusters.clusterCount)} distinct sounds`);
     bits.push(`${fmtInt(store.clusters.clusterCount)} families to rate`);
   }
-  if (store.embedding) bits.push('neighbourhood map ready');
   panel.appendChild(el('p', { class: 'hint', style: { margin: '6px 0 0' } }, bits.join('  ·  ')));
 
   if (store.staleFeatures > 0) {
     panel.appendChild(el('p', { class: 'warn', style: { margin: '8px 0 0' } },
       `${fmtInt(store.staleFeatures)} voices were analysed by an older build and have to be redone. `,
-      'Ratings and pins are untouched.'));
+      'Ratings and favourites are untouched.'));
   }
 
   /*
@@ -885,153 +842,6 @@ function sweepTable(): HTMLElement {
   return wrap;
 }
 
-// ------------------------------------------------- where the good ones are
-
-let sourceLevel: SourceLevel = getSetting<SourceLevel>('sources.level', 'archive');
-let sourceBy: 'score' | 'expected' = getSetting<'score' | 'expected'>('sources.by', 'score');
-let sourceWorst = false;
-let sourceRows: SourceScore[] | null = null;
-
-/**
- * Which of the files you dropped in were worth it.
- *
- * Ranking is in sourceRanking.ts, including why the order is not by the
- * average you can see. This is the table and the three controls.
- */
-function sourcePanel(): HTMLElement {
-  const wrap = el('div', {});
-  const body = el('div', {});
-
-  const compute = async () => {
-    const store = ctx.store;
-    const wantPredictions = sourceBy === 'expected' && store.tasteModel !== null;
-    if (wantPredictions) {
-      const all = store.voices.map((_, i) => i);
-      await runTask('guessing what is in each file', async (task) => {
-        await store.fillPredictions(all, async (done, total) => {
-          task.set(total ? done / total : null, `${fmtInt(done)} of ${fmtInt(total)}`);
-          await new Promise((r) => setTimeout(r, 0));
-        });
-      });
-    }
-    sourceRows = rankSources({
-      count: store.voices.length,
-      filesOf: (i) => store.voices[i].sources.map((src) => src.file),
-      ratingOf: (i) => store.effectiveRating(i),
-      predictedOf: wantPredictions ? (i) => store.predictedRating(i) : undefined,
-      level: sourceLevel,
-    });
-  };
-
-  const fill = () => {
-    clear(body);
-    const rows = sortSources(sourceRows ?? [], sourceBy, sourceWorst)
-      .filter((r) => (sourceBy === 'score' ? r.score !== null : r.expected !== null));
-    if (rows.length === 0) {
-      body.appendChild(el('p', { class: 'muted' }, sourceBy === 'score'
-        ? 'Rate a few patches and this fills in.'
-        : 'The model needs a few more ratings before it can guess.'));
-      return;
-    }
-
-    const table = el('table', { class: 'data fixed' });
-    table.appendChild(el('thead', {}, el('tr', {},
-      el('th', {}, sourceLevel),
-      el('th', { class: 'num src-num' }, 'voices'),
-      el('th', { class: 'num src-num' }, 'rated'),
-      el('th', { class: 'num src-num' }, 'average'),
-      el('th', { class: 'num src-num' }, 'expected'),
-      el('th', { class: 'src-bar' }, ''),
-    )));
-    const tbody = el('tbody');
-    for (const row of rows.slice(0, SOURCE_ROWS)) {
-      const shown = sourceBy === 'score' ? row.average : row.expected;
-      const cut = row.key.lastIndexOf('/');
-      tbody.appendChild(el('tr', {
-        class: 'clickable',
-        title: `${row.key}\nClick to browse everything that came from here`,
-        onclick: () => void browseSource(row.key),
-      },
-        el('td', { class: 'src-name' },
-          cut >= 0 ? el('span', { class: 'muted' }, row.key.slice(0, cut + 1)) : null,
-          el('span', {}, cut >= 0 ? row.key.slice(cut + 1) : row.key)),
-        el('td', { class: 'num src-num' }, fmtInt(row.voices)),
-        el('td', { class: 'num muted src-num' }, row.rated > 0 ? fmtInt(row.rated) : '-'),
-        el('td', { class: 'num src-num' }, row.average === null ? '-' : row.average.toFixed(2)),
-        el('td', { class: 'num muted src-num' }, row.expected === null ? '-' : row.expected.toFixed(2)),
-        el('td', { class: 'src-bar' }, el('div', { class: 'stat-bar' }, el('i', {
-          style: {
-            left: '0',
-            width: `${Math.max(2, Math.min(1, (shown ?? 0) / 5) * 100)}%`,
-            background: ratingColour(Math.round(shown ?? 0)),
-          },
-        }))),
-      ));
-    }
-    table.appendChild(tbody);
-    body.appendChild(table);
-
-    if (rows.length > SOURCE_ROWS) {
-      body.appendChild(el('p', { class: 'muted', style: { marginTop: '8px' } },
-        `${fmtInt(rows.length - SOURCE_ROWS)} more not shown.`));
-    }
-  };
-
-  const redraw = async (recompute: boolean) => {
-    if (recompute) await compute();
-    fill();
-  };
-
-  // The direction is a property of the same table, so it updates in place
-  // rather than through a rebuild of the screen around it.
-  const flip = el('button', {
-    class: sourceWorst ? 'btn on' : 'btn',
-    title: 'The other end of the list - the folders worth deleting',
-    onclick: () => {
-      sourceWorst = !sourceWorst;
-      flip.className = sourceWorst ? 'btn on' : 'btn';
-      flip.textContent = sourceWorst ? 'worst first' : 'best first';
-      fill();
-    },
-  }, sourceWorst ? 'worst first' : 'best first');
-
-  wrap.appendChild(el('div', { class: 'row' },
-    el('select', {
-      title: 'How much of the path to group by',
-      onchange: (e: Event) => {
-        sourceLevel = (e.target as HTMLSelectElement).value as SourceLevel;
-        setSetting('sources.level', sourceLevel);
-        void redraw(true);
-      },
-    }, ...SOURCE_LEVELS.map((l) => el('option', { value: l.id, selected: l.id === sourceLevel }, `by ${l.label}`))),
-    el('select', {
-      title: 'Rank by the ratings you gave, or by the model filling in the rest',
-      onchange: (e: Event) => {
-        sourceBy = (e.target as HTMLSelectElement).value as 'score' | 'expected';
-        setSetting('sources.by', sourceBy);
-        void redraw(true);
-      },
-    },
-      el('option', { value: 'score', selected: sourceBy === 'score' }, 'by your ratings'),
-      el('option', { value: 'expected', selected: sourceBy === 'expected' }, 'by expected'),
-    ),
-    flip,
-  ));
-  wrap.appendChild(body);
-  wrap.appendChild(el('p', { class: 'note' },
-    'Ordered by an average pulled toward the corpus mean, so one lucky five-star patch in a file of three does not beat a folder of sixty good ones.'));
-
-  void redraw(true);
-  return wrap;
-}
-
-/** Open Browse with everything from one source, using the search's own syntax. */
-async function browseSource(key: string): Promise<void> {
-  const map = await import('./map.ts');
-  map.presetSearch(`"${key}"`);
-  ctx.go('map');
-}
-
 // ------------------------------------------------------------ save and load
 
 /**
@@ -1108,7 +918,7 @@ async function restoreFile(file: File, result: HTMLElement): Promise<void> {
     const applied = r.ratings + r.overrides + r.pinned;
     result.className = applied > 0 ? 'good' : 'warn';
     result.textContent = applied > 0
-      ? `Restored ${fmtInt(r.ratings)} ratings, ${fmtInt(r.overrides)} category overrides and ${fmtInt(r.pinned)} pins.`
+      ? `Restored ${fmtInt(r.ratings)} ratings, ${fmtInt(r.overrides)} category overrides and ${fmtInt(r.pinned)} favourites.`
         + (r.missing ? ` ${fmtInt(r.missing)} referred to patches this corpus does not have.` : '')
       : `Nothing applied: all ${fmtInt(r.missing)} entries refer to patches that are not in this corpus. `
         + 'This file holds ratings only - import the patches themselves first, or use a full session file.';
@@ -1194,11 +1004,11 @@ function exportPanel(): HTMLElement {
   const panel = el('div', { class: empty ? 'bare' : 'panel' },
     empty ? null : el('h2', {}, 'Save and load'),
     el('div', { class: 'row' },
-      empty ? el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load a saved file') : null,
+      empty ? el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load from backup') : null,
       empty ? restoreInput : null,
       empty ? null : el('button', {
         class: 'btn',
-        title: 'Patches and ratings together. This is the one to move to another machine.',
+        title: 'Every patch, every rating and every measurement in one file. This is the backup, and the one to move to another machine.',
         onclick: () => {
           void runTask('packing the session', async (task) => {
             task.set(null, 'gathering');
@@ -1210,29 +1020,32 @@ function exportPanel(): HTMLElement {
             downloadBytes(bytes, patchFile(`DX7 session ${new Date().toISOString().slice(0, 10)}`, 'json.gz'));
           });
         },
-      }, `Full session (${fmtInt(store.voices.length)} patches, ratings and measurements)`),
-      empty ? null : el('button', {
+      }, 'Full DX7 curator backup'),
+      // Behind the switch: it restores onto a corpus you already have, which
+      // is a thing you only want once you know why the full backup is not the
+      // answer. The full one is the answer.
+      empty ? null : adv(el('button', {
         class: 'btn',
         disabled: store.ratings.size === 0 && !store.voices.some((v) => v.pinned),
-        title: 'Ratings, pins and category overrides only, keyed by patch content. Reapplies to a corpus you already have.',
+        title: 'Ratings, favourites and category overrides only, keyed by patch content. Reapplies to a corpus you already have.',
         onclick: () => {
           const blob = new TextEncoder().encode(store.exportBackup());
           downloadBytes(blob, patchFile(`DX7 ratings ${new Date().toISOString().slice(0, 10)}`, 'json'));
         },
-      }, `Ratings only (${fmtInt(store.ratings.size)})`),
+      }, `Ratings only (${fmtInt(store.ratings.size)})`)),
       empty ? null : el('button', {
         class: 'btn',
-        title: 'The deduplicated corpus as back-to-back 32-voice bulk dumps, which is what every other DX7 tool reads.',
+        title: 'The patches only, deduplicated, as back-to-back 32-voice bulk dumps - which is what every other DX7 tool reads. Not a backup: it carries no ratings.',
         onclick: () => {
           const { bytes, voices } = store.exportDedupedSyx();
           downloadBytes(bytes, patchFile(`DX7 corpus, ${voices} voices`));
         },
-      }, 'Deduped .syx'),
+      }, 'All .syx, deduped'),
       // Loading is the opposite of the three beside it and was sitting in the
       // middle of them, so it reads as one more thing to save until you have
       // read all four labels. Last, behind a rule.
       empty ? null : el('span', { class: 'bar-sep' }),
-      empty ? null : el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load a file…'),
+      empty ? null : el('button', { class: 'btn', onclick: () => restoreInput.click() }, 'Load from backup'),
       empty ? null : restoreInput,
     ),
     result,
@@ -1293,23 +1106,13 @@ function render(): void {
     lastNote = '';
   }
 
+  // Where the corpus stands, before the ways to change it.
+  if (store.voices.length > 0) page.appendChild(pipelinePanel());
   // The same two choices the first screen offers, at the top of the screen you
   // would go to in order to make either of them.
   page.appendChild(choicesRow());
-  if (store.voices.length > 0) {
-    page.appendChild(pipelinePanel());
-    if (store.lastIngest) {
-      page.appendChild(el('div', { class: 'panel' }, lastImport(store.lastIngest)));
-    }
-
-  }
-
-  if (store.voices.length > 0 && (store.ratings.size > 0 || store.tasteModel)) {
-    page.appendChild(el('div', { class: 'panel' },
-      disclosure('Where the good ones come from', sourcePanel, {
-        key: 'sourceScores',
-        note: `${fmtInt(store.ratings.size)} rated`,
-      })));
+  if (store.voices.length > 0 && store.lastIngest) {
+    page.appendChild(el('div', { class: 'panel' }, lastImport(store.lastIngest)));
   }
 
   page.appendChild(exportPanel());
@@ -1391,6 +1194,32 @@ function dangerZone(): HTMLElement {
           render();
         },
       }, `Reset all ratings (${fmtInt(store.ratings.size)})`),
+      /*
+       * The knobs, without the work.
+       *
+       * Two of the three things this app remembers are in IndexedDB - the
+       * patches and the judgements - and the third is a bag of scalars in
+       * localStorage: which axes the map opens on, how wide the sidebars are,
+       * what is folded open, the switch itself. It is the one that accumulates
+       * a state you cannot find your way out of by clicking, and the one where
+       * starting again costs nothing.
+       *
+       * A reload, because a view reads most of its settings into module
+       * variables the first time it is imported: clearing the storage under a
+       * running app leaves it working from values that no longer exist.
+       */
+      el('button', {
+        class: 'btn',
+        onclick: async () => {
+          const ok = await askInPage(ask,
+            'Put every setting back to its default - axes, widths, orders, what is folded open? '
+            + 'Patches, ratings and favourites are untouched.',
+            'Reset settings');
+          if (!ok) return;
+          clearSettings();
+          location.reload();
+        },
+      }, 'Reset settings'),
       el('button', {
         class: 'btn danger',
         onclick: async () => {

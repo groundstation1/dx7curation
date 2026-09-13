@@ -1,9 +1,9 @@
 [
   {
-    "name": "DX7 patch library",
+    "name": "DX7 curator standard library",
     "file": "bundles/dx7-patch-library.json.gz",
     "voices": 30365,
-    "bytes": 20828165,
-    "note": "Public domain, already analysed."
+    "bytes": 20242264,
+    "note": "A collection of over 30k DX7 patches."
   }
 ]

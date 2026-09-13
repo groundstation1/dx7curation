@@ -179,7 +179,7 @@ function staleReasons(): string[] {
   } else if (now.ratingHash !== builtFrom.ratingHash) {
     out.push('ratings changed');
   }
-  if (now.pinned !== builtFrom.pinned) out.push('pins changed');
+  if (now.pinned !== builtFrom.pinned) out.push('favourites changed');
   if (now.extras !== builtFrom.extras) out.push('face-off results changed');
   if (now.overrides !== builtFrom.overrides) out.push('categories overridden');
   if (now.threshold !== builtFrom.threshold || now.mergeThreshold !== builtFrom.mergeThreshold) {
@@ -190,7 +190,7 @@ function staleReasons(): string[] {
   if (now.backfill !== builtFrom.backfill) out.push(now.backfill ? 'backfill turned on' : 'backfill turned off');
   if (now.limits !== builtFrom.limits) out.push('category limits changed');
   if (now.categoryAxisWeight !== builtFrom.categoryAxisWeight) out.push('ordering strength changed');
-  if (now.pinnedFirst !== builtFrom.pinnedFirst) out.push(now.pinnedFirst ? 'pinned now go first' : 'pinned no longer go first');
+  if (now.pinnedFirst !== builtFrom.pinnedFirst) out.push(now.pinnedFirst ? 'favourites now go first' : 'favourites no longer go first');
   if (now.weakestLast !== builtFrom.weakestLast) {
     out.push(now.weakestLast ? 'weakest now go in the last bank' : 'weakest no longer grouped');
   }
@@ -524,7 +524,7 @@ function banksPanel(): HTMLElement {
         // top of bank A is there because it was pinned rather than because it
         // rated highest, and nothing on this screen said so - which makes the
         // ordering look broken exactly when it is doing what you asked.
-        v.pinned ? el('span', { class: 'slot-pin', title: 'pinned' }, ' ●') : null,
+        v.pinned ? el('span', { class: 'slot-pin', title: 'favourite' }, ' ●') : null,
       ));
     }
     const filled = Math.min(32, Math.max(0, ordered.length - b * 32));
@@ -613,12 +613,9 @@ function midiPanel(): HTMLElement {
 
   panel.appendChild(el('div', { class: 'row' },
     el('button', { class: 'btn', onclick: () => void connectMidi() }, midiPorts.length ? 'Rescan outputs' : 'Connect MIDI'),
-    midiPorts.length
-      ? el('select', {
-        onchange: (e: Event) => { midiOutputId = (e.target as HTMLSelectElement).value; },
-      }, ...midiPorts.map((p) => el('option', { value: p.id, selected: p.id === midiOutputId }, `${p.name} ${p.manufacturer}`.trim())))
-      : null,
-    el('button', {
+    // Behind the switch: it proves the cable, which is worth doing once and is
+    // not part of sending a bank.
+    adv(el('button', {
       class: 'btn',
       disabled: !midiOutputId,
       onclick: () => {
@@ -630,8 +627,35 @@ function midiPanel(): HTMLElement {
         }
         render();
       },
-    }, 'Test note'),
+    }, 'Test note')),
   ));
+
+  /*
+   * Every output listed, not one of them behind a pulldown.
+   *
+   * Which port the synth is on is the decision this whole panel turns on, and
+   * getting it wrong means pressing Send and hearing nothing - with no error,
+   * because the message went somewhere. A closed select shows one name and
+   * hides the fact that there are four others, so it has to be opened before
+   * you can even find out whether the choice was made for you correctly. There
+   * are rarely more than a handful, so they all fit.
+   */
+  if (midiPorts.length) {
+    const ports = el('div', { class: 'port-list' });
+    for (const port of midiPorts) {
+      const name = `${port.name} ${port.manufacturer}`.trim();
+      ports.appendChild(el('label', { class: port.id === midiOutputId ? 'port on' : 'port' },
+        el('input', {
+          type: 'radio', name: 'midi-out', value: port.id, checked: port.id === midiOutputId,
+          onchange: () => {
+            midiOutputId = port.id;
+            render();
+          },
+        }),
+        el('span', {}, name)));
+    }
+    panel.appendChild(ports);
+  }
 
   // One bank at a time, because the receiving end decides where a dump lands:
   // the unit has to be put into receive for the right bank between sends, and
@@ -660,7 +684,7 @@ function midiPanel(): HTMLElement {
       },
     }, `Bank ${label}`, sent ? el('span', { class: 'muted' }, ' ✓') : null));
   }
-  row.appendChild(el('button', {
+  const allFour = adv(el('button', {
     class: buildIsCurrent() ? 'btn primary' : 'btn',
     disabled: !midiOutputId || banks.length === 0,
     title: 'Only useful if the unit advances to the next bank by itself.',
@@ -679,16 +703,21 @@ function midiPanel(): HTMLElement {
       }
     },
   }, `All ${banks.length} back to back`));
+  // Behind the switch, because it only works on a unit that advances its own
+  // receive slot - and the comment above this loop is the reason to doubt that
+  // yours does.
+  if (allFour) row.appendChild(allFour);
   panel.appendChild(row);
   panel.appendChild(el('p', { class: 'hint', style: { marginTop: '8px', marginBottom: 0 } },
     'A tick marks a bank sent in this session. It says nothing about where the unit put it - there is no slot address ',
     'in a bulk dump, so that is between you and its front panel.'));
 
-  panel.appendChild(el('h3', {}, 'Check the far end'));
-  panel.appendChild(el('p', { class: 'hint' },
-    'Accounts differ on whether all four groups are reachable from the FM-1 front panel. Load an unmistakable patch into ',
-    'the last slot of bank D, then try to reach it two ways: by scrolling, and with program change 127.'));
-  panel.appendChild(el('div', { class: 'row' },
+  const farEnd = el('div', {},
+    el('h3', {}, 'Check the far end'),
+    el('p', { class: 'hint' },
+      'Accounts differ on whether all four groups are reachable from the FM-1 front panel. Load an unmistakable patch into ',
+      'the last slot of bank D, then try to reach it two ways: by scrolling, and with program change 127.'),
+    el('div', { class: 'row' },
     el('button', {
       class: 'btn',
       disabled: !midiOutputId,
@@ -716,6 +745,10 @@ function midiPanel(): HTMLElement {
       },
     }, 'Program change 0'),
   ));
+  // Behind the switch: it answers a question about one device, once, and the
+  // answer is not needed again.
+  const fold = adv(farEnd);
+  if (fold) panel.appendChild(fold);
 
   if (midiMessage) panel.appendChild(el('p', { class: 'muted', style: { marginBottom: 0 } }, midiMessage));
   return panel;
@@ -749,8 +782,18 @@ function buildStatePanel(): HTMLElement | null {
       el('b', {}, reasons.length ? 'This build is out of date' : 'Build is current'),
       el('span', { class: 'muted' }, `  ·  ${fmtInt(ordered.length)} voices, built ${ago(builtAt)}`),
     ),
-    el('span', { class: reasons.length ? 'warn' : 'good' },
-      reasons.length ? 'rebuild below' : 'matches your ratings'),
+    /*
+     * The rebuild button, where the reason to press it is.
+     *
+     * It was the loud button at the top of the panel below, which meant the
+     * page said "out of date" in one box and offered the cure in the next one
+     * down, under a heading about something else. Nothing else on this screen
+     * is a reason to build again - a build that matches your ratings has
+     * nothing to recompute - so this sentence and this button are one control.
+     */
+    reasons.length
+      ? el('button', { class: 'btn primary', onclick: () => buildAll() }, 'Build again')
+      : el('span', { class: 'good' }, 'matches your ratings'),
   ));
   if (reasons.length) {
     panel.appendChild(el('p', { class: 'hint', style: { margin: '8px 0 0' } },
@@ -763,7 +806,7 @@ function buildStatePanel(): HTMLElement | null {
 function render(): void {
   clear(root);
   const store = ctx.store;
-  const page = el('div', { class: 'stack' });
+  const page = el('div', { class: 'stack page-narrow' });
   page.appendChild(pageHead('Build'));
 
   const state = buildStatePanel();
@@ -791,7 +834,7 @@ function render(): void {
   // the right.
   sideEl = el('aside', { class: 'detail-side' });
   const layout = el('div', { class: 'detail-layout' }, page, sideEl);
-  layout.appendChild(sidebarSplitter(layout, { key: 'ui.detailSideWidth', defaultWidth: 300 }));
+  layout.appendChild(sidebarSplitter(layout, { key: 'ui.detailSideWidth', defaultWidth: 380 }));
   root.appendChild(layout);
   renderSide();
 }
@@ -821,38 +864,57 @@ function heroPanel(): HTMLElement {
   const ready = candidates().length;
   const panel = el('div', { class: 'panel' });
 
+  /*
+   * One line of numbers, in one voice.
+   *
+   * This was a button, a sentence of counts, two orange paragraphs of advice
+   * and a fourth line listing the settings - four typographic registers on a
+   * panel whose whole content is "here is what the build will contain". The
+   * counts are counts, so they are set as counts: a row of figures with their
+   * labels under them, in one colour, with the ones that mean something is
+   * wrong picked out. The advice is gone; the numbers say the same thing and
+   * anybody reading them knows what to do about it.
+   */
+  const figure = (value: string, label: string, tone = '') =>
+    el('div', { class: 'build-fig' },
+      el('div', { class: `v ${tone}` }, value),
+      el('div', { class: 'k' }, label));
+
   panel.appendChild(el('div', { class: 'build-hero' },
-    el('button', {
-      class: buildIsCurrent() ? 'btn big' : 'btn primary big',
-      disabled: ready === 0,
-      onclick: () => buildAll(),
-    }, ordered.length ? 'Build again' : `Build ${total}`),
-    el('div', { class: 'sum' },
-      el('b', {}, fmtInt(ready)), ' rated patches to choose from',
-      allocation
-        ? el('span', {}, `  \u00b7  ${fmtInt(allocation.onMerit)} on merit, `
-          + `${fmtInt(allocation.backfilled)} backfilled`
-          + (allocation.unfilled ? `, ${fmtInt(allocation.unfilled)} empty` : ''))
-        : null),
+    // Only while there is nothing built. Once there is, the one reason to
+    // build again is that it has gone out of date, and the card that says so
+    // carries the button.
+    ordered.length === 0
+      ? el('button', {
+        class: 'btn primary big',
+        disabled: ready === 0,
+        onclick: () => buildAll(),
+      }, `Build ${total}`)
+      : null,
+    el('div', { class: 'build-figs' },
+      figure(fmtInt(ready), 'to choose from'),
+      allocation ? figure(fmtInt(allocation.onMerit), `rated ${minRating}+`) : null,
+      allocation && allocation.backfilled > 0
+        ? figure(fmtInt(allocation.backfilled), 'backfilled', 'warn') : null,
+      allocation && allocation.unfilled > 0
+        ? figure(fmtInt(allocation.unfilled), 'empty', 'bad') : null,
+    ),
   ));
 
   if (ready === 0) {
     panel.appendChild(el('p', { class: 'hint', style: { margin: '10px 0 0' } },
-      `Nothing is rated ${minRating} or better yet. Rate some patches first, or lower the minimum below.`));
-  }
-
-  for (const w of allocation?.warnings ?? []) {
-    panel.appendChild(el('p', { class: 'warn', style: { margin: '8px 0 0' } }, w));
+      `Nothing is rated ${minRating} or better yet. Rate some patches first.`));
   }
 
   // A plain-language account of the settings, so hiding them is not the same
   // as hiding what they did.
   const rules: string[] = [`${total} slots`, `rated ${minRating}+`];
   if (backfill) rules.push('gaps filled with the next best');
-  if (pinnedFirst) rules.push('pinned first');
+  if (pinnedFirst) rules.push('favourites first');
   if (bestOfFamily) rules.push('best of each family');
   if (weakestLast) rules.push('weakest in the last bank');
-  panel.appendChild(el('p', { class: 'hint', style: { margin: '10px 0 0' } }, rules.join('  \u00b7  ')));
+  for (const w of allocation?.warnings ?? []) rules.push(w.replace(/\.$/, ''));
+  panel.appendChild(el('p', { class: 'hint', style: { margin: '12px 0 0' } }, rules.join('  \u00b7  ')));
 
   if (isAdvanced()) {
     panel.appendChild(disclosure('Selection rules', settingsControls, { key: 'buildRules' }));
@@ -883,7 +945,7 @@ function settingsControls(): HTMLElement {
       }), 'backfill gaps'),
     el('label', {
       class: 'field',
-      title: 'Put the patches you pinned at the top of bank A, ordered among themselves.',
+      title: 'Put your favourites at the top of bank A, ordered among themselves.',
     },
       el('input', {
         type: 'checkbox', checked: pinnedFirst,
@@ -891,7 +953,7 @@ function settingsControls(): HTMLElement {
           pinnedFirst = (e.target as HTMLInputElement).checked;
           setSetting('build.pinnedFirst', pinnedFirst);
         },
-      }), 'pinned first'),
+      }), 'favourites first'),
     el('label', {
       class: 'field',
       title: 'One slot per family, taken by whichever member you rated highest - rather than by the family’s representative, which is the most typical member and not necessarily the best. Overrides face-off keepers.',
@@ -935,7 +997,7 @@ function allocationStats(): HTMLElement {
     stat(`on merit (${minRating}+)`, fmtInt(a.onMerit)),
     stat('backfilled', fmtInt(a.backfilled)),
     stat('empty slots', fmtInt(a.unfilled)),
-    stat('pinned', fmtInt(a.selected.filter((c) => c.pinned).length)),
+    stat('favourites', fmtInt(a.selected.filter((c) => c.pinned).length)),
     stat('candidates', fmtInt(candidates().length)),
   );
 }
@@ -964,8 +1026,10 @@ function filesPanel(): HTMLElement {
         style: { padding: '6px 10px' },
         onclick: () => downloadBytes(bytes, patchFile(`DX7 bank ${bankNames[b]}`)),
       }, bankNames[b])),
-      el('span', { class: bad ? 'bad' : 'good' },
-        bad ? 'a bank did not verify' : 'all four verify'),
+      // Only when something is wrong. "All four verify" is the app reporting
+      // that it can do arithmetic, in the same weight as the buttons beside
+      // it; a bank that did not verify is worth every bit of that attention.
+      bad ? el('span', { class: 'bad' }, 'a bank did not verify') : null,
     ));
   }
 

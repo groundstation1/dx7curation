@@ -139,7 +139,7 @@ export function allocate(candidates: Candidate[], opts: AllocationOptions = {}):
     pinnedTotal += n;
   }
   if (pinnedTotal > total) {
-    warnings.push(`${pinnedTotal} pinned voices exceed the ${total} available slots; the lowest-rated pins were dropped`);
+    warnings.push(`${pinnedTotal} favourites exceed the ${total} available slots; the lowest-rated were dropped`);
   }
 
   // ---- weights from the top of each category ----
@@ -164,7 +164,7 @@ export function allocate(candidates: Candidate[], opts: AllocationOptions = {}):
     used += n;
   }
   if (used < pinnedTotal) {
-    warnings.push('some pinned voices did not fit inside their category ceiling');
+    warnings.push('some favourites did not fit inside their category ceiling');
   }
 
   const desiredFloor = new Map<Category, number>();
@@ -282,16 +282,10 @@ export function allocate(candidates: Candidate[], opts: AllocationOptions = {}):
 
   const unfilled = total - selected.length;
   if (backfilled > 0) {
-    warnings.push(
-      `${backfilled} of ${total} slots were filled below the ${minRating}-star bar, down to ${lowestRating} stars. ` +
-      'Rate more, or drop the total to 96 or 64, if you would rather not ship those.',
-    );
+    warnings.push(`${backfilled} slot${backfilled === 1 ? '' : 's'} filled below ${minRating} stars, down to ${lowestRating}.`);
   }
   if (unfilled > 0) {
-    warnings.push(
-      `${unfilled} slots have nothing to put in them. They will be written as clearly named empty voices, ` +
-      'so the banks are still valid and the gaps are obvious on the device.',
-    );
+    warnings.push(`${unfilled} slot${unfilled === 1 ? '' : 's'} left empty.`);
   }
 
   return { selected, byCategory, onMerit, backfilled, lowestRating, unfilled, warnings };

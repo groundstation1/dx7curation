@@ -21,11 +21,13 @@ import { voiceDetails } from '../voicePanel.ts';
 import { sidebarSplitter } from '../splitter.ts';
 import { getSetting, setSetting } from '../settings.ts';
 import { runTask } from '../task.ts';
-import { disclosure } from '../advanced.ts';
+import { loadBlock, type LoadBlock } from '../loading.ts';
+import { adv, disclosure } from '../advanced.ts';
 import { topTerms } from '../../cluster/taste.ts';
 import { categoryColour } from '../colour.ts';
 import { FEATURE_DEFS } from '../../features/vector.ts';
 import { loopPhrase, usePhrase } from '../soundBar.ts';
+import { sourcePanel, useSourceContext } from '../sourcePanel.ts';
 
 type Ordering = 'coverage' | 'predicted' | 'families' | 'given';
 
@@ -35,7 +37,17 @@ let queue: number[] = [];
 let position = 0;
 let keyHandler: ((e: KeyboardEvent) => void) | null = null;
 let unsubKeyboard: (() => void) | null = null;
-let skipRated = getSetting('rate.skipRated', true);
+/**
+ * Where families you have already judged go, rather than whether you see them.
+ *
+ * This used to skip them: the queue jumped over anything whose family had a
+ * rating, so the arrow keys walked backwards into patches the forward key
+ * would not stop on, and "review from the start" had to switch the setting off
+ * to work at all. Putting them last does the same job - you work through
+ * everything untouched before you meet anything you have decided on - without
+ * making a third of the corpus unreachable in the direction you are travelling.
+ */
+let ratedLast = getSetting('rate.ratedLast', getSetting('rate.skipRated', true));
 let ordering: Ordering = getSetting<Ordering>('rate.ordering', 'coverage');
 let auditionNote = getSetting('audition.note', 60);
 let auditionVel = getSetting('audition.velocity', 100);
@@ -112,38 +124,18 @@ async function buildQueue(): Promise<void> {
      * untouched family is worth more than another look at one you have already
      * formed a view on.
      *
-     * Not a filter: the rest stay in the queue, behind. Revisiting is exactly
-     * what the arrow keys are for.
+     * Not a filter: the rest stay in the queue, behind.
      */
-    const fresh: number[] = [];
-    const known: number[] = [];
-    for (const i of queue) (store.familyHasRating(i) ? known : fresh).push(i);
-    queue = fresh.concat(known);
+    if (ratedLast) {
+      const fresh: number[] = [];
+      const known: number[] = [];
+      for (const i of queue) (store.familyHasRating(i) ? known : fresh).push(i);
+      queue = fresh.concat(known);
+    }
 
     position = 0;
-    if (skipRated) advanceToUnrated(0);
   });
   building = false;
-}
-
-/**
- * Skip past anything already decided - by family, not by voice.
- *
- * A rating on one member is a judgement about the family: its members are
- * "similar but audibly different" by construction, so once one has a score you
- * know roughly what the others are worth. Skipping only voices you had rated
- * personally meant a family you had already judged from the map came round
- * again here, asking the same question about a near-relative.
- */
-function advanceToUnrated(from: number): void {
-  const store = ctx.store;
-  for (let i = from; i < queue.length; i++) {
-    if (!store.familyHasRating(queue[i])) {
-      position = i;
-      return;
-    }
-  }
-  position = queue.length;
 }
 
 function phrase() {
@@ -223,8 +215,7 @@ async function undoRating(): Promise<void> {
 
 function next(): void {
   cancelAdvance();
-  if (skipRated) advanceToUnrated(position + 1);
-  else position = Math.min(queue.length, position + 1);
+  position = Math.min(queue.length, position + 1);
   render();
   void play('click');
 }
@@ -350,6 +341,28 @@ function tastePanel(): HTMLElement {
   return panel;
 }
 
+/**
+ * The real progress, in the middle of the screen it belongs to.
+ *
+ * Working out a coverage order over thirty thousand families takes long enough
+ * to need reporting, and it already reports - through the same task stack
+ * everything slow in this app reports through. What was on screen instead was
+ * a static sentence in a panel, under a header and an empty progress bar,
+ * while the actual numbers moved along a thin strip in the title bar.
+ */
+let loading: LoadBlock | null = null;
+
+function queueLoading(): HTMLElement {
+  loading?.stop();
+  loading = loadBlock({ label: 'Preparing' });
+  return el('div', { class: 'centre-load' }, loading.node);
+}
+
+function endQueueLoading(): void {
+  loading?.stop();
+  loading = null;
+}
+
 function render(): void {
   clear(root);
   const store = ctx.store;
@@ -359,7 +372,10 @@ function render(): void {
   wrap.appendChild(el('div', { class: 'row', style: { justifyContent: 'space-between' } },
     el('div', {}, el('b', {}, fmtInt(rated)), ' of ', el('b', {}, fmtInt(queue.length)), ' rated'),
     el('div', { class: 'row' },
-      el('label', { class: 'field' }, 'order',
+      // Even coverage is the right order for anyone who has not yet formed an
+      // opinion about the orders, which is everyone until they have rated a
+      // few hundred. The other three are here under the switch.
+      adv(el('label', { class: 'field' }, 'order',
         el('select', {
           onchange: (e: Event) => {
             ordering = (e.target as HTMLSelectElement).value as Ordering; setSetting('rate.ordering', ordering);
@@ -377,25 +393,30 @@ function render(): void {
           }, store.tasteModel ? 'highest predicted rating' : 'highest predicted (needs a model)'),
           el('option', { value: 'families', selected: ordering === 'families' }, 'biggest families first'),
           el('option', { value: 'given', selected: ordering === 'given' }, 'as listed'),
-        )),
-      el('label', { class: 'field' },
+        ))),
+      adv(el('label', { class: 'field' },
         el('input', {
-          type: 'checkbox', checked: skipRated,
+          type: 'checkbox', checked: ratedLast,
           onchange: (e: Event) => {
-            skipRated = (e.target as HTMLInputElement).checked; setSetting('rate.skipRated', skipRated);
-            if (skipRated) advanceToUnrated(0);
-            render();
+            ratedLast = (e.target as HTMLInputElement).checked;
+            setSetting('rate.ratedLast', ratedLast);
+            void buildQueue().then(() => {
+              render();
+              void play('click');
+            });
           },
-        }), 'skip rated families'),
+        }), 'rated families last')),
     ),
   ));
   wrap.appendChild(el('progress', { max: Math.max(1, queue.length), value: rated, style: { width: '100%' } }));
 
 
   if (building) {
-    wrap.appendChild(el('div', { class: 'panel' },
-      el('div', { class: 'empty-state' }, 'working out what to play you first…')));
-    root.appendChild(wrap);
+    // Nothing else on the screen while it builds: the counts are zero, the
+    // progress bar is at zero and the order pulldown changes something that
+    // does not exist yet, so all three were furniture around one sentence.
+    clear(root);
+    root.appendChild(queueLoading());
     return;
   }
 
@@ -410,7 +431,6 @@ function render(): void {
         el('button', {
           class: 'btn',
           onclick: () => {
-            skipRated = false; setSetting('rate.skipRated', skipRated);
             position = 0;
             render();
             void play();
@@ -441,27 +461,20 @@ function render(): void {
   const merged = store.mergedMembers(i);
   const current = store.ratingOf(i);
 
+  /*
+   * The name, and the question.
+   *
+   * Everything else that was here - the category, the algorithm, the feedback,
+   * the family counts, the file paths, four measurements - is in the sidebar
+   * three inches to the right, laid out properly, on every one of these
+   * screens. Printed again as four lines of centred grey run-on text it was
+   * not a second chance to read it, it was four lines between the patch name
+   * and the only control on the page.
+   */
   const card = el('div', { class: 'rate-card' },
     el('div', { class: 'rate-name' }, v.name || '(unnamed)'),
-    el('div', { class: 'rate-meta' },
-      cat ? CATEGORY_LABELS[cat] : 'uncategorised',
-      `  ·  algorithm ${(v.unpacked[P.algorithm] & 31) + 1}`,
-      `  ·  feedback ${v.unpacked[P.feedback] & 7}`,
-      merged.length > 1 ? `  ·  ${merged.length} identical copies merged` : '',
-      family.length > 1 ? `  ·  family of ${family.length}` : '  ·  unique',
-      v.pinned ? '  ·  PINNED' : ''),
-    el('div', { class: 'rate-meta muted', style: { fontSize: '11.5px' } },
-      v.sources.slice(0, 3).map((s) => s.file).join(', '),
-      v.sources.length > 3 ? ` and ${v.sources.length - 3} more` : ''),
   );
-
-  if (a) {
-    card.appendChild(el('div', { class: 'rate-meta muted', style: { marginTop: '10px' } },
-      `attack ${(Math.pow(10, a.acoustic.logAttackTime) * 1000).toFixed(0)} ms`,
-      `  ·  release ${Math.pow(10, a.acoustic.logReleaseTime).toFixed(2)} s`,
-      `  ·  brightness ${a.acoustic.centroidOct.toFixed(1)} oct`,
-      `  ·  velocity ${a.acoustic.velLevelDb.toFixed(0)} dB`));
-  }
+  void a; void cat; void merged; void family;
 
   // The same stars as the sidebar, at the size this screen deserves: one
   // control in one notation, wherever a rating is given. Five numbered buttons
@@ -476,6 +489,8 @@ function render(): void {
       onclick: () => void rate(r),
     }, '\u2605'));
   }
+  // Directly under the name: the patch, then the judgement, and nothing
+  // between them.
   card.appendChild(el('div', { class: 'rate-stars' }, stars,
     el('button', {
       class: 'btn',
@@ -486,21 +501,15 @@ function render(): void {
 
   card.appendChild(el('div', { class: 'keyhelp' },
     el('span', {}, el('kbd', {}, '1'), '–', el('kbd', {}, '5'), ' rate and advance'),
-    el('span', {}, el('kbd', {}, 'space'), ' replay'),
+    el('span', {}, el('kbd', {}, 'space'), loopPhrase() ? ' play, stop' : ' replay'),
     el('span', {}, el('kbd', {}, '←'), ' ', el('kbd', {}, '→'), ' move without rating'),
-    el('span', {}, el('kbd', {}, '6'), ' pin'),
+    el('span', {}, el('kbd', {}, '6'), ' favourite'),
     el('span', {}, el('kbd', {}, 'u'), ' undo'),
-    keyboard.connected
-      ? el('span', { class: 'good' }, 'MIDI keyboard plays this patch')
-      : el('span', {},
-        el('button', {
-          class: 'btn',
-          style: { padding: '2px 8px' },
-          onclick: async () => {
-            await keyboard.connect(ctx.player);
-            render();
-          },
-        }, 'Connect MIDI keyboard')),
+    // No connect button. It is on the sound strip, on every screen, next to
+    // everything else audible - and offering it again here put a control for
+    // hardware most people do not own beside the five keys that are the whole
+    // job.
+    keyboard.connected ? el('span', { class: 'good' }, 'MIDI keyboard plays this patch') : null,
   ));
 
   wrap.appendChild(card);
@@ -512,6 +521,13 @@ function render(): void {
       disclosure('What your ratings have in common', tastePanel, {
         key: 'taste',
         note: store.tasteModel ? `R² ${store.tasteModel.r2.toFixed(2)}` : 'not enough yet',
+      })));
+    // The other report on the same ratings, directly under it: what they have
+    // in common, and then where they came from.
+    wrap.appendChild(el('div', { class: 'panel' },
+      disclosure('Where the good ones come from', sourcePanel, {
+        key: 'sourceScores',
+        note: `${fmtInt(store.ratings.size)} rated`,
       })));
   }
 
@@ -551,19 +567,21 @@ function render(): void {
       onChange: () => render(),
     })),
   );
-  layout.appendChild(sidebarSplitter(layout, { key: 'ui.detailSideWidth', defaultWidth: 300 }));
+  layout.appendChild(sidebarSplitter(layout, { key: 'ui.detailSideWidth', defaultWidth: 380 }));
   root.appendChild(layout);
 }
 
 export const view: View = {
   mount(container, c) {
     ctx = c;
+    useSourceContext(c);
     root = container;
     // Rendered empty first, so the screen exists while the queue is built -
     // then played once it exists. Unlocking and building used to race, and
     // whichever finished last decided whether the first patch ever sounded.
     render();
     void buildQueue().then(async () => {
+      endQueueLoading();
       render();
       await ctx.player.unlock();
       void play('click');
@@ -576,7 +594,17 @@ export const view: View = {
         void rate(Number(e.key));
       } else if (e.key === ' ') {
         e.preventDefault();
-        void play();
+        /*
+         * Play and stop, while there is something to stop.
+         *
+         * With the phrase looping, "replay" meant the only way to get silence
+         * was to mute the app or to leave the screen: the bar restarted from
+         * the top and went round again. Without looping the phrase ends by
+         * itself, nothing is running by the time you reach for the key, and
+         * replay is exactly what it should do.
+         */
+        if (loopPhrase() && ctx.player.playingKey !== '') ctx.player.stop();
+        else void play();
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         cancelAdvance();
@@ -602,6 +630,7 @@ export const view: View = {
     unsubKeyboard = keyboard.subscribe(() => render());
   },
   unmount() {
+    endQueueLoading();
     cancelAdvance();
     if (keyHandler) window.removeEventListener('keydown', keyHandler);
     keyHandler = null;

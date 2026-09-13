@@ -53,7 +53,7 @@ export function adv<T extends Node>(node: T | null): T | null {
 export function advancedSwitch(): HTMLElement {
   const label = el('label', {
     class: 'adv-switch',
-    title: 'Show every threshold, axis and weight the app decides for you.',
+    title: 'Show every threshold, axis and weight the app decides for you, plus the screens and tools that are still being worked out.',
   },
     el('input', {
       type: 'checkbox',
@@ -61,7 +61,7 @@ export function advancedSwitch(): HTMLElement {
       onchange: (e: Event) => setAdvanced((e.target as HTMLInputElement).checked),
     }),
     el('span', { class: 'adv-track' }),
-    'advanced');
+    'advanced and experimental');
   return label;
 }
 

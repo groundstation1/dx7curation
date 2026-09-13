@@ -732,11 +732,26 @@ function radiusOf(i: number): number {
 let drawOrder: number[] = [];
 
 function computeDrawOrder(): void {
-  if (!sizeAxisId) {
+  if (!sizeAxisAtWork()) {
     drawOrder = visible;
     return;
   }
   drawOrder = visible.slice().sort((a, b) => radiusOf(b) - radiusOf(a));
+}
+
+/**
+ * Sizing is off while every copy is drawn separately.
+ *
+ * Both size axes count a neighbourhood - how many distinct sounds, or how many
+ * copies, sit close to this one - which is a property of the group a dot stands
+ * for. With one dot per copy no dot stands for a group: the twenty copies of a
+ * popular patch are twenty dots, each drawn at the size of all twenty, so the
+ * crowded corner is drawn crowded *and* large and the same fact is counted
+ * twice. The setting is kept, not cleared, so folding back to one per sound
+ * brings the sizing back with it.
+ */
+function sizeAxisAtWork(): AxisId | '' {
+  return collapse === 'copies' ? '' : sizeAxisId;
 }
 
 /**
@@ -750,13 +765,23 @@ function computeDrawOrder(): void {
  */
 function computeSizes(): void {
   const n = ctx.store.voices.length;
-  sizes = new Float32Array(n).fill(BASE_RADIUS);
-  if (!sizeAxisId) {
+  /*
+   * Uniform means the small end of the sizing range, not a middle.
+   *
+   * A dot with no number in it was drawn larger than the smallest dot of a
+   * sized plot, so switching sizing on made most of the plot shrink - which
+   * reads as the whole corpus having become less of something. The floor is
+   * the floor either way: turning sizing on now only ever grows the dots that
+   * earned it.
+   */
+  sizes = new Float32Array(n).fill(MIN_RADIUS);
+  const active = sizeAxisAtWork();
+  if (!active) {
     computeDrawOrder();
     return;
   }
 
-  const axis = axisById(sizeAxisId);
+  const axis = axisById(active);
   const raw = new Float32Array(n);
   const vals: number[] = [];
   for (const i of visible) {
@@ -1415,7 +1440,7 @@ function interpolationPanel(): HTMLElement | null {
     }, 'Keep this patch'),
   ));
   panel.appendChild(el('p', { class: 'hint', style: { marginTop: '10px', marginBottom: 0 } },
-    'Kept patches are pinned and flagged as yours, so they go into the final 128 regardless of rating. ',
+    'Kept patches become favourites and are flagged as yours, so they go into the final 128 regardless of rating. ',
     'They have no features until the next analysis pass.'));
 
   return panel;
@@ -1982,9 +2007,13 @@ function renderControls(): void {
   const important = importantAxisIds();
   const plot = mode !== 'list';
 
-  const axisSelect = (current: AxisId | '', onChange: (id: AxisId) => void, first?: { value: string; label: string }) =>
+  const axisSelect = (
+    current: AxisId | '', onChange: (id: AxisId) => void,
+    first?: { value: string; label: string }, disabled?: boolean,
+  ) =>
     el('select', {
       class: 'axis-select',
+      disabled: !!disabled,
       onchange: (e: Event) => onChange((e.target as HTMLSelectElement).value),
     }, ...(first ? [el('option', { value: first.value, selected: current === first.value }, first.label)] : []),
     ...groups.map((g) => {
@@ -2060,9 +2089,15 @@ function renderControls(): void {
 
     el('span', { class: 'bar-sep' }),
 
-    group('show', showSelect(), focusCategory ? subSelect() : null, originSelect()),
-
-    searchControl(),
+    /*
+     * Yours or the app's is a question you ask once, if ever.
+     *
+     * It earns a permanent slot only while you are actively separating two
+     * imports, which is a job with a beginning and an end - the rest of the
+     * time it is a third pulldown in the group you reach for constantly, set
+     * to "from anywhere" and saying nothing.
+     */
+    group('show', showSelect(), focusCategory ? subSelect() : null, adv(originSelect())),
 
     // ---- everything below is advanced ----
     adv(el('span', { class: 'bar-sep' })),
@@ -2100,12 +2135,17 @@ function renderControls(): void {
         },
       }, ...(['category', 'subcategory', 'rating', 'predicted', 'cluster', 'source', 'algorithm'] as const).map((c) =>
         el('option', { value: c, selected: c === colourBy }, c)))) : null),
-    adv(plot ? el('label', { class: 'field' }, 'size', axisSelect(sizeAxisId, (id) => {
+    adv(plot ? el('label', {
+      class: collapse === 'copies' ? 'field off' : 'field',
+      title: collapse === 'copies'
+        ? 'Off while every copy is drawn: both size axes count what is near a dot, and with one dot per copy that gets counted once per copy.'
+        : '',
+    }, 'size', axisSelect(sizeAxisId, (id) => {
       sizeAxisId = id;
       setSetting('map.sizeAxis', id);
       computeSizes();
       draw();
-    }, { value: '', label: 'uniform' })) : null),
+    }, { value: '', label: 'uniform' }, collapse === 'copies')) : null),
     adv(el('span', { class: 'bar-sep' })),
     el('label', {
       class: 'field',
@@ -2183,6 +2223,16 @@ function renderControls(): void {
           setSetting('map.snapRadius', interpSnapRadius);
         },
       }), 'px') : null),
+
+    /*
+     * Last, at the end of everything.
+     *
+     * It is the only control here that is a text field, the only one that is
+     * about finding one patch rather than about how the whole plot is drawn,
+     * and the only one that grows when it is in use. In the middle of the bar
+     * it pushed everything after it sideways every time it opened.
+     */
+    searchControl(),
   ]);
 }
 
@@ -2549,7 +2599,7 @@ export const view: View = {
     const layout = el('div', { class: 'map-layout' }, main, sideEl);
     layout.appendChild(sidebarSplitter(layout, {
       key: 'ui.mapSideWidth',
-      defaultWidth: 300,
+      defaultWidth: 380,
       onResize: () => draw(),
     }));
     root.appendChild(layout);

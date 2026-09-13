@@ -7,6 +7,7 @@ import { mountPianoRoll } from './pianoRoll.ts';
 import { mountSoundBar } from './soundBar.ts';
 import { advancedSwitch, isAdvanced, subscribeAdvanced } from './advanced.ts';
 import { activeTask, taskDisplayClaimed, subscribeTasks } from './task.ts';
+import { loadBlock, loadingBrand } from './loading.ts';
 import type { AutoPlay } from '../audio/player.ts';
 import { keyboard } from '../audio/keyboard.ts';
 
@@ -33,25 +34,9 @@ interface TabSpec {
   hint: string;
   /** Tabs that are only worth the room when you have asked for everything. */
   advancedOnly?: boolean;
-  /** Reachable by name, but never drawn in the row. */
-  hidden?: boolean;
 }
 
-/**
- * The credits, reachable but not in the tab row.
- *
- * Kept in the same table so that `go` has one way to find a view, and marked
- * hidden so `renderTabs` leaves it out.
- */
 const TABS: TabSpec[] = [
-  {
-    id: 'about',
-    label: 'About',
-    load: async () => (await import('./views/about.ts')).view,
-    enabled: () => true,
-    hint: '',
-    hidden: true,
-  },
   {
     id: 'corpus',
     label: 'Sources',
@@ -80,7 +65,13 @@ const TABS: TabSpec[] = [
      * Enabled once there are two patches sharing the highest rating anyone has
      * given - which is the moment the star scale stops separating them, and
      * therefore the moment this becomes worth doing.
+     *
+     * Behind the switch, because it is the third pass over the same patches
+     * and only earns its place once the stars have genuinely run out of room -
+     * which most people never reach. Rating and then building is the whole
+     * job; this is how you break a tie at the top of it.
      */
+    advancedOnly: true,
     id: 'rank',
     label: 'Rank',
     load: async () => (await import('./views/rank.ts')).view,
@@ -105,6 +96,22 @@ const TABS: TabSpec[] = [
     load: async () => (await import('./views/build.ts')).view,
     enabled: () => store.ratings.size > 0 || store.voices.some((v) => v.pinned),
     hint: 'rate some voices first',
+  },
+  /*
+   * Credits, at the end of the row.
+   *
+   * This was a small link in the opposite corner of the title bar, on the
+   * grounds that the row is the sequence of the work and About is not a step
+   * in it. True, and it still cost people the one thing a row of tabs is good
+   * at - being the list of everywhere you can go. Last, where the thing you
+   * read once belongs.
+   */
+  {
+    id: 'about',
+    label: 'About',
+    load: async () => (await import('./views/about.ts')).view,
+    enabled: () => true,
+    hint: '',
   },
 ];
 
@@ -138,23 +145,30 @@ export class App {
       el('div', { class: 'spacer' }),
       this.taskEl,
       this.statusEl,
-      /*
-       * A link rather than a tab.
-       *
-       * The tab row is the sequence of the work - sources, browse, rate, rank,
-       * build - and reads as one because nothing else is in it. Credits are
-       * not a step in that, and putting them there would cost the row its
-       * meaning to save one click on a page most people open once.
-       */
-      el('button', {
-        class: 'about-link',
-        title: 'What this is built on',
-        onclick: () => void this.go('about'),
-      }, 'about'),
       advancedSwitch(),
     );
     clear(this.root);
     this.root.append(header, this.main);
+
+    /*
+     * How tall the scrolling area actually is, published for CSS.
+     *
+     * A sticky sidebar has to be told a maximum height or it grows to its
+     * content and takes the page with it, and the only number CSS has to hand
+     * is the viewport. `calc(100vh - 120px)` was that guess, and it was about
+     * fifty pixels too generous: the title bar, the sound strip and the piano
+     * roll come to more than 120, so the sidebar was always slightly taller
+     * than the space it sat in and every one of these screens had a small
+     * amount of scroll in it that belonged to nothing on the page. Measuring
+     * the element instead is exact by construction, and stays exact when the
+     * strip grows a row or the dock is opened.
+     */
+    const syncHeight = () => {
+      document.documentElement.style.setProperty('--view-h', `${this.main.clientHeight}px`);
+    };
+    syncHeight();
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(syncHeight).observe(this.main);
+    else window.addEventListener('resize', syncHeight);
 
     store.subscribe(() => {
       this.renderTabs();
@@ -182,7 +196,25 @@ export class App {
     this.renderStatus();
     mountSoundBar(this.player);
 
-    await store.load();
+    /*
+     * Reading the corpus back is the app starting, so it looks like it.
+     *
+     * On a revisit with thirty thousand patches in the database this is
+     * several seconds during which nothing can be done, and it was reported
+     * into the strip in the top right corner - the place meant for work you
+     * set going and then carry on around - above a blank screen with a tab row
+     * on it. The same block the first screen and the rating queue use, in the
+     * middle of the window, on the grounds that it is the same kind of wait.
+     */
+    const boot = loadBlock({ label: 'Starting up' });
+    clear(this.main);
+    this.main.className = 'view';
+    this.main.appendChild(el('div', { class: 'centre-load boot-load' }, loadingBrand(), boot.node));
+    try {
+      await store.load();
+    } finally {
+      boot.stop();
+    }
     // Land on the map when there is something to look at. Sources is the right
     // first screen exactly once, when the corpus is empty.
     const startAt: ViewId = TABS.find((t) => t.id === 'map')!.enabled() ? 'map' : 'corpus';
@@ -207,7 +239,6 @@ export class App {
   private renderTabs(): void {
     clear(this.tabsEl);
     for (const tab of TABS) {
-      if (tab.hidden) continue;
       if (tab.advancedOnly && !isAdvanced()) continue;
       const enabled = tab.enabled();
       this.tabsEl.appendChild(

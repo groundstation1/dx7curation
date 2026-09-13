@@ -17,6 +17,7 @@
  * moves when you go looking for it.
  */
 import { append, clear, el } from './dom.ts';
+import { adv, subscribeAdvanced } from './advanced.ts';
 import { getSetting, setSetting } from './settings.ts';
 import { keyboard } from '../audio/keyboard.ts';
 import { midiSupported } from '../midi/webmidi.ts';
@@ -37,6 +38,46 @@ export function usePhrase(): boolean {
 
 export function loopPhrase(): boolean {
   return getSetting('audition.loop', true);
+}
+
+/**
+ * Mute as a speaker, because that is what a speaker means.
+ *
+ * It was a button reading `mute` that changed to `muted`, which are one letter
+ * apart and are the two states - so telling them apart meant reading a word
+ * carefully to work out whether it described the button's effect or the app's
+ * condition. A crossed-out speaker cannot be read the wrong way round.
+ *
+ * Drawn rather than set in a font: the emoji speakers are colour glyphs and
+ * arrive at whatever size and hue the platform feels like, in the middle of a
+ * strip of 11px monochrome type.
+ */
+function speakerIcon(muted: boolean): HTMLElement {
+  const cone = '<path d="M2.5 5.5h2L7.5 3v9L4.5 9.5h-2z" fill="currentColor"/>';
+  const waves = muted
+    ? '<path d="M10 5.5l3.7 4M13.7 5.5L10 9.5" stroke="currentColor" stroke-width="1.3" '
+      + 'fill="none" stroke-linecap="round"/>'
+    : '<path d="M10 5.2a3.4 3.4 0 0 1 0 4.6M12.2 3.4a6.2 6.2 0 0 1 0 8.2" '
+      + 'stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/>';
+  return el('span', {
+    class: 'sound-icon',
+    innerHTML: '<svg viewBox="0 0 15 15" width="15" height="15" aria-hidden="true">' + cone + waves + '</svg>',
+  });
+}
+
+/**
+ * The octave the typing keys are in, as a distance rather than a note name.
+ *
+ * `C3` is a fact about the keyboard and not about what you did to it: to read
+ * it you have to remember what it said before you pressed 9. What the readout
+ * is for is telling you how far from home you have wandered, so it says that -
+ * and says nothing at all while you are at home, which is where it sits nearly
+ * all of the time.
+ */
+const HOME_BASE = 48;
+
+function octaveShift(): number {
+  return Math.round((typingKeys.base - HOME_BASE) / 12);
 }
 
 let bar: HTMLElement | null = null;
@@ -114,7 +155,48 @@ function renderPanel(): void {
   }
 
   rows.push(typingSection());
+  rows.push(shortcutSection());
   append(panel, rows);
+}
+
+/**
+ * Every key the app answers to, in one table.
+ *
+ * All of these were discoverable only by reading the source or by accident:
+ * the octave shift was a tooltip on a readout that only appeared once the
+ * typing keys were on, the soft row was drawn in the legend without saying
+ * what made it soft, and the mod wheel was nowhere at all.
+ *
+ * The mod wheel one is the reason this panel exists. It is not a shortcut so
+ * much as a consequence - the soft row plays the same notes as the home row,
+ * so holding both keys for one note is a gesture with nothing else to mean -
+ * and an FM patch heard without its mod wheel is half a patch.
+ */
+function shortcutSection(): HTMLElement {
+  const keys = (...caps: string[]) => {
+    const out: Node[] = [];
+    caps.forEach((c, i) => {
+      if (i) out.push(document.createTextNode(' '));
+      out.push(c === '\u2013' ? document.createTextNode(c) : el('kbd', {}, c));
+    });
+    return el('span', { class: 'sc-keys' }, ...out);
+  };
+  const line = (k: HTMLElement, what: string) => el('div', { class: 'sc-row' },
+    k, el('span', { class: 'sc-what' }, what));
+
+  return el('div', { class: 'sound-shortcuts' },
+    el('h3', {}, 'Keys'),
+    el('div', { class: 'sc-list' },
+      line(keys('shift'), 'accent'),
+      line(keys('9', '0'), 'octave down, up'),
+      line(keys('1', '\u2013', '5'), 'rate'),
+      line(keys('6'), 'favourite'),
+      line(keys('space'), 'play, stop'),
+    ),
+    el('p', { class: 'sc-note' },
+      'Hold both keys for one note \u2014 the soft row doubles the home row \u2014 and the '
+      + 'spare one rolls the mod wheel up while you keep it down.'),
+  );
 }
 
 /**
@@ -165,7 +247,15 @@ function typingSection(): HTMLElement {
       })),
   ));
 
-  // Drawn as a keyboard: blacks on top with the gaps a piano has, whites below.
+  /*
+   * Drawn as a keyboard: blacks on top with the gaps a piano has, whites below.
+   *
+   * Each row says what it is, beside it. The same three facts were rows in the
+   * key table underneath - "A to L: white keys" - which asked somebody to read
+   * a range of letters and then find those letters in a picture of a keyboard
+   * printed directly above it. The picture already answers the question; it
+   * only had to be captioned.
+   */
   const sounding = typingKeys.soundingKeys;
   const rows = keyRows(typingKeys.layout, typingKeys.base);
   const drawRow = (caps: KeyCap[], sharp: boolean, soft = false) => {
@@ -180,10 +270,12 @@ function typingSection(): HTMLElement {
     }
     return row;
   };
+  const labelled = (what: string, row: HTMLElement) => el('div', { class: 'keyrow-wrap' },
+    row, el('span', { class: 'keyrow-label' }, what));
   section.appendChild(el('div', { class: 'keymap' },
-    drawRow(rows.black, true),
-    drawRow(rows.white, false),
-    drawRow(rows.soft, false, true)));
+    labelled('black keys', drawRow(rows.black, true)),
+    labelled('white keys', drawRow(rows.white, false)),
+    labelled('the same notes, softer', drawRow(rows.soft, false, true))));
   return section;
 }
 
@@ -198,12 +290,37 @@ function render(): void {
   clear(bar);
 
   append(bar, [
-    el('span', { class: 'sound-label' }, 'sound'),
+    /*
+     * The name of the strip, at the weight of a name.
+     *
+     * As 11px muted type immediately to the left of the volume slider it was
+     * not read as the title of anything - it was read as that slider's label,
+     * which made the one word on the bar that says what the whole bar is look
+     * like a mislabelled control.
+     */
+    el('span', { class: 'sound-title' }, 'sound'),
 
+    // Mute before volume: it is the coarse control, the one reached for in a
+    // hurry, and a slider you cannot hear is a puzzle unless the reason is
+    // sitting immediately before it.
+    el('button', {
+      class: player.isMuted ? 'sound-mute on' : 'sound-mute',
+      title: player.isMuted ? 'Muted. Click to hear things again.' : 'Silence everything, including the MIDI keyboard.',
+      onclick: () => {
+        player.setMuted(!player.isMuted);
+        setSetting('audio.muted', player.isMuted);
+        render();
+      },
+    }, speakerIcon(player.isMuted)),
+
+    // Dead while muted rather than merely ineffective: it still remembers where
+    // it was, and moving it to find out that nothing happens is not
+    // information.
     el('input', {
       type: 'range', min: 0, max: 100, value: Math.round(player.getVolume() * 100),
       class: 'sound-vol',
-      title: 'output volume',
+      disabled: player.isMuted,
+      title: player.isMuted ? 'Muted - the speaker beside it turns the sound back on' : 'output volume',
       oninput: (e: Event) => {
         const v = Number((e.target as HTMLInputElement).value) / 100;
         player.setVolume(v);
@@ -211,17 +328,17 @@ function render(): void {
       },
     }),
 
-    el('button', {
-      class: player.isMuted ? 'btn on' : 'btn',
-      title: player.isMuted ? 'Muted. Click to hear things again.' : 'Silence everything, including the MIDI keyboard.',
-      onclick: () => {
-        player.setMuted(!player.isMuted);
-        setSetting('audio.muted', player.isMuted);
-        render();
-      },
-    }, player.isMuted ? 'muted' : 'mute'),
+    /*
+     * What plays by itself, and what an audition is, are settled once.
+     *
+     * Three permanent controls for three preferences that have a right answer
+     * and get changed about twice: hover-to-play, the demo phrase rather than
+     * one note, and looping it. They are still here under the switch, and they
+     * still work on their stored values when it is off.
+     */
+    adv(el('span', { class: 'sound-sep' })),
 
-    el('label', {
+    adv(el('label', {
       class: 'field',
       title: 'What is allowed to start playing without being asked. Buttons, the space bar and the MIDI keyboard always play.',
     }, 'play',
@@ -233,14 +350,12 @@ function render(): void {
         },
       }, ...(['hover', 'click', 'never'] as const).map((mode) => el('option', {
         value: mode, selected: player.autoPlay === mode,
-      }, AUTO_PLAY_LABELS[mode])))),
+      }, AUTO_PLAY_LABELS[mode]))))),
 
-    el('span', { class: 'sound-sep' }),
-
-    toggle('phrase', usePhrase(), 'Audition the demo phrase rather than one held note.',
-      (v) => setSetting('audition.phrase', v)),
-    toggle('loop', loopPhrase(), 'Repeat the phrase until something else plays.',
-      (v) => setSetting('audition.loop', v)),
+    adv(toggle('phrase', usePhrase(), 'Audition the demo phrase rather than one held note.',
+      (v) => setSetting('audition.phrase', v))),
+    adv(toggle('loop', loopPhrase(), 'Repeat the phrase until something else plays.',
+      (v) => setSetting('audition.loop', v))),
 
     el('span', { class: 'sound-sep' }),
 
@@ -257,14 +372,16 @@ function render(): void {
       },
     }, 'typing keys'),
 
-    // Which octave the keys are in, where you can see it while playing. The
-    // field in the settings panel is the control; this is the readout, and
-    // without it shifting with 9 or 0 changed everything and showed nothing.
-    typingKeys.enabled
+    // How far the keys have been shifted, while you are playing them - and
+    // nothing at all while they are where they started, which is the case that
+    // needs no readout.
+    typingKeys.enabled && octaveShift() !== 0
       ? el('span', {
         class: 'sound-oct',
-        title: 'Lowest key of the typing keyboard. 9 and 0 shift it.',
-      }, noteName(typingKeys.base))
+        title: 'Shifted ' + Math.abs(octaveShift()) + ' octave' + (Math.abs(octaveShift()) === 1 ? '' : 's')
+          + ' ' + (octaveShift() > 0 ? 'up' : 'down') + ', starting at ' + noteName(typingKeys.base)
+          + '. 9 and 0 shift it.',
+      }, (octaveShift() > 0 ? '+' : '\u2212') + Math.abs(octaveShift()) + ' oct')
       : null,
 
     midiSupported() ? el('span', { class: 'sound-sep' }) : null,
@@ -321,6 +438,10 @@ export function mountSoundBar(p: Player): void {
   document.body.appendChild(el('footer', { class: 'sound-dock' }, panel, bar));
   keyboard.subscribe(() => render());
   typingKeys.subscribe(() => render());
+  // The strip is docked outside the view, so the app's rebuild-on-toggle does
+  // not reach it: without this, switching advanced off left three controls on
+  // it that the switch had just taken away everywhere else.
+  subscribeAdvanced(() => render());
   // On unless it was switched off last time. The audio context is still locked
   // at this point, but `enable` only attaches listeners - the first key press
   // is itself the gesture that unlocks it.

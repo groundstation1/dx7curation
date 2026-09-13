@@ -102,7 +102,7 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
         el('div', { class: 'muted', style: { marginTop: '2px' } },
           `algorithm ${(v.unpacked[P.algorithm] & 31) + 1}`,
           `  ·  feedback ${v.unpacked[P.feedback] & 7}`,
-          v.pinned ? '  ·  pinned' : '')),
+          v.pinned ? '  ·  favourite' : '')),
       // One patch, as a single-voice dump. Every DX7 editor and every clone
       // reads this, and wanting exactly the one you are looking at - to load
       // on the device, to send to someone, to keep - is a good deal more
@@ -166,7 +166,7 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
   }
   row.appendChild(el('button', {
     class: v.pinned ? 'act-pin on' : 'act-pin',
-    title: v.pinned ? 'Pinned into the final 128. Click to release.' : 'Pin into the final 128 regardless of rating',
+    title: v.pinned ? 'A favourite: goes into the final 128 whatever its rating. Click to release.' : 'Mark as a favourite, so it goes into the final 128 regardless of rating',
     onclick: () => {
       void store.togglePin(i).then(changed);
     },
@@ -177,7 +177,7 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
   actions.appendChild(el('div', { class: 'act-keys muted' },
     el('span', {}, el('kbd', {}, '1'), '–', el('kbd', {}, '5'), ' rate'),
     opts.onPlay ? el('span', {}, el('kbd', {}, 'space'), ' play') : null,
-    el('span', {}, el('kbd', {}, '6'), ' pin'),
+    el('span', {}, el('kbd', {}, '6'), ' favourite'),
     rating ? el('span', {}, 'same key again clears') : null,
   ));
   panel.appendChild(actions);
