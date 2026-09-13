@@ -92,6 +92,7 @@ const AXIS_ENDS: Record<string, [string, string]> = {
   modBrightness: ['no change', 'brightens'],
   predicted: ['you would not', 'you would'],
   rating: ['unrated and low', 'five stars'],
+  familySounds: ['nothing else like it', 'a crowded corner'],
   familySize: ['one of a kind', 'many near-copies'],
   algorithm: ['algorithm 1', 'algorithm 32'],
   carriers: ['one carrier', 'many carriers'],
@@ -251,7 +252,7 @@ let yAxisId: AxisId = getSetting('map.yAxis', 'pca2');
 let colourBy: 'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 'source' | 'algorithm' =
   getSetting<'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 'source' | 'algorithm'>('map.colourBy', 'category');
 /** Any axis can drive dot size as well; '' is a uniform dot. */
-let sizeAxisId: AxisId | '' = getSetting<AxisId | ''>('map.sizeAxis', 'familySize');
+let sizeAxisId: AxisId | '' = getSetting<AxisId | ''>('map.sizeAxis', 'familySounds');
 let sizes = new Float32Array(0);
 /**
  * How much of the corpus to fold together before drawing it.
@@ -417,7 +418,27 @@ function axes(): Axis[] {
     });
   }
   list.push({ id: 'algorithm', label: 'algorithm (1-32)', short: 'algorithm', value: (i) => (store.voices[i].unpacked[P.algorithm] & 31) + 1 });
-  list.push({ id: 'familySize', label: 'near-duplicate family size', value: (i) => ctx.store.clusterMembers(i).length });
+  /*
+   * Two ways to count a family, and they say different things.
+   *
+   * The number of voices counts every copy: a patch that twenty archives all
+   * carried has a family of twenty before anything similar to it is
+   * considered, so the dot grows for having been popular to redistribute
+   * rather than for sitting in a crowded corner of the sound space. That is a
+   * fact about the files, and occasionally the one you want.
+   *
+   * Counting distinct sounds instead - one per merge cluster, which is what a
+   * face-off would actually be between - answers the question the size of a
+   * dot is usually read as asking: how many genuinely different patches are
+   * near enough to this one to be confused with it. That is the default.
+   */
+  list.push({
+    id: 'familySounds',
+    label: 'family size, ignoring copies',
+    short: 'distinct sounds nearby',
+    value: (i) => ctx.store.familyContenders(i).length,
+  });
+  list.push({ id: 'familySize', label: 'family size, counting every copy', short: 'copies nearby', value: (i) => ctx.store.clusterMembers(i).length });
   return list;
 }
 
@@ -480,7 +501,7 @@ const AXIS_GROUPS: Array<{ label: string; ids: string[] }> = [
   },
   {
     label: 'Corpus',
-    ids: ['familySize'],
+    ids: ['familySounds', 'familySize'],
   },
 ];
 
