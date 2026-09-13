@@ -1008,10 +1008,32 @@ select:disabled { cursor: not-allowed; }
 
 /* Anything the app is blocking on, in the middle of the screen it is blocking.
    The same block on all three of them, so one kind of waiting looks like one
-   kind of waiting. */
+   kind of waiting.
+
+   A single max-content column, so the bar comes out exactly as wide as the
+   wordmark sitting above it. Centred in a flex column it shrank to its own
+   text - a 200px bar under a 600px mark, which reads as an afterthought - and
+   any fixed width would have to be kept in step with a clamp() on the type.
+   This balances by construction, at every window size. The minimum is for the
+   screens that show no mark, where the column would otherwise be as wide as
+   the word "Preparing". */
 .centre-load {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 26px; min-height: 52vh;
+  display: grid;
+  /* The floor belongs on the track, not on the bar. As a `min-width` on the
+     bar the `100%` had nothing definite to resolve against - the column width
+     was still being worked out from its contents - so it collapsed to nothing
+     and the screens with no wordmark got a bar as wide as the word on it. */
+  grid-template-columns: minmax(min(480px, 100%), max-content);
+  justify-content: center; align-content: center;
+  gap: 22px; min-height: 52vh; max-width: 100%;
+}
+/* A little narrower than the mark above it, rather than exactly as wide.
+   Matching it to the pixel reads as a coincidence being enforced; three
+   quarters of it reads as a bar belonging to a title. The percentage resolves
+   against the track, which the wordmark has already sized, so the proportion
+   holds at every window width without a second number to keep in step. */
+.centre-load .splash-load {
+  width: 76%; max-width: none; margin: 0; justify-self: center;
 }
 .boot-load { min-height: 62vh; }
 

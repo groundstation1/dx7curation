@@ -263,6 +263,15 @@ let colourBy: 'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 
   getSetting<'category' | 'subcategory' | 'rating' | 'predicted' | 'cluster' | 'source' | 'algorithm'>('map.colourBy', 'category');
 /** Any axis can drive dot size as well; '' is a uniform dot. */
 let sizeAxisId: AxisId | '' = getSetting<AxisId | ''>('map.sizeAxis', 'familySounds');
+/**
+ * Ring the favourites, so they are findable in twenty thousand dots.
+ *
+ * On by default, and a setting rather than a fixture because it is the one
+ * mark on this plot that is not about the sound: a ring that means "you liked
+ * this" sits on top of a picture of what the corpus contains, and when the
+ * question is about the corpus rather than about you, it is in the way.
+ */
+let markFavourites = getSetting('map.markFavourites', true);
 let sizes = new Float32Array(0);
 /**
  * How much of the corpus to fold together before drawing it.
@@ -637,13 +646,118 @@ function computeLayout(): void {
   const [x0, x1] = bounds(rawX);
   const [y0, y1] = bounds(rawY);
 
+  // Whole-number axes get spread inside each step. See `latticeStep`.
+  const stepX = latticeStep(rawX) / (x1 - x0);
+  const stepY = latticeStep(rawY) / (y1 - y0);
+
   xs = new Float32Array(n);
   ys = new Float32Array(n);
   for (const i of visible) {
     xs[i] = (rawX[i] - x0) / (x1 - x0);
     ys[i] = 1 - (rawY[i] - y0) / (y1 - y0);
+    if (stepX > 0) xs[i] += spread(i, 1) * stepX * LATTICE_FILL;
+    if (stepY > 0) ys[i] += spread(i, 2) * stepY * LATTICE_FILL;
   }
+  measureExtent();
   computeSizes();
+}
+
+/*
+ * How far outside the plot the outliers actually reach.
+ *
+ * The bounds above deliberately clip the extreme half percent, so a normalised
+ * coordinate is not confined to nought-to-one: it is nought-to-one for the
+ * bulk of the corpus and whatever it has to be for the rest. That is the right
+ * trade for a continuous axis, where the tail is a handful of sound effects.
+ * It is a different matter on a counting axis, where the tail is every patch
+ * the archives passed round a hundred times and can sit ten or twenty plot
+ * heights above the top edge.
+ *
+ * Either way those points are drawn, and the zoom stopped at a fixed 0.4 -
+ * which on such an axis is nowhere near far enough to bring them into view.
+ * Measuring the extent means the limit can be "everything is reachable"
+ * instead of a number picked when every axis was continuous.
+ */
+let extentSpan = 1;
+
+function measureExtent(): void {
+  let lo = 0;
+  let hi = 1;
+  for (const i of visible) {
+    if (xs[i] < lo) lo = xs[i];
+    if (xs[i] > hi) hi = xs[i];
+    if (ys[i] < lo) lo = ys[i];
+    if (ys[i] > hi) hi = ys[i];
+  }
+  extentSpan = Math.max(1, hi - lo);
+}
+
+/**
+ * The furthest out the plot will go: far enough to see everything on it.
+ *
+ * Never tighter than the old fixed floor, so on an ordinary plot - where the
+ * whole corpus is already inside the frame - nothing about zooming changes.
+ */
+function minScale(): number {
+  return Math.min(0.4, 1 / extentSpan);
+}
+
+/*
+ * Counting axes collapse a corpus onto a grid, and a grid cannot be read.
+ *
+ * Family size against near-identical copies is two small whole numbers, so
+ * twenty thousand patches land on about forty by twenty positions. Every one
+ * of those positions is a single dot however many patches are underneath it -
+ * alpha saturates at around a dozen - so a cell holding nine hundred voices
+ * and a cell holding one are drawn identically. The plot came out as a perfect
+ * lattice, which is a picture of the axes rather than of the corpus.
+ *
+ * Spreading each point inside its own cell fixes it, and is the ordinary
+ * answer for discrete scatter. What it invents is the position inside the
+ * cell; what it does not invent is the cell - every dot stays at its own pair
+ * of counts - so reading a value off the plot is still right to the nearest
+ * step, and the size of each cloud is now the number of patches in it, which
+ * was the question the whole view exists to answer.
+ *
+ * Only where it is needed. An axis qualifies when every value is a whole
+ * number, there are few enough levels to pile up on, and there really are
+ * several patches per level - so the continuous axes, and small corpora where
+ * nothing is stacked, are left exactly where they are.
+ */
+const LATTICE_MAX_LEVELS = 64;
+const LATTICE_MIN_PER_LEVEL = 4;
+/** How much of a cell the spread fills. Short of 1 so the levels stay legible. */
+const LATTICE_FILL = 0.38;
+
+function latticeStep(raw: Float32Array): number {
+  const levels = new Set<number>();
+  for (const i of visible) {
+    const v = raw[i];
+    if (!Number.isInteger(v)) return 0;
+    levels.add(v);
+    if (levels.size > LATTICE_MAX_LEVELS) return 0;
+  }
+  if (levels.size < 2) return 0;
+  if (visible.length < levels.size * LATTICE_MIN_PER_LEVEL) return 0;
+  // Whole numbers, so the gap between neighbouring levels is one - even where
+  // the values present are sparse, since an absent level is still a level.
+  return 1;
+}
+
+/**
+ * A fixed offset in [-1, 1] for one voice, from its index alone.
+ *
+ * Fixed because the alternative is a plot that shimmers: `Math.random` would
+ * give every redraw - every pan, every filter change, every hover - a new
+ * arrangement, and the eye reads that as the data moving. Hashing the index
+ * means a patch sits in the same spot in its cell for as long as it is on the
+ * screen, and lands back there when you come back to the view.
+ */
+function spread(i: number, salt: number): number {
+  let h = Math.imul(i ^ (salt * 0x9e3779b9), 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 3266489917);
+  h ^= h >>> 16;
+  return ((h >>> 0) / 0x100000000) * 2 - 1;
 }
 
 function toScreen(i: number, w: number, h: number): [number, number] {
@@ -892,19 +1006,21 @@ function draw(): void {
     g.drawImage(spr, snap(px - size / 2), snap(py - size / 2), size, size);
   }
 
-  // Pinned voices get a ring so they are findable at a glance.
-  g.globalAlpha = 0.9;
-  g.strokeStyle = '#ffca6a';
-  g.lineWidth = 1.4;
-  g.beginPath();
-  for (const i of visible) {
-    if (!store.voices[i].pinned) continue;
-    const [px, py] = toScreen(i, w, h);
-    const r = radiusOf(i) + 2;
-    g.moveTo(px + r, py);
-    g.arc(px, py, r, 0, Math.PI * 2);
+  // Favourites get a ring, so they are findable at a glance.
+  if (markFavourites) {
+    g.globalAlpha = 0.9;
+    g.strokeStyle = '#ffca6a';
+    g.lineWidth = 1.4;
+    g.beginPath();
+    for (const i of visible) {
+      if (!store.voices[i].pinned) continue;
+      const [px, py] = toScreen(i, w, h);
+      const r = radiusOf(i) + 2;
+      g.moveTo(px + r, py);
+      g.arc(px, py, r, 0, Math.PI * 2);
+    }
+    g.stroke();
   }
-  g.stroke();
 
   g.globalAlpha = 1;
   for (const [i, colour] of [[selected, '#ffffff'], [hovered, '#ffca6a'], [listed, '#ffca6a']] as const) {
@@ -1848,7 +1964,7 @@ const PRESETS: MapPreset[] = [
    */
   {
     id: 'copies', label: 'Where the copies are', x: 'familySounds', y: 'nearDupes', colour: 'cluster',
-    note: 'similar sounds nearby against near-identical copies of the same patch',
+    note: 'similar sounds nearby against copies of the same patch; both are counts, so each cell is spread to show how many are in it',
   },
 ];
 
@@ -2206,6 +2322,20 @@ function renderControls(): void {
           disabled: ctx.store.representatives.length === 0,
         }, 'family'),
       )),
+    adv(plot ? el('label', {
+      class: 'field',
+      title: 'Ring every patch you marked as a favourite, so you can see where they sit.',
+    },
+      el('input', {
+        type: 'checkbox',
+        checked: markFavourites,
+        onchange: (e: Event) => {
+          markFavourites = (e.target as HTMLInputElement).checked;
+          setSetting('map.markFavourites', markFavourites);
+          draw();
+        },
+      }), 'ring favourites') : null),
+
     adv(plot ? el('label', {
       class: 'field',
       title: 'Play a patch blended from the voices nearest the cursor, rather than the nearest single patch. Only ever uses what is currently shown.',
@@ -2577,7 +2707,7 @@ function attachCanvasEvents(): void {
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
     const factor = Math.exp(-e.deltaY * 0.0015);
-    const next = Math.max(0.4, Math.min(80, scale * factor));
+    const next = Math.max(minScale(), Math.min(80, scale * factor));
     const k = next / scale;
     offsetX = mx - (mx - offsetX) * k;
     offsetY = my - (my - offsetY) * k;
