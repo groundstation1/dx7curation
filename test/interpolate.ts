@@ -1,5 +1,5 @@
 /* Does blending produce a sane patch? Run: node test/interpolate.ts */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { parseSysexFile } from '../src/sysex/parse.ts';
@@ -211,8 +211,14 @@ check('hash ignores the name', (() => {
   return voiceHash(a) === voiceHash(result.voice);
 })());
 
-writeFileSync(join(here, 'out', 'interpolated.wav'), encodeWav(r.samples, 44100));
+// test/out is gitignored, so it does not exist in a fresh clone - which is
+// every clone but the one this was written in. The other scripts that write
+// here already do this; this one did not, and only passed because the
+// directory happened to be left over from an earlier run.
+const outDir = join(here, 'out');
+mkdirSync(outDir, { recursive: true });
+writeFileSync(join(outDir, 'interpolated.wav'), encodeWav(r.samples, 44100));
 console.log(`\n  blended ${result.contributions.length} voices on algorithm ${alg + 1}`);
-console.log(`  wrote ${join(here, 'out', 'interpolated.wav')}`);
+console.log(`  wrote ${join(outDir, 'interpolated.wav')}`);
 console.log(fail === 0 ? '\nall interpolation checks passed\n' : `\n${fail} check(s) failed\n`);
 process.exit(fail === 0 ? 0 : 1);
