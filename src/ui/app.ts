@@ -123,6 +123,16 @@ export class App {
   private taskEl: HTMLElement;
   private current: View | null = null;
   private currentId: ViewId = 'corpus';
+  /*
+   * Nothing is the current screen until there is one.
+   *
+   * `currentId` has to start somewhere and starts at Sources, which while the
+   * corpus is being read back means the row highlights Sources, sits there for
+   * several seconds, and then jumps to Browse the moment the load finishes -
+   * so the first thing the app appears to do is change its mind. No tab is the
+   * honest answer for a period when no view is mounted.
+   */
+  private booting = true;
   private player = new Player();
 
   constructor(root: HTMLElement) {
@@ -218,6 +228,7 @@ export class App {
     // Land on the map when there is something to look at. Sources is the right
     // first screen exactly once, when the corpus is empty.
     const startAt: ViewId = TABS.find((t) => t.id === 'map')!.enabled() ? 'map' : 'corpus';
+    this.booting = false;
     await this.go(startAt);
 
     mountPianoRoll();
@@ -243,7 +254,7 @@ export class App {
       const enabled = tab.enabled();
       this.tabsEl.appendChild(
         el('button', {
-          class: tab.id === this.currentId ? 'active' : '',
+          class: !this.booting && tab.id === this.currentId ? 'active' : '',
           disabled: !enabled,
           title: enabled ? '' : tab.hint,
           onclick: () => void this.go(tab.id),

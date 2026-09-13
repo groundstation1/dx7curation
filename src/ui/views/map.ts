@@ -25,6 +25,7 @@ import { keyboard } from '../../audio/keyboard.ts';
 import { matchesQuery, parseQuery, isActiveQuery, type SearchQuery, type SearchScope } from '../search.ts';
 import { getSetting, setSetting } from '../settings.ts';
 import { richSelect } from '../menu.ts';
+import { countTokens, nameLabels, nameTokens, type MapLabel } from '../mapLabels.ts';
 import { adv, isAdvanced } from '../advanced.ts';
 import { loopPhrase, usePhrase } from '../soundBar.ts';
 import { blendWeights, dominantAlgorithm, interpolateVoices, inverseDistanceWeights, voiceHash, type InterpolationResult } from '../../engine/interpolate.ts';
@@ -153,7 +154,9 @@ function subcategoryColour(category: Category, sub: string, focused = false): st
  * So the base is set for that crossing rather than for either extreme.
  */
 const BASE_ALPHA = 0.25;
-const DIMMED_ALPHA = 0.06;
+const DIMMED_ALPHA = 0.038;
+/** What everything that is not a match is drawn in: the corpus, as context. */
+const DIM_COLOUR = '#8d94a3';
 const BASE_RADIUS = 3.4;
 /** The range a size axis spans, in radius. */
 const MIN_RADIUS = 1.8;
@@ -272,6 +275,53 @@ let sizeAxisId: AxisId | '' = getSetting<AxisId | ''>('map.sizeAxis', 'familySou
  * question is about the corpus rather than about you, it is in the way.
  */
 let markFavourites = getSetting('map.markFavourites', true);
+/**
+ * Write the corpus's own words over the regions of the plot.
+ *
+ * On by default because it is the difference between a field of coloured dots
+ * and a map: the colours name nine categories the classifier knows, and the
+ * labels name what the programmers actually called these sounds. See
+ * mapLabels.ts - none of it touches the layout.
+ */
+let showLabels = getSetting('map.labels', true);
+let labels: MapLabel[] = [];
+
+/*
+ * Only on the neighbourhood map.
+ *
+ * Naming a region assumes the region means something, and on this layout it
+ * does: neighbours are patches that sound alike, so a corner full of patches
+ * called RHODES is a corner of Rhodes sounds. On a plot of two measurements it
+ * would still often be true - the piano region of attack against release is a
+ * real region - and on a plot of two counts it is not true at all, because
+ * "three copies, two neighbours" is a coordinate and not a place. Rather than
+ * work out which of the seventy axes describe places, it is offered where it
+ * was asked for and where it is unarguable.
+ */
+function onNeighbourhoodMap(): boolean {
+  return (xAxisId === 'embed1' && yAxisId === 'embed2')
+    || (xAxisId === 'embed2' && yAxisId === 'embed1');
+}
+
+/*
+ * Tokenised names, kept for as long as the corpus is the same one.
+ *
+ * Thirty thousand names is a fifth of a second to split, and the layout is
+ * recomputed on every filter change, so it cannot happen there. Keyed on the
+ * array itself: a new corpus is a new array, and nothing short of that changes
+ * a name.
+ */
+let tokenCache: { voices: unknown; tokens: string[][]; docFreq: Map<string, number> } | null = null;
+
+function tokens(): { tokens: string[][]; docFreq: Map<string, number> } {
+  const voices = ctx.store.voices;
+  if (tokenCache && tokenCache.voices === voices && tokenCache.tokens.length === voices.length) {
+    return tokenCache;
+  }
+  const list = voices.map((v) => nameTokens(v.name));
+  tokenCache = { voices, tokens: list, docFreq: countTokens(list) };
+  return tokenCache;
+}
 let sizes = new Float32Array(0);
 /**
  * How much of the corpus to fold together before drawing it.
@@ -659,7 +709,19 @@ function computeLayout(): void {
     if (stepY > 0) ys[i] += spread(i, 2) * stepY * LATTICE_FILL;
   }
   measureExtent();
+  computeLabels();
   computeSizes();
+}
+
+function computeLabels(): void {
+  if (!showLabels || !onNeighbourhoodMap()) {
+    labels = [];
+    return;
+  }
+  const { tokens: list, docFreq } = tokens();
+  labels = nameLabels({
+    visible, xs, ys, tokens: list, docFreq, corpus: ctx.store.voices.length,
+  });
 }
 
 /*
@@ -760,8 +822,11 @@ function spread(i: number, salt: number): number {
   return ((h >>> 0) / 0x100000000) * 2 - 1;
 }
 
+/** The margin the plot leaves around itself, shared by everything that maps a
+ *  normalised coordinate onto the canvas. */
+const pad = 26;
+
 function toScreen(i: number, w: number, h: number): [number, number] {
-  const pad = 26;
   return [
     pad + xs[i] * (w - pad * 2) * scale + offsetX,
     pad + ys[i] * (h - pad * 2) * scale + offsetY,
@@ -1001,7 +1066,19 @@ function draw(): void {
     if (px < -20 || py < -20 || px > w + 20 || py > h + 20) continue;
     const dimmed = (lassoSet && !lassoSet.has(i)) || (highlight && !highlight.has(i));
     const r = radiusOf(i);
-    const spr = sprite(colourOf(i), r, dimmed ? dimAlpha : alpha, dpr);
+    /*
+     * What is not a match loses its colour as well as its weight.
+     *
+     * Dimming alone leaves the rest of the corpus as a faint version of the
+     * same nine-colour picture, and colour reads at far lower contrast than
+     * brightness does - so a handful of highlighted dots had to compete with
+     * twenty thousand coloured ones, and the eye kept finding the categories
+     * instead of the results. Grey is the shape of the corpus with nothing to
+     * say, which is exactly the job the background has here.
+     */
+    const spr = dimmed
+      ? sprite(DIM_COLOUR, r, dimAlpha, dpr)
+      : sprite(colourOf(i), r, alpha, dpr);
     const size = spr.width / dpr;
     g.drawImage(spr, snap(px - size / 2), snap(py - size / 2), size, size);
   }
@@ -1022,6 +1099,8 @@ function draw(): void {
     g.stroke();
   }
 
+  drawLabels(g, w, h);
+
   g.globalAlpha = 1;
   for (const [i, colour] of [[selected, '#ffffff'], [hovered, '#ffca6a'], [listed, '#ffca6a']] as const) {
     if (i < 0 || !xs.length || xs[i] === undefined) continue;
@@ -1034,6 +1113,71 @@ function draw(): void {
   }
 
   drawOverlay(w, h, dpr);
+}
+
+/*
+ * As many labels as fit without landing on each other.
+ *
+ * Drawn greedily down the ranking, so the words that describe the most patches
+ * get first refusal on the space - and zooming in spreads the regions apart,
+ * which lets the ones that were crowded out appear without anything being
+ * recomputed. That is why the list is not truncated when it is built.
+ *
+ * A dark casing under every word, because these sit over twenty thousand
+ * coloured dots and there is no background colour to rely on.
+ */
+const LABEL_LIMIT = 20;
+
+function drawLabels(g: CanvasRenderingContext2D, w: number, h: number): void {
+  if (!showLabels || !onNeighbourhoodMap() || labels.length === 0) return;
+  const taken: Array<[number, number, number, number]> = [];
+  let drawn = 0;
+
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineJoin = 'round';
+
+  for (const label of labels) {
+    if (drawn >= LABEL_LIMIT) break;
+    const px = pad + label.x * (w - pad * 2) * scale + offsetX;
+    const py = pad + label.y * (h - pad * 2) * scale + offsetY;
+    if (px < 0 || py < 0 || px > w || py > h) continue;
+
+    // A little larger for the regions covering more patches, so the reading
+    // order of the map matches the size of the things being named.
+    const size = Math.round(Math.max(14, Math.min(21, 11 + Math.log10(label.hits) * 3.4)));
+    /*
+     * Set light, and made readable by what is behind it rather than by weight.
+     *
+     * These are captions over somebody else's picture: bold made them compete
+     * with the dots they are naming, and bold is also the wrong tool for the
+     * problem, which is not that the letters are too thin but that the ground
+     * under them is twenty thousand coloured points. A dark casing and a soft
+     * shadow give the word its own ground, so it can be light and still be the
+     * first thing you read.
+     */
+    g.font = `400 ${size}px "Space Mono", ui-monospace, monospace`;
+    const half = g.measureText(label.text).width / 2 + 6;
+    const box: [number, number, number, number] = [px - half, py - size, px + half, py + size];
+    if (taken.some((t) => box[0] < t[2] && box[2] > t[0] && box[1] < t[3] && box[3] > t[1])) continue;
+    taken.push(box);
+    drawn++;
+
+    g.globalAlpha = 1;
+    g.shadowColor = 'rgba(0, 0, 0, 0.9)';
+    g.shadowBlur = 10;
+    g.strokeStyle = 'rgba(8, 9, 12, 0.8)';
+    g.lineWidth = 4.5;
+    g.strokeText(label.text, px, py);
+    // A second pass of the shadow under the fill, so the glow is not only
+    // around the casing but under the letterforms themselves.
+    g.shadowBlur = 6;
+    g.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    g.fillText(label.text, px, py);
+    g.shadowBlur = 0;
+  }
+  g.shadowColor = 'transparent';
+  g.globalAlpha = 1;
 }
 
 function drawOverlay(w: number, h: number, dpr: number): void {
@@ -2077,7 +2221,17 @@ function searchControl(): HTMLElement {
       // corpus, and at forty thousand voices that is not a cost worth paying
       // per character.
       clearTimeout(searchDebounce);
-      searchDebounce = window.setTimeout(() => applyFilters(), 180);
+      /*
+       * Long enough to type a word in.
+       *
+       * Every keystroke re-runs the query over the whole corpus and relays the
+       * plot, so at 180ms an ordinary typing speed fires the whole pipeline
+       * four or five times on the way to one search - and each of those
+       * redraws is visible. The wait only has to be longer than the gap
+       * between keystrokes, not short enough to feel instant: nobody is
+       * reading the plot while still typing.
+       */
+      searchDebounce = window.setTimeout(() => applyFilters(), 400);
     },
     onkeydown: (e: KeyboardEvent) => {
       e.stopPropagation();
@@ -2236,6 +2390,30 @@ function renderControls(): void {
           : []),
       ],
     })) : null,
+
+    /*
+     * Beside the view it belongs to, and not behind the switch.
+     *
+     * It only exists while the neighbourhood map is the thing on screen, so it
+     * cannot clutter any other view by being there - and on the one view where
+     * it does appear it is worth having in reach, because whether you want the
+     * words over the dots depends on what you are doing this minute rather
+     * than on how much of the app you have asked to see.
+     */
+    plot && onNeighbourhoodMap() ? el('label', {
+      class: 'field',
+      title: 'Write the commonest distinctive word from the patch names over each region. Read off the finished layout; it changes nothing about where anything sits.',
+    },
+      el('input', {
+        type: 'checkbox',
+        checked: showLabels,
+        onchange: (e: Event) => {
+          showLabels = (e.target as HTMLInputElement).checked;
+          setSetting('map.labels', showLabels);
+          computeLabels();
+          draw();
+        },
+      }), 'name regions') : null,
 
     el('span', { class: 'bar-sep' }),
 
