@@ -58,6 +58,9 @@
   .fig .ln { fill: none; stroke: #000; stroke-width: 1; stroke-linejoin: round; }
   .fig .thin { stroke-width: 0.45; }
   .fig .dash { stroke-dasharray: 2 1.6; stroke-width: 0.4; }
+  /* Held for as long as you hold the key, or for as long as the patch goes on
+     sounding: a duration the picture cannot show, so it stops drawing it. */
+  .fig .hold { stroke-dasharray: 0.1 2.4; stroke-linecap: round; }
   /* Four line styles for four curves. They all meet at the break point and all
      arrive at the same two corners, so shape alone cannot tell them apart. */
   .fig .lin-up { }
@@ -137,7 +140,10 @@
     <h2>Operator envelope</h2>
     <svg class="fig" viewBox="0 0 100 52">
       <path class="ln thin" d="M14 44H97"/>
-      <path class="ln" d="M16 44L31 10L49 19L67 26L75 26L89 38L97 38"/>
+      <path class="ln" d="M16 44L31 10L49 19L67 26"/>
+      <path class="ln hold" d="M67 26H75"/>
+      <path class="ln" d="M75 26L89 38"/>
+      <path class="ln hold" d="M89 38H97"/>
       <path class="ln dash" d="M16 44V6"/>
       <path class="ln dash" d="M75 44V6"/>
       <circle class="dot" cx="31" cy="10" r="1.1"/>
@@ -153,7 +159,6 @@
       <text class="mid" x="40" y="21">R2</text>
       <text class="mid" x="56" y="28">R3</text>
       <text class="mid" x="82" y="38.5">R4</text>
-      <text class="sm mid" x="66" y="32.5">sustain</text>
       <text class="sm mid" x="16" y="49">key on</text>
       <text class="sm mid" x="75" y="49">key off</text>
       <text class="sm end" x="12" y="11">loud</text>
