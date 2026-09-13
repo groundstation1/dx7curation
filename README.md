@@ -9,7 +9,7 @@ sit together, so you rate one per group instead of all of them. Out come four
 32-voice banks, ordered so that neighbouring slots sound adjacent.
 
 Nothing leaves your machine: the patches, the measurements and your ratings live
-in IndexedDB. Chrome only, for WebMIDI.
+in IndexedDB.
 
 ```bash
 npm install
