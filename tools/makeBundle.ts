@@ -17,7 +17,11 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
+import { availableParallelism } from 'node:os';
+import { Worker } from 'node:worker_threads';
+import type { MeasureRequest, MeasureResult } from './measure.worker.ts';
 
 // Which operators are carriers depends on the algorithm, and the sysex layer
 // is kept free of the engine, so the test is passed in.
@@ -105,29 +109,101 @@ if (n === 0) process.exit(1);
 
 // ---------------------------------------------------------------- measure
 
-const vectors: Float32Array[] = [];
-const acoustic: unknown[] = [];
-const structural: unknown[] = [];
-const categories: string[] = [];
-const subcategories: string[] = [];
-const confidence: number[] = [];
+/*
+ * Measuring is the whole cost, and it is embarrassingly parallel.
+ *
+ * Each voice is rendered at three pitches and two velocities, held and
+ * released, plus a mod-wheel pass - about eighty milliseconds of DSP that
+ * depends on nothing but that voice's own bytes. Single-threaded this managed
+ * twelve a second and a corpus of thirty thousand took three quarters of an
+ * hour; the browser does the same work at seventy a second because it spreads
+ * it over a pool. There was no reason for the tool not to.
+ *
+ * Batches go out one at a time per worker rather than being split up front, so
+ * a thread that lands a run of expensive patches does not hold the rest up.
+ */
+const vectors = new Array<Float32Array>(n);
+const acoustic = new Array<unknown>(n);
+const structural = new Array<unknown>(n);
+const categories = new Array<string>(n);
+const subcategories = new Array<string>(n);
+const confidence = new Array<number>(n);
 const silent = new Uint8Array(n);
-const started = Date.now();
+
+await measureAll();
+
+async function measureAll(): Promise<void> {
+  const threads = Math.max(1, Math.min(availableParallelism(), 16));
+  const BATCH = 64;
+  const workerPath = fileURLToPath(new URL('./measure.worker.ts', import.meta.url));
+  console.log(`measuring on ${threads} threads`);
+
+  let next = 0;
+  let done = 0;
+  const started = Date.now();
+  let lastReport = 0;
+
+  await new Promise<void>((resolveAll, rejectAll) => {
+    const workers: Worker[] = [];
+    let live = 0;
+
+    const feed = (w: Worker): void => {
+      if (next >= n) {
+        // Nothing left for this one; it exits and the last out resolves.
+        void w.terminate();
+        live--;
+        if (live === 0) resolveAll();
+        return;
+      }
+      const from = next;
+      next = Math.min(n, next + BATCH);
+      const items = [];
+      for (let i = from; i < next; i++) items.push({ index: i, packed: voices[i].packed });
+      w.postMessage({ items } satisfies MeasureRequest);
+    };
+
+    for (let t = 0; t < threads; t++) {
+      const w = new Worker(workerPath);
+      live++;
+      workers.push(w);
+      w.on('message', (results: MeasureResult[]) => {
+        for (const r of results) {
+          vectors[r.index] = r.vector instanceof Float32Array ? r.vector : Float32Array.from(r.vector as ArrayLike<number>);
+          acoustic[r.index] = r.acoustic;
+          structural[r.index] = r.structural;
+          categories[r.index] = r.category;
+          subcategories[r.index] = r.subcategory;
+          confidence[r.index] = r.confidence;
+          silent[r.index] = r.silent ? 1 : 0;
+        }
+        done += results.length;
+        if (done - lastReport >= 2000 || done === n) {
+          lastReport = done;
+          const rate = done / ((Date.now() - started) / 1000);
+          console.log(`  measured ${done}/${n}  ${rate.toFixed(0)}/s  ${(((n - done) / rate) / 60).toFixed(1)} min left`);
+        }
+        feed(w);
+      });
+      w.on('error', (err) => {
+        for (const other of workers) void other.terminate();
+        rejectAll(err);
+      });
+      feed(w);
+    }
+  });
+}
+
+/*
+ * Every slot filled, checked rather than assumed.
+ *
+ * Batches come back out of order and are written by index, so the failure this
+ * guards against is not a wrong number but a missing one - a worker that died
+ * quietly would leave holes that only surface later as NaNs in the map. A
+ * corpus is measured once and shipped to other people; it is worth one pass.
+ */
 for (let i = 0; i < n; i++) {
-  const v = voices[i];
-  const a = extractAcoustic(renderProbe(v.unpacked));
-  const s = extractStructural(v.unpacked);
-  const cat = categorize(a, s, v.name);
-  vectors.push(buildVector(a, s));
-  acoustic.push(a);
-  structural.push(s);
-  categories.push(cat.category);
-  subcategories.push(cat.sub);
-  confidence.push(cat.confidence);
-  silent[i] = isSilentByParams(v.unpacked, isCarrier) ? 1 : 0;
-  if ((i + 1) % 1000 === 0) {
-    const rate = (i + 1) / ((Date.now() - started) / 1000);
-    console.log(`  measured ${i + 1}/${n}  ${rate.toFixed(0)}/s  ${(((n - i - 1) / rate) / 60).toFixed(1)} min left`);
+  if (!vectors[i] || acoustic[i] === undefined || structural[i] === undefined) {
+    throw new Error(`voice ${i} (${voices[i].name}) was never measured`);
   }
 }
 
