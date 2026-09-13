@@ -132,24 +132,8 @@ export class App {
       // between every child, bare text nodes included, so spelling the name out
       // at this level made the word space the same size as the gap after the
       // mark.
-      /*
-       * The wordmark goes home, which here means the first screen.
-       *
-       * That screen holds the two ways in - your own files, or a prepared
-       * collection - and it used to exist only while the library was empty, so
-       * having imported anything there was no route back to it. A logo that
-       * returns you to the start is the convention every other app has trained
-       * people on, and it costs no room in a bar that has none.
-       */
-      el('button', {
-        class: 'brand',
-        title: 'Back to the start',
-        onclick: async () => {
-          const corpus = await import('./views/corpus.ts');
-          corpus.openSplash();
-          await this.go('corpus');
-        },
-      }, el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
+      el('div', { class: 'brand' },
+        el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
       this.tabsEl,
       el('div', { class: 'spacer' }),
       this.taskEl,

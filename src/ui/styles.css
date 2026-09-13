@@ -202,9 +202,7 @@ header.topbar {
  * its bar is the top of the reading order, and everything else can then be
  * small without the screen looking uniformly small.
  */
-/* A button now, since it goes home; everything else about it is unchanged. */
 .topbar .brand {
-  border: none; background: none; padding: 0; cursor: pointer;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1210,15 +1208,20 @@ table.data.fixed { table-layout: fixed; }
    hanging off the left edge with nothing to align to. */
 .about-device { margin-top: 14px; display: flex; justify-content: center; }
 
-.splash { max-width: 880px; }
+/* Higher up the page than the narrow onboarding it grew out of: with two
+   cards side by side there is less below it, so 8vh of head room left the
+   whole thing sitting low. */
+.splash { max-width: 880px; margin-top: 4vh; }
 .splash-brand {
   display: flex; align-items: center; justify-content: center; gap: 14px;
   font-family: 'Chango', var(--mono);
   font-size: clamp(30px, 5.4vw, 52px);
   line-height: 1; color: var(--text);
   /* Room to be the thing the screen opens with, rather than a label stuck to
-     the top of the first card. */
-  margin: 14px 0 36px;
+     the top of the first card. Generous on purpose: this is the only screen
+     where the mark is the subject, and the two cards below it are the entire
+     rest of the page, so there is nothing for the space to take away from. */
+  margin: 40px 0 60px;
 }
 /*
  * The same bracketing blocks as the topbar, at this size and without the
@@ -1371,3 +1374,50 @@ table.data.fixed { table-layout: fixed; }
 /* The drop zone inside a splash card draws nothing: the card is the target. */
 .drop-inner { text-align: left; }
 .drop-inner .field { justify-content: flex-start !important; margin-top: 10px !important; font-size: 11px; }
+
+/* The whole first screen is a drop target; it says so when something is over
+   it, rather than only the tile that looks like one. */
+.splash.drop-armed .splash-card.dropzone { background: var(--raise); box-shadow: inset 0 0 0 1px var(--accent); }
+/* The cards lighting up is enough. An outline round the whole page reads as a
+   focus ring on a document, not as "you may let go here". */
+
+/*
+ * The first screen sits on a scrim, over whatever the app would otherwise be
+ * showing. Not a dialog - there is nothing behind it to go back to yet - but
+ * the same idea: one thing to attend to, and the rest dimmed out of the way.
+ */
+.splash-scrim {
+  position: fixed; inset: 0; z-index: 50;
+  /* Light enough to read the app through: it is dimmed, not hidden, because
+     what is behind it is where everything on it also lives. */
+  background: rgba(8, 9, 12, 0.58);
+  backdrop-filter: blur(2px);
+  overflow: auto;
+  /*
+   * Centred, but high - the optical centre, not the arithmetic one. A panel
+   * placed exactly halfway down reads as sitting low, because the eye takes
+   * the middle of a screen to be above its middle; a third of the way gives
+   * the weight to the top where the mark is.
+   */
+  display: grid; grid-template-rows: 1fr auto 2fr; justify-items: center;
+  padding: var(--gut);
+}
+/*
+ * A surface, barely. Pure black on a dimmed black page has no edge at all, and
+ * the cards then float with nothing holding them together; a few points of
+ * lift is enough to read as one panel without becoming a box.
+ */
+.splash-scrim .splash {
+  grid-row: 2; margin: 24px 0; width: 100%;
+  background: #0b0d11; border-radius: var(--radius);
+  padding: 8px 28px 30px; position: relative;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+/* Top right, where a close button is, and quiet until wanted. */
+.splash-close {
+  position: absolute; top: 12px; right: 14px;
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 20px; line-height: 1;
+  padding: 4px 9px; border-radius: var(--radius-sm);
+}
+.splash-close:hover { color: var(--text); background: var(--raise); }

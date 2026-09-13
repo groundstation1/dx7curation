@@ -2073,6 +2073,9 @@ function renderControls(): void {
       offPreset();
       computeLayout();
       renderControls();
+      // An axis change can drop points too - anything without a finite value
+      // on the new axis leaves the plot - so the count goes with it.
+      renderLegend();
       draw();
     })) : null),
     adv(plot ? el('label', { class: 'field' }, 'y', axisSelect(yAxisId, (id) => {
@@ -2081,6 +2084,9 @@ function renderControls(): void {
       offPreset();
       computeLayout();
       renderControls();
+      // An axis change can drop points too - anything without a finite value
+      // on the new axis leaves the plot - so the count goes with it.
+      renderLegend();
       draw();
     })) : null),
     adv(plot ? el('label', { class: 'field' }, 'colour',
@@ -2111,6 +2117,10 @@ function renderControls(): void {
           setSetting('map.collapse', collapse);
           computeLayout();
           renderControls();
+          // The legend carries the count of what is plotted, and folding is
+          // the control that changes that count most - it was the one path
+          // that redrew the dots without redrawing the number beside them.
+          renderLegend();
           draw();
         },
       },

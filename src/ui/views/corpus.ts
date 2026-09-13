@@ -50,33 +50,24 @@ let embedAbort: AbortController | null = null;
 let advancing = false;
 let lastNote = '';
 /**
- * Show the splash even though there is a corpus.
+ * A load started from the first screen owns it while it runs.
  *
- * Set by clicking the wordmark. The first screen is the one place the two ways
- * in are offered, and it used to exist only while the library was empty - so
- * once you had patches there was no way to look at a shipped collection again,
- * and no way back to the choice at all.
- */
-let forceSplash = false;
-/**
- * A load started from the splash owns the screen while it runs.
- *
- * The header bar is right for work you set going and then carry on around -
- * it is small, it is out of the way, and it does not interrupt. It is wrong
- * for the one action on the first screen, where there is nothing else to look
- * at, nothing else to do, and the two cards it is happening behind are no
- * longer choices. So the choices give way to the progress, full size, and the
- * stages report through the same single bar rather than each announcing
- * itself.
+ * The header bar is right for work you set going and then carry on around. It
+ * is wrong for the one action on a screen with nothing else on it, where the
+ * cards it would be happening behind are no longer choices.
  */
 let splashBusy = false;
+/**
+ * Closed for now.
+ *
+ * The first screen is a choice, and a choice you cannot decline is a wall.
+ * Someone who wants to look at the app before handing it anything can shut it;
+ * everything it offers is on Sources anyway, which is what is underneath.
+ */
+let splashDismissed = false;
 let splashBar: HTMLElement | null = null;
 let splashUnsub: (() => void) | null = null;
 
-/** Called from the header. */
-export function openSplash(): void {
-  forceSplash = true;
-}
 /** Device read-back: which output to ask, and what has arrived so far. */
 let deviceOutputs: MidiPort[] = [];
 let deviceOutputId = '';
@@ -99,7 +90,8 @@ function statBlock(k: string, v: string): HTMLElement {
  * so the two cards end level.
  */
 function dropCard(): HTMLElement {
-  const inner = dropZone(true);
+  const card = el('div', { class: 'splash-card dropzone' });
+  const inner = dropZone(true, card);
   inner.classList.remove('dropzone');
   inner.classList.add('drop-inner');
   /*
@@ -112,7 +104,7 @@ function dropCard(): HTMLElement {
    * button and the pair lines up.
    */
   const act = el('div', { class: 'splash-act' }, inner);
-  const card = el('div', { class: 'splash-card dropzone' },
+  card.append(
     el('h2', {}, 'Your own files'),
     el('p', {}, 'Drop .syx files, a folder or a zip.'),
     // Above the button, not below it: the button has to be the last thing in
@@ -122,15 +114,10 @@ function dropCard(): HTMLElement {
   );
   const pin = inner.querySelector('.field');
   if (pin) card.insertBefore(pin, act);
-  // The listeners stay on the inner element; the card takes the highlight so
-  // the whole tile responds rather than a rectangle inside it.
-  for (const [event, on] of [['dragover', true], ['dragleave', false], ['drop', false]] as const) {
-    inner.addEventListener(event, () => card.classList.toggle('over', on));
-  }
   return card;
 }
 
-function dropZone(big: boolean): HTMLElement {
+function dropZone(big: boolean, host?: HTMLElement): HTMLElement {
   const input = el('input', {
     type: 'file',
     multiple: true,
@@ -174,21 +161,30 @@ function dropZone(big: boolean): HTMLElement {
     big ? null : pin,
   );
 
+  /*
+   * The listeners go on `host`, which is the whole tile on the first screen.
+   *
+   * Bound to the zone itself, only the strip around the button accepted a
+   * drop - so a card that is visibly a target for its whole area rejected
+   * files dropped anywhere except one line of it, which is the kind of thing
+   * people try once and conclude is broken.
+   */
+  const target = host ?? zone;
   const stop = (e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
   };
-  zone.addEventListener('dragover', (e) => {
+  target.addEventListener('dragover', (e) => {
     stop(e as DragEvent);
-    zone.classList.add('over');
+    target.classList.add('over');
   });
-  zone.addEventListener('dragleave', (e) => {
+  target.addEventListener('dragleave', (e) => {
     stop(e as DragEvent);
-    zone.classList.remove('over');
+    target.classList.remove('over');
   });
-  zone.addEventListener('drop', (e) => {
+  target.addEventListener('drop', (e) => {
     stop(e as DragEvent);
-    zone.classList.remove('over');
+    target.classList.remove('over');
     const files = [...((e as DragEvent).dataTransfer?.files ?? [])];
     if (files.length) void ingest(files, pinToggle.checked);
   });
@@ -229,24 +225,51 @@ function onboarding(): HTMLElement {
    */
   const scratch = dropCard();
 
-  const store = ctx.store;
   const page = el('div', { class: 'onboard splash' },
-    // A way back, when there is something to go back to.
-    store.voices.length > 0
-      ? el('div', { class: 'row', style: { justifyContent: 'center', marginBottom: '10px' } },
-        el('button', {
-          class: 'btn',
-          onclick: () => {
-            forceSplash = false;
-            render();
-          },
-        }, `Back to ${fmtInt(store.voices.length)} patches`))
-      : null,
+    splashBusy ? null : el('button', {
+      class: 'splash-close',
+      title: 'Close',
+      onclick: () => {
+        splashDismissed = true;
+        render();
+      },
+    }, '×'),
     el('div', { class: 'splash-brand' },
       el('span', { class: 'brand-name' }, 'DX7', el('span', { class: 'brand-sp' }), 'curator')),
     choices,
     el('div', { class: 'splash-restore' }, exportPanel()),
   );
+
+  /*
+   * The whole screen takes a drop, not just the tile that looks like it will.
+   *
+   * On a page whose entire purpose is "give me something to work with", aiming
+   * is a tax. And since what arrives is identified by reading it rather than by
+   * which half of the screen it landed on, there is nothing a target boundary
+   * would be protecting: a session restores, a ratings file reapplies, patches
+   * import, whichever card they were nearer.
+   */
+  const dropResult = el('div', { class: 'muted' });
+  const stop = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  page.addEventListener('dragover', (e) => {
+    stop(e);
+    page.classList.add('drop-armed');
+  });
+  page.addEventListener('dragleave', (e) => {
+    // Only when the cursor has actually left the page, not on the way between
+    // two children of it, which fires dragleave on the one behind.
+    if (e.target === page) page.classList.remove('drop-armed');
+  });
+  page.addEventListener('drop', (e) => {
+    stop(e);
+    page.classList.remove('drop-armed');
+    const files = [...((e as DragEvent).dataTransfer?.files ?? [])];
+    if (files.length) void routeDropped(files, false, dropResult);
+  });
+  page.appendChild(dropResult);
 
   // Asynchronous, and the screen is complete without it: the shipped
   // collection appears beside "start from scratch" if there is one, and
@@ -369,7 +392,6 @@ function bundleCard(entry: BundleEntry): HTMLElement {
           if (!ok) return;
         }
         try {
-          forceSplash = false;
           splashBusy = true;
           render();
           await runTask(`Fetching ${entry.name}`, async (task) => {
@@ -403,7 +425,6 @@ function bundleCard(entry: BundleEntry): HTMLElement {
 }
 
 async function ingest(files: File[], pinned: boolean): Promise<void> {
-  forceSplash = false;
   // Dropping files from the first screen gets the same treatment: there is
   // nothing else on it to look at while they are read.
   if (ctx.store.voices.length === 0) {
@@ -976,6 +997,104 @@ async function browseSource(key: string): Promise<void> {
  * cannot be mistaken for a phishing dialog, and it is visible in a screenshot
  * when someone reports that a button did nothing.
  */
+/**
+ * Restore a saved file, whichever of the two kinds it is.
+ *
+ * A full session replaces everything; a ratings file reapplies decisions to a
+ * corpus you already have. Which one it is comes out of the file rather than
+ * out of a choice the user has to make first.
+ */
+async function restoreFile(file: File, result: HTMLElement): Promise<void> {
+  const store = ctx.store;
+  // Read as bytes and sniff: a session may be gzipped, and a ratings file or
+  // an older session is plain text. readSessionBytes handles both.
+  const text = await readSessionBytes(new Uint8Array(await file.arrayBuffer()));
+  clear(result);
+  try {
+    if (Store.isSession(text)) {
+      /*
+       * Asked in the page, not through confirm().
+       *
+       * A browser is allowed to suppress confirm() - after a few dialogs
+       * Chrome offers to stop showing them, and some embedded contexts never
+       * show them at all - and a suppressed confirm() returns false. This used
+       * to be `if (!confirm(...)) return;`, so in exactly those browsers
+       * loading a session did nothing whatsoever: no dialog, no import, no
+       * error, no message. A question drawn in the page cannot be suppressed,
+       * and answering no now says so instead of looking like a broken button.
+       *
+       * And it is only asked when there is something to lose.
+       */
+      if (store.voices.length > 0) {
+        const ok = await askInPage(result,
+          `Replace all ${fmtInt(store.voices.length)} patches in this browser with the session in that file?`);
+        if (!ok) {
+          result.className = 'muted';
+          result.textContent = 'Left everything as it was.';
+          return;
+        }
+      }
+      splashBusy = store.voices.length === 0;
+      if (splashBusy) render();
+      const { voices } = await store.importSession(text);
+      await autoAdvance();
+      const landed = splashBusy;
+      endSplashLoad();
+      if (landed && store.projection) {
+        ctx.go('map');
+        return;
+      }
+      result.className = 'good';
+      result.textContent = `Restored ${fmtInt(voices)} voices and their ratings.`;
+      render();
+      return;
+    }
+
+    const r = await store.importBackup(text);
+    const applied = r.ratings + r.overrides + r.pinned;
+    result.className = applied > 0 ? 'good' : 'warn';
+    result.textContent = applied > 0
+      ? `Restored ${fmtInt(r.ratings)} ratings, ${fmtInt(r.overrides)} category overrides and ${fmtInt(r.pinned)} pins.`
+        + (r.missing ? ` ${fmtInt(r.missing)} referred to patches this corpus does not have.` : '')
+      : `Nothing applied: all ${fmtInt(r.missing)} entries refer to patches that are not in this corpus. `
+        + 'This file holds ratings only - import the patches themselves first, or use a full session file.';
+  } catch (err) {
+    endSplashLoad();
+    result.className = 'bad';
+    result.textContent = `Could not read that file: ${(err as Error).message}`;
+  }
+  render();
+}
+
+/**
+ * Work out what somebody just dropped, and do the right thing with it.
+ *
+ * Dragging a file onto the first screen should not require having first
+ * decided which of two buttons it belongs to. A saved session and a bank of
+ * patches are told apart by looking: gzip has a two-byte signature and JSON
+ * starts with a brace, and anything else is sysex.
+ *
+ * Mixed drops go to the patch path, since a session is a whole state and
+ * cannot be merged with anything.
+ */
+async function routeDropped(files: File[], pinned: boolean, result: HTMLElement): Promise<void> {
+  const saved: File[] = [];
+  const patches: File[] = [];
+  for (const f of files) {
+    const head = new Uint8Array(await f.slice(0, 2).arrayBuffer());
+    const isGzip = head.length >= 2 && head[0] === 0x1f && head[1] === 0x8b;
+    const isJson = head.length >= 1 && (head[0] === 0x7b || head[0] === 0x20 || head[0] === 0x0a);
+    // A zip also starts with 'P', not a brace, so it lands in patches where it
+    // belongs; only gzip and JSON are ever a saved file.
+    (isGzip || isJson ? saved : patches).push(f);
+  }
+  if (saved.length > 0 && patches.length === 0) {
+    await restoreFile(saved[0], result);
+    return;
+  }
+  if (patches.length > 0) await ingest(patches, pinned);
+}
+
 function askInPage(host: HTMLElement, question: string, confirmLabel = 'Replace'): Promise<boolean> {
   return new Promise((resolve) => {
     let answered = false;
@@ -1005,60 +1124,8 @@ function exportPanel(): HTMLElement {
     style: { display: 'none' },
     onchange: async () => {
       const file = restoreInput.files?.[0];
-      if (!file) return;
-      // Read as bytes and sniff: a session may be gzipped, and a ratings file
-      // or an older session is plain text. readSessionBytes handles both.
-      const text = await readSessionBytes(new Uint8Array(await file.arrayBuffer()));
       restoreInput.value = '';
-      clear(result);
-      try {
-        if (Store.isSession(text)) {
-          /*
-           * Asked in the page, not through confirm().
-           *
-           * A browser is allowed to suppress confirm() - after a few dialogs
-           * Chrome offers to stop showing them, and some embedded contexts
-           * never show them at all - and a suppressed confirm() returns false.
-           * This used to be `if (!confirm(...)) return;`, so in exactly those
-           * browsers loading a session did nothing whatsoever: no dialog, no
-           * import, no error, no message. Reproduced with a real hundred-and
-           * -sixteen-megabyte session: zero voices, zero exceptions, and the
-           * screen unchanged. Stubbing confirm() to true imported all
-           * thirty-four thousand of them on the first try.
-           *
-           * A question drawn in the page cannot be suppressed, and answering
-           * no now says so instead of looking like a broken button.
-           *
-           * And it is only asked when there is something to lose.
-           */
-          if (store.voices.length > 0) {
-            const ok = await askInPage(result,
-              `Replace all ${fmtInt(store.voices.length)} patches in this browser with the session in that file?`);
-            if (!ok) {
-              result.className = 'muted';
-              result.textContent = 'Left everything as it was.';
-              return;
-            }
-          }
-          const { voices } = await store.importSession(text);
-          result.className = 'good';
-          result.textContent = `Restored ${fmtInt(voices)} voices and their ratings.`;
-          void autoAdvance();
-          return;
-        }
-        const r = await store.importBackup(text);
-        const applied = r.ratings + r.overrides + r.pinned;
-        result.className = applied > 0 ? 'good' : 'warn';
-        result.textContent = applied > 0
-          ? `Restored ${fmtInt(r.ratings)} ratings, ${fmtInt(r.overrides)} category overrides and ${fmtInt(r.pinned)} pins.`
-            + (r.missing ? ` ${fmtInt(r.missing)} referred to patches this corpus does not have.` : '')
-          : `Nothing applied: all ${fmtInt(r.missing)} entries refer to patches that are not in this corpus. `
-            + 'This file holds ratings only — import the patches themselves first, or use a full session file.';
-      } catch (err) {
-        result.className = 'bad';
-        result.textContent = `Could not read that file: ${(err as Error).message}`;
-      }
-      render();
+      if (file) await restoreFile(file, result);
     },
   }) as HTMLInputElement;
 
@@ -1133,8 +1200,17 @@ function render(): void {
    * switch - and land on a Sources screen with no way back to the two things
    * you might now want to do. The advanced panels still follow it.
    */
-  if (store.voices.length === 0 || forceSplash) {
-    container.appendChild(onboarding());
+  if (store.voices.length === 0 && !splashDismissed) {
+    /*
+     * Lifted off the page, on a scrim.
+     *
+     * With nothing in the library the screen behind this is an empty Sources
+     * panel, and laying the choice flat on top of it made the two read as one
+     * page where half the controls did nothing. A scrim says the rest is not
+     * available yet, which is true, and gives the mark and the two cards a
+     * surface of their own to sit on.
+     */
+    container.appendChild(el('div', { class: 'splash-scrim' }, onboarding()));
     /*
      * Hardware, for the person who has a synth and no files.
      *
@@ -1164,11 +1240,53 @@ function render(): void {
     page.appendChild(el('div', { class: 'panel' }, dropZone(true)));
   } else {
     page.appendChild(pipelinePanel());
-    page.appendChild(el('div', { class: 'panel' },
+    const more = el('div', { class: 'panel' },
       el('h2', {}, 'Add more'),
       dropZone(false),
       store.lastIngest ? lastImport(store.lastIngest) : null,
-    ));
+    );
+    page.appendChild(more);
+
+    /*
+     * The shipped collection, offered here too.
+     *
+     * It used to live only on the first screen, which meant that once you had
+     * imported anything there was no way to reach it again - and the fix for
+     * that was briefly a route back to a screen you had finished with. It is
+     * simpler for the option to be where you already go to add patches. It
+     * replaces rather than merges, which is why it asks.
+     */
+    void availableBundles().then((list) => {
+      if (list.length === 0) return;
+      const ask = el('div', { class: 'muted' });
+      more.appendChild(el('div', { class: 'row', style: { marginTop: '12px' } },
+        ...list.map((entry) => el('button', {
+          class: 'btn',
+          onclick: async () => {
+            const ok = await askInPage(ask,
+              `Replace all ${fmtInt(ctx.store.voices.length)} patches with ${entry.name}?`);
+            if (!ok) return;
+            try {
+              await runTask(`Fetching ${entry.name}`, async (task) => {
+                const bytes = await fetchBundle(entry, (done, total) => {
+                  task.set(total ? done / total : null, `${(done / 1e6).toFixed(0)} of ${(total / 1e6).toFixed(0)} MB`);
+                });
+                task.stage('unpacking');
+                await ctx.store.importSession(await readSessionBytes(bytes), { bundle: entry.name });
+              });
+              await autoAdvance();
+              ctx.go('map');
+              return;
+            } catch (err) {
+              if ((err as Error).name !== 'AbortError') lastNote = `Could not load ${entry.name}: ${(err as Error).message}`;
+            }
+            render();
+          },
+        }, `Load ${entry.name}`)),
+        el('span', { class: 'note' }, 'Replaces everything here.'),
+      ));
+      more.appendChild(ask);
+    });
   }
 
   if (store.voices.length > 0 && (store.ratings.size > 0 || store.tasteModel)) {
