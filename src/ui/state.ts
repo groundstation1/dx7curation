@@ -30,6 +30,11 @@ import type { StructuralFeatures } from '../features/structural.ts';
 import { analyzeAll, type PoolProgress } from '../workers/pool.ts';
 import { isZip, extractZip } from '../util/zip.ts';
 import { runTask, type TaskHandle } from './task.ts';
+import {
+  SESSION_FORMAT, SESSION_VERSION, f32ToBase64, i32ToBase64, base64ToF32, base64ToI32,
+  featuresUsable, graphUsable, isSessionJson,
+  type SessionFile, type SessionFeatures,
+} from './session.ts';
 import { applyResult, newStanding, ratingOffset, type Standing } from '../rank/elo.ts';
 
 /**
@@ -1498,24 +1503,86 @@ export class Store {
       pin: v.pinned || undefined,
       us: v.userSupplied || undefined,
     }));
-    return JSON.stringify({
-      format: 'dx7curation-session',
-      version: 1,
+
+    /*
+     * The measurements travel with the patches.
+     *
+     * They used to be left out, on the reasoning that they are a pure function
+     * of the patch bytes and so cost a download rather than a recomputation.
+     * The recomputation is eight minutes of rendering, a near-duplicate pass
+     * and a layout, which is not a saving, it is the whole cost of opening the
+     * app moved to the other end. Stamped with the version they were measured
+     * under so a build that measures differently throws them away.
+     */
+    const features = this.exportFeatures();
+    const embedding = this.embedding && this.embedding.length >= this.voices.length * 2
+      ? { n: this.voices.length, coords: f32ToBase64(this.embedding) }
+      : undefined;
+    const graph = this.graph && this.graph.n === this.voices.length
+      ? {
+        n: this.graph.n,
+        a: i32ToBase64(this.graph.a),
+        b: i32ToBase64(this.graph.b),
+        d: f32ToBase64(this.graph.d),
+        featureScale: this.graph.featureScale,
+        paramScale: this.graph.paramScale,
+        featureWeight: this.graph.featureWeight,
+        paramWeight: this.graph.paramWeight,
+        blocks: this.graph.blocks,
+        truncated: this.graph.truncated,
+      }
+      : undefined;
+
+    const file: SessionFile = {
+      format: SESSION_FORMAT,
+      version: SESSION_VERSION,
       savedAt: new Date().toISOString(),
       threshold: this.threshold,
       mergeThreshold: this.mergeThreshold,
       voices,
       judgements: JSON.parse(this.exportBackup()) as unknown,
-    });
+      features,
+      graph,
+      embedding,
+    };
+    return JSON.stringify(file);
+  }
+
+  /** Every voice's measurements, in voice order, or nothing if any is missing. */
+  private exportFeatures(): SessionFeatures | undefined {
+    const n = this.voices.length;
+    if (n === 0) return undefined;
+    const vectors: string[] = [];
+    const categories: string[] = [];
+    const subcategories: string[] = [];
+    const confidence: number[] = [];
+    const acoustic: unknown[] = [];
+    const structural: unknown[] = [];
+    const silent = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = this.analysis[i];
+      // All or nothing: a half-measured corpus would have to be tracked
+      // per voice on the way back in, and the pass that fills the gaps is the
+      // same pass that would have measured all of them.
+      if (!a) return undefined;
+      vectors.push(f32ToBase64(a.vector));
+      acoustic.push(a.acoustic);
+      structural.push(a.structural);
+      categories.push(a.category ?? '');
+      subcategories.push(a.subcategory ?? '');
+      confidence.push(a.categoryConfidence ?? 0);
+      silent[i] = a.silent ? 1 : 0;
+    }
+    return {
+      analysisVersion: ANALYSIS_VERSION,
+      vectors, acoustic, structural, categories, subcategories, confidence,
+      silent: bytesToBase64(silent),
+    };
   }
 
   /** True when `json` is a whole session rather than judgements alone. */
   static isSession(json: string): boolean {
-    try {
-      return (JSON.parse(json) as { format?: string }).format === 'dx7curation-session';
-    } catch {
-      return false;
-    }
+    return isSessionJson(json);
   }
 
   /**
@@ -1525,12 +1592,8 @@ export class Store {
    * so the caller is expected to have asked first.
    */
   async importSession(json: string): Promise<{ voices: number }> {
-    const data = JSON.parse(json) as {
-      format?: string;
-      voices?: Array<{ p: string; n: string; s: VoiceSource[]; pin?: boolean; us?: boolean }>;
-      judgements?: unknown;
-    };
-    if (data.format !== 'dx7curation-session') throw new Error('that file is not a full session');
+    const data = JSON.parse(json) as SessionFile;
+    if (data.format !== SESSION_FORMAT) throw new Error('that file is not a full session');
     const rows = data.voices ?? [];
 
     await runTask('restoring the session', async (task) => {
@@ -1552,7 +1615,18 @@ export class Store {
           packed,
           unpacked: unpackVoice(packed),
           name: rows[i].n,
-          sources: rows[i].s ?? [],
+          /*
+           * A bundled collection stamps its name on every source it brings.
+           *
+           * Only where there is none already, so a patch you also happened to
+           * upload yourself keeps its own provenance and goes on counting as
+           * yours. Nothing is stamped for an ordinary session, and an
+           * unstamped source is what every file written before this looks
+           * like - which is why absent means "mine".
+           */
+          sources: data.bundle
+            ? (rows[i].s ?? []).map((src) => (src.bundle ? src : { ...src, bundle: data.bundle }))
+            : rows[i].s ?? [],
           pinned: !!rows[i].pin,
           clampedBytes: 0,
           userSupplied: !!rows[i].us,
@@ -1569,7 +1643,91 @@ export class Store {
       await this.reset();
 
       task.stage('writing to the database');
-      await addVoices(records, (done, total) => task.set(0.4 + (done / total) * 0.6, `${fmtCount(done)} of ${fmtCount(total)}`));
+      const written = await addVoices(records, (done, total) => task.set(0.4 + (done / total) * 0.6, `${fmtCount(done)} of ${fmtCount(total)}`));
+      void written;
+
+      /*
+       * Measurements, if the file brought any that this build can believe.
+       *
+       * Written against the ids the database just assigned, which is why this
+       * happens here rather than in `load` - the file knows voices by their
+       * position in its own list and nothing else.
+       */
+      const stored = await getAllVoices();
+      const byKey = new Map(stored.map((v) => [v.packedKey, v.id]));
+
+      /*
+       * The ratings are written here, not after the corpus is read back.
+       *
+       * They used to be applied in a second phase, once `load` had rebuilt
+       * everything in memory - which left a window where the old corpus was
+       * already gone and the new ratings had not landed. Anything that
+       * interrupts the tab in that window (a browser suspending a background
+       * page is how it was found) leaves patches with no ratings and no way
+       * back. They are the one thing in this file nobody can reproduce, so
+       * they go in as soon as there are ids to attach them to, inside the same
+       * protected pass as the voices.
+       *
+       * Everything else the judgements carry - pins, overrides, ranks,
+       * face-off results - is reapplied afterwards through the usual path,
+       * which rewrites these harmlessly.
+       */
+      const judged = data.judgements as { ratings?: Array<[string, number, number, string]> } | undefined;
+      if (judged?.ratings?.length) {
+        task.stage('restoring ratings');
+        for (const [key, rating, at, pass] of judged.ratings) {
+          const id = byKey.get(key);
+          if (id === undefined) continue;
+          await putRating({ voiceId: id, rating, at, pass: pass as RatingRecord['pass'] });
+        }
+      }
+
+      if (featuresUsable(data.features, rows.length)) {
+        task.stage('restoring measurements');
+        const silent = base64ToBytes(data.features.silent ?? '');
+        const batch: FeatureRecord[] = [];
+        for (let i = 0; i < rows.length; i++) {
+          const id = byKey.get(records[i].packedKey);
+          if (id === undefined) continue;
+          batch.push({
+            voiceId: id,
+            analysisVersion: data.features.analysisVersion,
+            acoustic: data.features.acoustic[i] ?? null,
+            structural: data.features.structural[i] ?? null,
+            vector: base64ToF32(data.features.vectors[i]),
+            category: data.features.categories[i] ?? '',
+            subcategory: data.features.subcategories[i] ?? '',
+            categoryConfidence: data.features.confidence[i] ?? 0,
+            silent: silent[i] === 1,
+          });
+          if ((i & 2047) === 0) {
+            task.set(rows.length ? i / rows.length : null, `${fmtCount(i)} of ${fmtCount(rows.length)}`);
+            await yieldToPaint();
+          }
+        }
+        await putFeatures(batch);
+      }
+
+      // The near-duplicate graph, which is the other pass measured in minutes.
+      if (graphUsable(data.graph, rows.length)) {
+        await kvSet('nearDupeGraph', {
+          n: data.graph.n,
+          a: base64ToI32(data.graph.a),
+          b: base64ToI32(data.graph.b),
+          d: base64ToF32(data.graph.d),
+          featureScale: data.graph.featureScale,
+          paramScale: data.graph.paramScale,
+          featureWeight: data.graph.featureWeight,
+          paramWeight: data.graph.paramWeight,
+          blocks: data.graph.blocks,
+          truncated: data.graph.truncated,
+        } satisfies NearDupeGraph);
+      }
+      if (data.embedding && data.embedding.n === rows.length) {
+        await kvSet('embedding', { n: data.embedding.n, coords: base64ToF32(data.embedding.coords) });
+      }
+      if (typeof data.threshold === 'number') await kvSet('threshold', data.threshold);
+      if (typeof data.mergeThreshold === 'number') await kvSet('mergeThreshold', data.mergeThreshold);
     });
 
     // Read it back the normal way, so a restored session and a reloaded one

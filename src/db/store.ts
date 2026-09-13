@@ -14,6 +14,16 @@ export interface VoiceSource {
   file: string;
   bank: string;
   slot: number;
+  /**
+   * The prepared collection this copy arrived in, if it was one.
+   *
+   * Absent means you brought it yourself, which is what every source written
+   * before bundles existed looks like - so the default is the right answer for
+   * an old library without touching it. Set per source rather than per voice
+   * because the same patch can arrive both ways, and a patch you uploaded is
+   * yours however many collections also happen to carry it.
+   */
+  bundle?: string;
   /** The name this copy carried, which may differ from the survivor's. */
   name: string;
   container: string;

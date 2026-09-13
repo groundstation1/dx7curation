@@ -19,6 +19,7 @@ import { clear, downloadBytes, el, fmtInt, pageHead, patchFile } from '../dom.ts
 import type { View, ViewContext } from '../app.ts';
 import { adv, disclosure, isAdvanced } from '../advanced.ts';
 import { getSetting, setSetting } from '../settings.ts';
+import { gzip, readSessionBytes } from '../session.ts';
 import { Store } from '../state.ts';
 import { SIZE_BUCKETS } from '../../cluster/nearDupe.ts';
 import { listenForSysex, listInputs, midiSupported, requestBulkDump, requestMidi, type MidiPort } from '../../midi/webmidi.ts';
@@ -716,12 +717,14 @@ function exportPanel(): HTMLElement {
 
   const restoreInput = el('input', {
     type: 'file',
-    accept: '.json,application/json',
+    accept: '.json,.gz,application/json,application/gzip',
     style: { display: 'none' },
     onchange: async () => {
       const file = restoreInput.files?.[0];
       if (!file) return;
-      const text = await file.text();
+      // Read as bytes and sniff: a session may be gzipped, and a ratings file
+      // or an older session is plain text. readSessionBytes handles both.
+      const text = await readSessionBytes(new Uint8Array(await file.arrayBuffer()));
       restoreInput.value = '';
       clear(result);
       try {
@@ -785,10 +788,17 @@ function exportPanel(): HTMLElement {
         class: 'btn',
         title: 'Patches and ratings together. This is the one to move to another machine.',
         onclick: () => {
-          const json = new TextEncoder().encode(store.exportSession());
-          downloadBytes(json, patchFile(`DX7 session ${new Date().toISOString().slice(0, 10)}`, 'json'));
+          void runTask('packing the session', async (task) => {
+            task.set(null, 'gathering');
+            await new Promise((r) => setTimeout(r, 0));
+            const json = store.exportSession();
+            task.set(null, 'compressing');
+            await new Promise((r) => setTimeout(r, 0));
+            const bytes = await gzip(json);
+            downloadBytes(bytes, patchFile(`DX7 session ${new Date().toISOString().slice(0, 10)}`, 'json.gz'));
+          });
         },
-      }, `Full session (${fmtInt(store.voices.length)} patches + ratings)`),
+      }, `Full session (${fmtInt(store.voices.length)} patches, ratings and measurements)`),
       empty ? null : el('button', {
         class: 'btn',
         disabled: store.ratings.size === 0 && !store.voices.some((v) => v.pinned),
