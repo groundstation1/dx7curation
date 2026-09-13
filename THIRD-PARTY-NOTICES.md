@@ -39,6 +39,19 @@ released into the public domain under CC0 1.0. It appears in the application as
 the "DX7 curator standard library"; file paths within it have been shortened,
 and nothing else about the patch data has been altered.
 
+## Factory cartridges — Yamaha
+
+`test/fixtures/` holds four Yamaha DX7 factory cartridges (ROM1A, ROM1B, ROM3A,
+ROM3B). They are here as test fixtures and nothing else: they are the only
+patches in reach whose intended character is documented, so they are the only
+place the analysis can be checked against something other than taste. Every test
+in `test/` reads them.
+
+They are Yamaha's work, not covered by any of the licences above, and no claim
+is made over them. Dumps of these cartridges have circulated freely for decades
+and are carried by most DX7 tooling; if Yamaha would rather they were not here,
+they will be removed on request.
+
 ## Typefaces — SIL Open Font License 1.1
 
 *Chango* (Julieta Ulanovsky) and *Space Mono* (Colophon Foundry) are loaded from
