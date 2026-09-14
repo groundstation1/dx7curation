@@ -1452,6 +1452,11 @@ table.data.fixed { table-layout: fixed; }
    than its headline. As an uppercase pill in the heading it outshouted the
    people it was attached to. */
 .credit-lic { margin-top: 5px; font-size: 10.5px; color: var(--muted); opacity: 0.72; }
+/* Which build this is: the quietest line on the page, and the only one anybody
+   comes looking for on purpose. */
+.build-stamp { margin: 4px 0 0; font-size: 11px; color: var(--muted); opacity: 0.7; }
+.build-stamp a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--hair); }
+.build-stamp a:hover { color: var(--accent); }
 .credit-what { margin: 6px 0 0; font-size: 12.5px; line-height: 1.65; color: var(--muted); max-width: 68ch; }
 
 /* The cheat sheet's row on the About page: the description on the left, the

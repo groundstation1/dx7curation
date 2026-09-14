@@ -19,6 +19,18 @@ import type { View, ViewContext } from '../app.ts';
 
 let root: HTMLElement;
 
+/*
+ * Read through `typeof`, because these are compile-time substitutions.
+ *
+ * A build that does not perform them leaves a bare identifier behind, and
+ * evaluating one throws - which took the whole About page down to a blank
+ * screen for the sake of a footnote, the first time the dev server was running
+ * on a config older than the code. `typeof` on an undeclared name is the one
+ * way to ask whether it exists without throwing.
+ */
+const BUILD_COMMIT = typeof __BUILD_COMMIT__ === 'string' ? __BUILD_COMMIT__ : 'unknown';
+const BUILD_DATE = typeof __BUILD_DATE__ === 'string' ? __BUILD_DATE__ : '';
+
 interface Credit {
   name: string;
   href?: string;
@@ -174,6 +186,27 @@ function render(): void {
     el('div', { class: 'panel' },
       el('h2', {}, 'Libraries and fonts'),
       ...TOOLS.map(creditRow)),
+
+    /*
+     * Which build this is.
+     *
+     * The assets are content-hashed, so a browser holding a stale one gives no
+     * sign of it - the only way to tell what is actually running is to ask it.
+     * The hash links to the commit, so "is my deploy live" is one click rather
+     * than a guess, and a trailing + means it was built from a working tree
+     * with uncommitted changes in it.
+     */
+    el('p', { class: 'build-stamp' },
+      'build ',
+      BUILD_COMMIT === 'unknown'
+        ? el('span', { class: 'mono' }, 'unknown')
+        : el('a', {
+          class: 'mono',
+          href: `https://github.com/groundstation1/dx7curation/commit/${BUILD_COMMIT.replace('+', '')}`,
+          target: '_blank',
+          rel: 'noreferrer',
+        }, BUILD_COMMIT),
+      BUILD_DATE ? `  ·  ${BUILD_DATE}` : ''),
   );
   root.appendChild(page);
 }
