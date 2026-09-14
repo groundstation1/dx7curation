@@ -66,25 +66,45 @@ export function scalingFigureSvg(): string {
 
   parts.push(`<path class="ln thin" d="M${BOX.left} ${BOX.top}H${BOX.right}V${BOX.bottom}H${BOX.left}Z"/>`);
   parts.push(`<path class="ln thin" d="M${BOX.left} ${MID_Y}H${BOX.right}"/>`);
+
+  /*
+   * An octave scale, because the distances here are fixed and worth knowing.
+   *
+   * A group is three semitones and the table runs to 32 of them, so the x axis
+   * is exactly eight octaves either side of the break point - and most of that
+   * is past the end of any DX7 keyboard. Without the scale the EXP curves look
+   * like they bend somewhere in the middle; with it you can see that the bend
+   * is four or five octaves out and that the part you can actually play is the
+   * nearly-straight bit next to the break.
+   *
+   * Ticks on the axis rather than lines through the plot: the curves are the
+   * content and eight verticals behind them read as a cage. It also says which
+   * way the keyboard runs, which is what the words low and high were doing
+   * before the numbers made them redundant.
+   */
+  const xOct = (oct: number) => MID_X + (oct / 8) * ((BOX.right - BOX.left) / 2);
+  for (const oct of [-8, -6, -4, -2, 2, 4, 6, 8]) {
+    parts.push(`<path class="grid" d="M${n2(xOct(oct))} ${BOX.bottom}v1.4"/>`);
+    parts.push(`<text class="sm tick mid" x="${n2(xOct(oct))}" y="${BOX.bottom + 4.2}">${Math.abs(oct)}</text>`);
+  }
+
   parts.push(`<path class="ln dash" d="M${MID_X} ${BOX.top}V${BOX.bottom}"/>`);
 
   for (const c of CURVES) parts.push(`<path class="ln ${c.cls}" d="${curvePath(c.curve)}"/>`);
 
-  parts.push(`<text class="sm mid" x="${MID_X}" y="${BOX.top - 1.6}">break point</text>`);
+  parts.push(`<text class="sm tick mid" x="${MID_X}" y="${BOX.bottom + 8.4}">octaves from the break point</text>`);
   parts.push(`<text class="sm end" x="${BOX.left - 2}" y="${BOX.top + 2.5}">louder</text>`);
   parts.push(`<text class="sm end" x="${BOX.left - 2}" y="${MID_Y + 1}">as set</text>`);
-  parts.push(`<text class="sm end" x="${BOX.left - 2}" y="${BOX.bottom}">quieter</text>`);
-  parts.push(`<text class="sm" x="${BOX.left}" y="${BOX.bottom + 5.5}">low notes</text>`);
-  parts.push(`<text class="sm end" x="${BOX.right}" y="${BOX.bottom + 5.5}">high notes</text>`);
+  parts.push(`<text class="sm end" x="${BOX.left - 2}" y="${BOX.bottom}">softer</text>`);
 
   // The four share a shape on each side, so only the line style tells them
   // apart and the key is the only place that can say which is which.
   const step = (BOX.right - BOX.left + 12) / CURVES.length;
   CURVES.forEach((c, i) => {
     const x = BOX.left - 10 + i * step;
-    parts.push(`<path class="ln ${c.cls}" d="M${n2(x)} 49h7"/>`);
-    parts.push(`<text class="sm" x="${n2(x + 9)}" y="50.3">${c.label}</text>`);
+    parts.push(`<path class="ln ${c.cls}" d="M${n2(x)} 50h7"/>`);
+    parts.push(`<text class="sm" x="${n2(x + 9)}" y="51.3">${c.label}</text>`);
   });
 
-  return `<svg class="fig" viewBox="0 0 100 52">${parts.join('')}</svg>`;
+  return `<svg class="fig" viewBox="0 0 100 53">${parts.join('')}</svg>`;
 }
