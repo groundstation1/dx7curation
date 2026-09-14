@@ -21,7 +21,7 @@ import { adv, disclosure, isAdvanced } from '../advanced.ts';
 import { clearSettings, getSetting, setSetting } from '../settings.ts';
 import { gzip, readSessionBytes } from '../session.ts';
 import { availableBundles, bundlesNow, fetchBundle, type BundleEntry } from '../bundles.ts';
-import { Store } from '../state.ts';
+import { Store, looksLikeVoiceFile } from '../state.ts';
 import { SIZE_BUCKETS } from '../../cluster/nearDupe.ts';
 import { listenForSysex, listInputs, midiSupported, requestBulkDump, requestMidi, type MidiPort } from '../../midi/webmidi.ts';
 import { parseSysexFile } from '../../sysex/parse.ts';
@@ -119,6 +119,65 @@ function dropCard(): HTMLElement {
   return card;
 }
 
+/*
+ * Everything that was dropped, folders opened up.
+ *
+ * `DataTransfer.files` lists a dropped directory as one File that is not a
+ * file: no type, a nonsense size, and reading it rejects with "The operation
+ * was aborted" - which is exactly what somebody dropping a folder of banks
+ * got, under a card that invites them to drop a folder.
+ *
+ * The contents are only reachable through the entries API, so that is what
+ * this walks. Files sitting loose in the drop are taken as they are, because
+ * pointing at a file is a choice; files found inside a folder are filtered the
+ * same way a zip's entries are, because pointing at a folder is not a choice
+ * about the readme inside it.
+ *
+ * `webkitGetAsEntry` has to be called while the event is still live - the item
+ * list is emptied as soon as the handler returns - so every entry is collected
+ * before anything is awaited.
+ */
+async function filesFromDrop(dt: DataTransfer | null): Promise<File[]> {
+  if (!dt) return [];
+  const flat = [...dt.files];
+  const entries = [...(dt.items ?? [])]
+    .map((item) => (typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null))
+    .filter((entry): entry is FileSystemEntry => entry !== null);
+  if (entries.length === 0) return flat;
+
+  const out: File[] = [];
+  const fileOf = (entry: FileSystemFileEntry) => new Promise<File | null>((resolve) => {
+    entry.file((f) => resolve(f), () => resolve(null));
+  });
+  const batchOf = (reader: FileSystemDirectoryReader) => new Promise<FileSystemEntry[]>((resolve) => {
+    reader.readEntries((batch) => resolve(batch), () => resolve([]));
+  });
+
+  const walk = async (entry: FileSystemEntry, inFolder: boolean): Promise<void> => {
+    if (entry.isFile) {
+      const file = await fileOf(entry as FileSystemFileEntry);
+      if (!file) return;
+      if (inFolder && !looksLikeVoiceFile(file.name, file.size)) return;
+      out.push(file);
+      return;
+    }
+    if (!entry.isDirectory) return;
+    const reader = (entry as FileSystemDirectoryEntry).createReader();
+    // readEntries hands back at most a hundred at a time and signals the end
+    // with an empty batch, so it has to be asked until it gives one.
+    for (;;) {
+      const batch = await batchOf(reader);
+      if (batch.length === 0) break;
+      for (const child of batch) await walk(child, true);
+    }
+  };
+
+  for (const entry of entries) await walk(entry, false);
+  // A browser that gave us entries but no readable files at all is better
+  // served by the flat list than by nothing.
+  return out.length > 0 ? out : flat;
+}
+
 function dropZone(big: boolean, host?: HTMLElement): HTMLElement {
   const input = el('input', {
     type: 'file',
@@ -187,8 +246,10 @@ function dropZone(big: boolean, host?: HTMLElement): HTMLElement {
   target.addEventListener('drop', (e) => {
     stop(e as DragEvent);
     target.classList.remove('over');
-    const files = [...((e as DragEvent).dataTransfer?.files ?? [])];
-    if (files.length) void ingest(files, pinToggle.checked);
+    const pinned = pinToggle.checked;
+    void filesFromDrop((e as DragEvent).dataTransfer).then((files) => {
+      if (files.length) void ingest(files, pinned);
+    });
   });
   return zone;
 }
@@ -287,8 +348,9 @@ function armDropTarget(host: HTMLElement): void {
   host.addEventListener('drop', (e) => {
     stop(e);
     host.classList.remove('drop-armed');
-    const files = [...((e as DragEvent).dataTransfer?.files ?? [])];
-    if (files.length) void routeDropped(files, false, result);
+    void filesFromDrop((e as DragEvent).dataTransfer).then((files) => {
+      if (files.length) void routeDropped(files, false, result);
+    });
   });
   host.appendChild(result);
 }

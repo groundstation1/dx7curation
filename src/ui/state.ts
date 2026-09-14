@@ -129,6 +129,25 @@ type Listener = () => void;
 
 const VOICE_EXTENSIONS = /\.(syx|dx7|bin|dmp|vce|snd|raw)$/i;
 
+/**
+ * Whether something inside an archive or a folder is worth opening.
+ *
+ * By name where the name says so, and otherwise by size, because a great many
+ * of these files are called things like `BANK12` with no extension at all: a
+ * 32-voice bulk dump is 4104 bytes, a single voice is 163, and a headerless
+ * bank is a whole number of 4096-byte pages. Anything else is somebody's
+ * readme, cover scan or manual, and opening it would only produce an error
+ * about a file nobody asked to import.
+ *
+ * Shared by the zip reader and the folder walk so that dropping a folder and
+ * dropping a zip of that folder do the same thing - which is the only
+ * behaviour anybody would predict.
+ */
+export function looksLikeVoiceFile(name: string, size: number): boolean {
+  if (name.endsWith('/') || size <= 0) return false;
+  return VOICE_EXTENSIONS.test(name) || size === 4104 || size === 163 || size % 4096 === 0;
+}
+
 export class Store {
   voices: LoadedVoice[] = [];
   indexById = new Map<number, number>();
@@ -464,7 +483,7 @@ export class Store {
       if (isZip(bytes)) {
         const { files: inner, failed } = await extractZip(
           bytes,
-          (name, size) => !name.endsWith('/') && size > 0 && (VOICE_EXTENSIONS.test(name) || size === 4104 || size === 163 || size % 4096 === 0),
+          looksLikeVoiceFile,
           (done, total) => {
             // Inside an archive the entries are the real unit of work, so the
             // bar tracks those rather than sitting still on one "file".
