@@ -17,7 +17,16 @@ import { defineConfig } from 'vite';
 function describe(): { commit: string; date: string } {
   const git = (args: string) => execSync(`git ${args}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
   try {
-    const dirty = git('status --porcelain') !== '';
+    /*
+     * Only a local build can be dirty, and only tracked files make it so.
+     *
+     * CI checks out a commit, so the tree there *is* that commit and the
+     * question does not arise - yet the first deployed stamp came out with a
+     * `+` on it, from a runner that had something untracked lying about after
+     * the test suite ran. An untracked stray is not a source difference, and
+     * on CI it is not even worth asking: `CI` is set by every runner there is.
+     */
+    const dirty = !process.env.CI && git('status --porcelain --untracked-files=no') !== '';
     return { commit: git('rev-parse --short HEAD') + (dirty ? '+' : ''), date: git('log -1 --format=%cs') };
   } catch {
     return { commit: 'unknown', date: '' };
