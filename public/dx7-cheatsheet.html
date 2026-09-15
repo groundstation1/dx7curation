@@ -1445,6 +1445,11 @@ table.data.fixed { table-layout: fixed; }
    than its headline. As an uppercase pill in the heading it outshouted the
    people it was attached to. */
 .credit-lic { margin-top: 5px; font-size: 10.5px; color: var(--muted); opacity: 0.72; }
+/* Which build this is: the quietest line on the page, and the only one anybody
+   comes looking for on purpose. */
+.build-stamp { margin: 4px 0 0; font-size: 11px; color: var(--muted); opacity: 0.7; }
+.build-stamp a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--hair); }
+.build-stamp a:hover { color: var(--accent); }
 .credit-what { margin: 6px 0 0; font-size: 12.5px; line-height: 1.65; color: var(--muted); max-width: 68ch; }
 
 /* The cheat sheet's row on the About page: the description on the left, the
@@ -1622,8 +1627,18 @@ table.data.fixed { table-layout: fixed; }
   /* The app's own wordmark, in the app's own display face, with the two blocks
      it always wears. Bookends the title: what this is on the left, what drew
      it on the right. */
-  .brand { margin-left: auto; display: flex; align-items: center; gap: 2mm;
+  /* The mark and the address are one link and look like neither: no colour,
+     no underline. On paper the address is the only way back to the thing that
+     drew the sheet, which is the whole reason it is printed at all; on screen
+     it is the way there, so the two are the same target. Small rather than
+     grey, because this sheet has no grey - see the palette above. */
+  .brand-link { margin-left: auto; display: flex; flex-direction: column;
+                align-items: flex-end; color: inherit; text-decoration: none; }
+  .brand { display: flex; align-items: center; gap: 2mm; line-height: 1;
            font-family: 'Chango', var(--mono); font-size: 4.6mm; font-weight: 400; }
+  /* Tucked right under the mark. The display face carries a deep line box, so
+     even at zero margin there is air between them without this. */
+  .brand-url { font-size: 2.5mm; line-height: 1; margin-top: 0.8mm; letter-spacing: 0.02em; }
   /* Under the sheet rather than in its header: the header is part of what
      gets printed, and a control living inside the thing it acts on has to be
      taken back out again on paper. On screen only, for the same reason. */
@@ -1730,7 +1745,10 @@ table.data.fixed { table-layout: fixed; }
 
 <header>
   <h1>DX7 cheat sheet</h1>
-  <div class="brand"><span class="brand-name">DX7<span class="brand-sp"></span>curator</span></div>
+  <a class="brand-link" href="https://groundstation1.github.io/dx7curation">
+    <div class="brand"><span class="brand-name">DX7<span class="brand-sp"></span>curator</span></div>
+    <div class="brand-url">groundstation1.github.io/dx7curation</div>
+  </a>
 </header>
 
 <div class="tiles">

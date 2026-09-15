@@ -62,8 +62,18 @@
   /* The app's own wordmark, in the app's own display face, with the two blocks
      it always wears. Bookends the title: what this is on the left, what drew
      it on the right. */
-  .brand { margin-left: auto; display: flex; align-items: center; gap: 2mm;
+  /* The mark and the address are one link and look like neither: no colour,
+     no underline. On paper the address is the only way back to the thing that
+     drew the sheet, which is the whole reason it is printed at all; on screen
+     it is the way there, so the two are the same target. Small rather than
+     grey, because this sheet has no grey - see the palette above. */
+  .brand-link { margin-left: auto; display: flex; flex-direction: column;
+                align-items: flex-end; color: inherit; text-decoration: none; }
+  .brand { display: flex; align-items: center; gap: 2mm; line-height: 1;
            font-family: 'Chango', var(--mono); font-size: 4.6mm; font-weight: 400; }
+  /* Tucked right under the mark. The display face carries a deep line box, so
+     even at zero margin there is air between them without this. */
+  .brand-url { font-size: 2.5mm; line-height: 1; margin-top: 0.8mm; letter-spacing: 0.02em; }
   /* Under the sheet rather than in its header: the header is part of what
      gets printed, and a control living inside the thing it acts on has to be
      taken back out again on paper. On screen only, for the same reason. */
@@ -170,7 +180,10 @@
 
 <header>
   <h1>DX7 cheat sheet</h1>
-  <div class="brand"><span class="brand-name">DX7<span class="brand-sp"></span>curator</span></div>
+  <a class="brand-link" href="https://groundstation1.github.io/dx7curation">
+    <div class="brand"><span class="brand-name">DX7<span class="brand-sp"></span>curator</span></div>
+    <div class="brand-url">groundstation1.github.io/dx7curation</div>
+  </a>
 </header>
 
 <div class="tiles">
