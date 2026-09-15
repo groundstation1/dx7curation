@@ -85,14 +85,22 @@ export function scalingFigureSvg(): string {
   const xOct = (oct: number) => MID_X + (oct / 8) * ((BOX.right - BOX.left) / 2);
   for (const oct of [-8, -6, -4, -2, 2, 4, 6, 8]) {
     parts.push(`<path class="grid" d="M${n2(xOct(oct))} ${BOX.bottom}v1.4"/>`);
-    parts.push(`<text class="sm tick mid" x="${n2(xOct(oct))}" y="${BOX.bottom + 4.2}">${Math.abs(oct)}</text>`);
+    // Signed, because the two halves are not the same thing mirrored: left of
+    // the break is the left depth and the left curve, right of it is the right
+    // pair, and a bare 4 on both sides invites reading the axis as a distance
+    // when it is a direction.
+    const sign = oct < 0 ? '−' : '+';
+    parts.push(`<text class="sm mid" x="${n2(xOct(oct))}" y="${BOX.bottom + 4.2}">${sign}${Math.abs(oct)}</text>`);
   }
 
   parts.push(`<path class="ln dash" d="M${MID_X} ${BOX.top}V${BOX.bottom}"/>`);
 
   for (const c of CURVES) parts.push(`<path class="ln ${c.cls}" d="${curvePath(c.curve)}"/>`);
 
-  parts.push(`<text class="sm tick mid" x="${MID_X}" y="${BOX.bottom + 8.4}">octaves from the break point</text>`);
+  // Just the unit. What it is measured from is the dashed line it is written
+  // under, and saying so again in six words made the caption the widest thing
+  // on the tile.
+  parts.push(`<text class="sm mid" x="${MID_X}" y="${BOX.bottom + 8.4}">octaves</text>`);
   parts.push(`<text class="sm end" x="${BOX.left - 2}" y="${BOX.top + 2.5}">louder</text>`);
   parts.push(`<text class="sm end" x="${BOX.left - 2}" y="${MID_Y + 1}">as set</text>`);
   parts.push(`<text class="sm end" x="${BOX.left - 2}" y="${BOX.bottom}">softer</text>`);
