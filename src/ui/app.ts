@@ -289,6 +289,20 @@ export class App {
     }
     // Land on the map when there is something to look at. Sources is the right
     // first screen exactly once, when the corpus is empty.
+    /*
+     * Finish whatever the corpus still needs, wherever you happen to land.
+     *
+     * Not awaited: on a large corpus this is minutes, and there is a perfectly
+     * good screen to look at while it runs - it reports through the same
+     * progress bar as everything else. Started here rather than from the
+     * Sources view because the Browse tab is unlocked by the principal-
+     * components fallback, so it was possible to sit on Browse with the real
+     * layout missing and nothing in reach that would build it.
+     */
+    if (getSetting('pipeline.auto', true)) {
+      void store.advance().catch(() => {});
+    }
+
     const incoming = await this.openIncoming();
     const startAt: ViewId = incoming
       ?? (TABS.find((t) => t.id === 'map')!.enabled() ? 'map' : 'corpus');

@@ -1096,6 +1096,78 @@ export class Store {
     return out;
   }
 
+  /**
+   * Below this there is no neighbourhood to preserve, so the layout is skipped.
+   *
+   * A handful of patches have no structure for an embedding to find, and the
+   * map falls back to the principal components, which are defined for any
+   * number of points.
+   */
+  static readonly EMBED_MIN = 8;
+
+  /**
+   * What the corpus still needs before it is fully usable, or null.
+   *
+   * The single statement of "is this finished", because it used to be written
+   * out longhand inside the Sources screen and was therefore only ever
+   * consulted by the Sources screen - see `advance`.
+   */
+  pendingPass(): 'analysis' | 'clusters' | 'embedding' | null {
+    if (this.voices.length > 0 && !this.analysisComplete) return 'analysis';
+    if (!this.analysisComplete) return null;
+    if (!this.graph) return 'clusters';
+    if (!this.embedding && this.voices.length > Store.EMBED_MIN) return 'embedding';
+    return null;
+  }
+
+  private advancing = false;
+
+  /** Whether the chain below is already running, from wherever it was started. */
+  get isAdvancing(): boolean {
+    return this.advancing;
+  }
+
+  /**
+   * Carry the corpus as far as it can go on its own.
+   *
+   * Analysis, then near-duplicates, then the map layout, each only if it is
+   * still missing. This lived in the Sources view and was called from that
+   * view's mount, which quietly made a finished corpus conditional on visiting
+   * a particular screen: the Browse tab is unlocked by `projection`, which is
+   * the principal-components fallback and exists the moment anything is
+   * analysed, while the neighbourhood layout everything is actually drawn from
+   * is `embedding`. So it was possible - and turned out to be ordinary - to
+   * sit on Browse looking at the fallback plot, with the good layout missing
+   * and nothing on that screen able to produce it.
+   *
+   * On the store, both the shell and the Sources screen can ask for it, and
+   * the flag stops them doing it twice over.
+   */
+  async advance(opts: { signal?: AbortSignal; onFail?: (pass: string, err: Error) => void } = {}): Promise<void> {
+    if (this.advancing) return;
+    this.advancing = true;
+    try {
+      for (;;) {
+        if (opts.signal?.aborted) return;
+        const next = this.pendingPass();
+        if (!next) return;
+        try {
+          if (next === 'analysis') await this.runAnalysis(opts);
+          else if (next === 'clusters') await this.buildClusters(opts);
+          else await this.buildEmbedding(opts);
+        } catch (err) {
+          // Cancelling stops the chain without complaint; a genuine failure
+          // stops it too, but is worth saying out loud.
+          if ((err as Error).name !== 'AbortError') opts.onFail?.(next, err as Error);
+          return;
+        }
+      }
+    } finally {
+      this.advancing = false;
+      this.emit();
+    }
+  }
+
   /** The 2D map coordinates used for coverage ordering: LDA if it worked, else PCA. */
   get mapProjection(): Float32Array | null {
     return this.ldaProjection ?? this.projection;

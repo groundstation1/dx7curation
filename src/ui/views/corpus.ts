@@ -46,11 +46,10 @@ const SWEEP_POINTS = [0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.16, 0.22, 0.3];
 let ctx: ViewContext;
 let container: HTMLElement;
 let unsubscribe: (() => void) | null = null;
-let analysisAbort: AbortController | null = null;
 let dupeAbort: AbortController | null = null;
 let embedAbort: AbortController | null = null;
-/** Set while the chain is running, and cleared if any step is cancelled. */
-let advancing = false;
+/** Stops the whole automatic chain, whichever pass it is on. */
+let chainAbort: AbortController | null = null;
 let lastNote = '';
 /**
  * A load started from the first screen owns it while it runs.
@@ -674,16 +673,6 @@ function autoPipeline(): boolean {
   return getSetting('pipeline.auto', true);
 }
 
-async function runAnalysis(): Promise<void> {
-  analysisAbort = new AbortController();
-  try {
-    await ctx.store.runAnalysis({ signal: analysisAbort.signal });
-  } finally {
-    analysisAbort = null;
-    render();
-  }
-}
-
 async function runDupes(): Promise<void> {
   if (dupeAbort) return;
   dupeAbort = new AbortController();
@@ -728,20 +717,24 @@ async function runEmbedding(): Promise<void> {
  * are per-voice, so new arrivals have no position at all until it does.
  */
 async function autoAdvance(): Promise<void> {
-  if (advancing || !autoPipeline()) {
+  if (!autoPipeline() || ctx.store.isAdvancing) {
     render();
     return;
   }
-  advancing = true;
+  chainAbort = new AbortController();
   try {
-    if (ctx.store.voices.length > 0 && !ctx.store.analysisComplete) await runAnalysis();
-    if (ctx.store.analysisComplete && !ctx.store.graph) await runDupes();
-    if (ctx.store.analysisComplete && !ctx.store.embedding && ctx.store.voices.length > 8) await runEmbedding();
-  } catch {
-    // Cancelled, or failed and already reported. Either way the chain stops
-    // and the buttons come back so it can be started again by hand.
+    await ctx.store.advance({
+      signal: chainAbort.signal,
+      onFail: (pass, err) => {
+        lastNote = pass === 'clusters'
+          ? `Near-duplicate pass failed: ${err.message}`
+          : pass === 'embedding'
+            ? `Laying out the map failed: ${err.message}`
+            : `Analysis failed: ${err.message}`;
+      },
+    });
   } finally {
-    advancing = false;
+    chainAbort = null;
     render();
   }
 }
@@ -760,7 +753,7 @@ function pipelinePanel(): HTMLElement {
   const store = ctx.store;
   const panel = el('div', { class: 'bare pipeline-state' });
   const pending = store.voices.length - store.analysedCount;
-  const running = analysisAbort !== null || dupeAbort !== null || embedAbort !== null;
+  const running = store.isAdvancing || dupeAbort !== null || embedAbort !== null;
 
   const state = running
     ? 'working'
@@ -780,7 +773,7 @@ function pipelinePanel(): HTMLElement {
       ? el('button', {
         class: 'btn danger',
         onclick: () => {
-          analysisAbort?.abort();
+          chainAbort?.abort();
           dupeAbort?.abort();
           embedAbort?.abort();
         },
@@ -1468,7 +1461,7 @@ export const view: View = {
     unsubscribe = c.store.subscribe(() => {
       // The progress bar updates itself; a full rebuild mid-pass would fight
       // the user's scroll for no gain.
-      if (!analysisAbort && !dupeAbort) render();
+      if (!ctx.store.isAdvancing && !dupeAbort) render();
     });
     render();
     // Anything left half-done from a previous visit carries on by itself.
@@ -1477,7 +1470,8 @@ export const view: View = {
   unmount() {
     unsubscribe?.();
     unsubscribe = null;
-    analysisAbort?.abort();
+    // Leaving the screen does not stop the pipeline: it belongs to the corpus
+    // rather than to this view, and finishing it is the whole point.
     // Leaving the screen releases the inputs back to the keyboard handler.
     listening?.();
     listening = null;

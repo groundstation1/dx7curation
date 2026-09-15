@@ -2199,10 +2199,22 @@ const PRESETS: MapPreset[] = [
  */
 let presetId = getSetting('map.preset', 'neighbourhood');
 
-function applyPreset(id: string): void {
+/*
+ * The preset that was asked for but could not be drawn yet.
+ *
+ * Kept so that falling back is not the same as changing your mind: the axes a
+ * preset needs are usually missing only because a pass has not finished, and
+ * the moment they exist the map goes back to what was actually chosen.
+ */
+let deferredPreset: string | null = null;
+
+function applyPreset(id: string, opts: { remember?: boolean } = {}): void {
   const preset = PRESETS.find((item) => item.id === id);
   presetId = id;
-  setSetting('map.preset', id);
+  if (opts.remember !== false) {
+    deferredPreset = null;
+    setSetting('map.preset', id);
+  }
   if (!preset) return;
   xAxisId = preset.x;
   yAxisId = preset.y;
@@ -3092,7 +3104,11 @@ export const view: View = {
       // Its axes are not there - usually the layout has not been computed on
       // this corpus yet - so fall back rather than drawing a diagonal.
       const fallback = PRESETS.find((item) => available.has(item.x) && available.has(item.y));
-      if (fallback) applyPreset(fallback.id);
+      // Remembered as wanted, not written down as chosen.
+      if (fallback) {
+        deferredPreset = presetId;
+        applyPreset(fallback.id, { remember: false });
+      }
     } else if (chosen) {
       xAxisId = chosen.x;
       yAxisId = chosen.y;
@@ -3176,10 +3192,42 @@ export const view: View = {
     };
     window.addEventListener('keydown', onKey);
     const unsubKeyboard = keyboard.subscribe(() => renderControls());
+
+    /*
+     * The neighbourhood layout can finish while this screen is already open.
+     *
+     * The axis list is built at mount, so a corpus that gains its embedding a
+     * minute later went on offering only the principal components until
+     * something else happened to remount the view - which in practice meant
+     * visiting Sources and coming back, and looked exactly like the layout
+     * having never been computed at all.
+     *
+     * Narrow on purpose: the store emits for every rating, and rebuilding the
+     * pickers on each of those would be a waste. Only the appearance or
+     * disappearance of the embedding changes what the axis list can contain.
+     */
+    let hadEmbedding = ctx.store.embedding !== null;
+    const unsubStore = ctx.store.subscribe(() => {
+      const has = ctx.store.embedding !== null;
+      if (has === hadEmbedding) return;
+      hadEmbedding = has;
+      // Whatever was asked for before the axes existed can finally be drawn.
+      const wanted = deferredPreset && PRESETS.find((p) => p.id === deferredPreset);
+      const ids = new Set(axes().map((a) => a.id));
+      if (has && wanted && ids.has(wanted.x) && ids.has(wanted.y)) applyPreset(wanted.id);
+      else {
+        computeLayout();
+        renderControls();
+        renderLegend();
+        draw();
+      }
+    });
+
     unsubscribe = () => {
       window.removeEventListener('resize', onResize);
       window.removeEventListener('keydown', onKey);
       unsubKeyboard();
+      unsubStore();
     };
     requestAnimationFrame(() => {
       computeLayout();
