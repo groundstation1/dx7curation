@@ -1,52 +1,146 @@
 /*
  * Which MIDI output the synth is on, and sending one patch to it.
  *
- * The Build page used to own the choice of output and forget it on every
- * visit, defaulting to whichever port the browser listed first. That was
- * tolerable while banks were the only thing sent. Now any patch in any sidebar
- * can go to the hardware, so the choice is made once, remembered, and shared:
- * picking the FM-1 on the Build page is picking it for the send button too.
+ * Once any patch in any sidebar can go to the hardware, the output is a
+ * setting of the whole app rather than of the Build page, so it lives here:
+ * chosen in the sound settings, shown on the sound strip, remembered between
+ * visits, and read by every send button and by Build.
  *
  * A single patch goes as a DX7 single-voice dump - 163 bytes, format 0. On a
  * DX7 that lands in the edit buffer: it replaces the sound you are playing and
  * leaves every stored preset alone, which is exactly right for "what does this
- * sound like on the real thing". The FM-1 accepts the format and needs no
- * receive mode, and ignores the channel nibble, so channel 0 is as good as any.
+ * sound like on the real thing". The FM-1 accepts the format, needs no receive
+ * mode, and ignores the channel nibble, so channel 0 is as good as any.
  */
-import { listOutputs, midiSupported, requestMidi, sendRaw, type MidiPort } from '../midi/webmidi.ts';
+import { listOutputs, midiSupported, onPortsChanged, requestMidi, sendRaw, type MidiPort } from '../midi/webmidi.ts';
 import { buildSingleVoice } from '../sysex/write.ts';
 import { getSetting, setSetting } from './settings.ts';
+import { el } from './dom.ts';
 
-/** The remembered output if it is still plugged in, else the first there is. */
-export function chosenOutput(ports: MidiPort[] = listOutputs()): string {
-  const stored = getSetting('midi.outputId', '');
-  if (stored && ports.some((p) => p.id === stored)) return stored;
-  return ports[0]?.id ?? '';
+const listeners = new Set<() => void>();
+
+export function subscribeOutput(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
 }
 
-export function chooseOutput(id: string): void {
-  setSetting('midi.outputId', id);
+function emit(): void {
+  for (const fn of listeners) fn();
 }
 
-export function canSendToDevice(): boolean {
-  return midiSupported();
-}
-
-/**
- * Send one voice to the synth. Resolves with the port name it went to.
+/*
+ * Plugged in, unplugged, and back again.
  *
- * Asks for MIDI access the first time, which is a permission prompt - fine,
- * because this only ever runs from a button press.
+ * Registered once, the first time there is access to watch. Everything that
+ * shows or uses the output re-reads it on the way through, so the moment the
+ * remembered synth appears it is the one in use - nobody has to go and pick it
+ * again after a replug or a reboot.
  */
-export async function sendVoiceToDevice(unpacked: Uint8Array): Promise<string> {
+let watching = false;
+
+function watchPorts(): void {
+  if (watching || listOutputs().length === 0) return;
+  watching = true;
+  onPortsChanged(() => {
+    adoptLikelyOutput(listOutputs());
+    emit();
+  });
+  adoptLikelyOutput(listOutputs());
+}
+
+const LOOKS_LIKE_FM1 = /fm-?1|m-?vave/i;
+
+/*
+ * An FM-1 found with nothing chosen yet is remembered as if it had been chosen.
+ *
+ * Without this the guess was never written down - it was already the ticked
+ * one, and ticking a radio that is already ticked fires nothing - so there was
+ * no preference, and the rule that stops a send falling through to some other
+ * port never applied. Unplugging the synth then sent the next patch to the
+ * Windows wavetable, reported it as sent, and nothing happened anywhere.
+ */
+function adoptLikelyOutput(ports: MidiPort[]): void {
+  if (getSetting('midi.outputId', '') || getSetting('midi.outputName', '')) return;
+  const likely = ports.find((p) => LOOKS_LIKE_FM1.test(`${p.name} ${p.manufacturer}`));
+  if (likely) {
+    setSetting('midi.outputId', likely.id);
+    setSetting('midi.outputName', likely.name);
+  }
+}
+
+/** Whether this session can already see the outputs, without asking. */
+export function hasOutputAccess(): boolean {
+  const any = listOutputs().length > 0;
+  if (any) watchPorts();
+  return any;
+}
+
+/** The outputs, asking for access if that has not happened yet. */
+export async function ensureOutputAccess(): Promise<MidiPort[]> {
   let ports = listOutputs();
   if (ports.length === 0) {
     const state = await requestMidi();
     if (state.error) throw new Error(state.error);
     ports = state.outputs;
   }
+  watchPorts();
+  adoptLikelyOutput(ports);
+  emit();
+  return ports;
+}
+
+/**
+ * The port to send to, or '' if there is none that should be used.
+ *
+ * Remembered by id and by name, because an id is not guaranteed to survive
+ * the device being unplugged and plugged back in, and a name almost always is.
+ *
+ * With a preference set and that device absent, the answer is nothing - not
+ * the first port that happens to be there. A sysex send makes no sound, so a
+ * dump sent to the wrong output is indistinguishable from one that worked,
+ * and on Windows the first output is usually the built-in wavetable synth.
+ *
+ * With no preference, an FM-1 is taken; anything else is not a guess worth
+ * making, and the answer is nothing until somebody picks.
+ */
+export function chosenOutput(ports: MidiPort[] = listOutputs()): string {
+  const id = getSetting('midi.outputId', '');
+  const name = getSetting('midi.outputName', '');
+  if (id || name) {
+    const byId = ports.find((p) => p.id === id);
+    if (byId) return byId.id;
+    return (name ? ports.find((p) => p.name === name) : undefined)?.id ?? '';
+  }
+  return ports.find((p) => LOOKS_LIKE_FM1.test(`${p.name} ${p.manufacturer}`))?.id ?? '';
+}
+
+/** The remembered device's name, for saying which one is missing. */
+export function preferredOutputName(): string {
+  return getSetting('midi.outputName', '');
+}
+
+export function chooseOutput(port: MidiPort): void {
+  setSetting('midi.outputId', port.id);
+  setSetting('midi.outputName', port.name);
+  emit();
+}
+
+export function canSendToDevice(): boolean {
+  return midiSupported();
+}
+
+/** Send one voice to the synth. Resolves with the port name it went to. */
+export async function sendVoiceToDevice(unpacked: Uint8Array): Promise<string> {
+  const ports = await ensureOutputAccess();
   const id = chosenOutput(ports);
-  if (!id) throw new Error('No MIDI outputs found. Connect the synth and try again.');
+  if (!id) {
+    const missing = preferredOutputName();
+    throw new Error(missing
+      ? `${missing} is not connected. Plug it in, or pick another output in the sound settings.`
+      : listOutputs().length
+        ? 'No output chosen yet. Pick one in the sound settings.'
+        : 'No MIDI outputs found. Connect the synth and try again.');
+  }
   sendRaw(id, buildSingleVoice(unpacked));
   return ports.find((p) => p.id === id)?.name ?? 'the synth';
 }
@@ -79,8 +173,68 @@ export function sendToDeviceButton(unpacked: Uint8Array, className: string): HTM
     e.stopPropagation();
     sendVoiceToDevice(unpacked).then(
       (port) => flash('sent', `Sent to ${port}.`),
-      (err: Error) => flash('no MIDI', err.message),
+      (err: Error) => flash('not sent', err.message),
     );
   });
   return button;
+}
+
+/**
+ * Every output, as a list you can see, and which one is in use.
+ *
+ * One builder for the sound settings and the Build page, so the two can never
+ * disagree about which port a send goes to. Callers draw it again whenever
+ * `subscribeOutput` fires, which includes the device being plugged in.
+ */
+export function outputPicker(): HTMLElement {
+  const wrap = el('div', { class: 'out-picker' });
+  if (!canSendToDevice()) {
+    wrap.appendChild(el('p', { class: 'muted' }, 'This browser has no WebMIDI.'));
+    return wrap;
+  }
+  if (!hasOutputAccess()) {
+    wrap.appendChild(el('button', {
+      class: 'btn',
+      onclick: () => void ensureOutputAccess().catch(() => {}),
+    }, 'Find MIDI outputs'));
+    return wrap;
+  }
+
+  const ports = listOutputs();
+  const current = chosenOutput(ports);
+  const list = el('div', { class: 'port-list' });
+  // One name for the whole set, or they are not a radio group at all. Unique
+  // per picker, because two pickers can be on screen at once.
+  const group = `midi-out-${Math.random().toString(36).slice(2, 9)}`;
+  for (const port of ports) {
+    const name = `${port.name} ${port.manufacturer}`.trim();
+    list.appendChild(el('label', { class: port.id === current ? 'port on' : 'port' },
+      el('input', {
+        type: 'radio', name: group,
+        checked: port.id === current,
+        // A click rather than a change: picking the one already ticked is
+        // still a choice, and a change event never fires for it.
+        onclick: () => chooseOutput(port),
+      }),
+      el('span', {}, name)));
+  }
+  wrap.appendChild(list);
+
+  const missing = preferredOutputName();
+  if (!current && missing) {
+    wrap.appendChild(el('p', { class: 'warn out-missing' },
+      `${missing} is not connected. It will be picked again as soon as it is plugged in.`));
+  }
+  return wrap;
+}
+
+/** A short name for the strip: the port in use, or why there is none. */
+export function outputSummary(): { text: string; missing: boolean } | null {
+  if (!canSendToDevice() || !hasOutputAccess()) return null;
+  const ports = listOutputs();
+  const id = chosenOutput(ports);
+  const port = ports.find((p) => p.id === id);
+  if (port) return { text: port.name, missing: false };
+  const wanted = preferredOutputName();
+  return { text: wanted ? `${wanted} unplugged` : 'none chosen', missing: true };
 }

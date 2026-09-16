@@ -45,6 +45,8 @@ export async function requestMidi(): Promise<MidiState> {
   try {
     const nav = navigator as unknown as { requestMIDIAccess(o: { sysex: boolean }): Promise<MIDIAccessLike> };
     access = await nav.requestMIDIAccess({ sysex: true });
+    // Listeners registered before access existed are attached now.
+    hookState();
     return { supported: true, granted: true, outputs: listOutputs() };
   } catch (err) {
     return {
@@ -65,8 +67,24 @@ export function listOutputs(): MidiPort[] {
   }));
 }
 
-export function onPortsChanged(fn: () => void): void {
-  if (access) access.onstatechange = () => fn();
+/*
+ * Everyone who wants to hear about ports appearing and disappearing.
+ *
+ * `onstatechange` is a single slot, and this used to assign to it - so the
+ * second caller silently unhooked the first. With the keyboard watching its
+ * inputs and the send buttons watching the outputs, that would have left
+ * whichever registered first deaf to the synth being plugged in.
+ */
+const portListeners = new Set<() => void>();
+
+function hookState(): void {
+  if (access) access.onstatechange = () => { for (const fn of portListeners) fn(); };
+}
+
+export function onPortsChanged(fn: () => void): () => void {
+  portListeners.add(fn);
+  hookState();
+  return () => portListeners.delete(fn);
 }
 
 export function listInputs(): MidiPort[] {

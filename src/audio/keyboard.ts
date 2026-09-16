@@ -122,6 +122,8 @@ export class Keyboard {
     this.emit();
   }
 
+  private portsUnsub: (() => void) | null = null;
+
   async connect(player: Player): Promise<void> {
     this.player = player;
     await player.unlock();
@@ -165,7 +167,10 @@ export class Keyboard {
     });
     this.connected = true;
     // Keyboards get plugged in after the page loads more often than not.
-    onPortsChanged(() => {
+    // Registered once: connect() runs again on every hot-plug, and the port
+    // listeners are additive, so registering here each time would add one
+    // more reconnect per replug.
+    this.portsUnsub ??= onPortsChanged(() => {
       const before = this.inputs.length;
       this.inputs = listInputs();
       if (this.inputs.length !== before && this.player) void this.connect(this.player);
@@ -267,6 +272,10 @@ export class Keyboard {
   disconnect(): void {
     this.detach?.();
     this.detach = null;
+    // An explicit disconnect means stop, including when a keyboard is next
+    // plugged in.
+    this.portsUnsub?.();
+    this.portsUnsub = null;
     this.engine.allNotesOff();
     this.connected = false;
     this.emit();

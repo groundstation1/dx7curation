@@ -12,7 +12,7 @@ import { CATEGORIES, CATEGORY_LABELS, type Category } from '../../cluster/catego
 import { allocate, DEFAULT_CEILINGS, DEFAULT_FLOORS, type Candidate, type AllocationResult } from '../../alloc/allocate.ts';
 import { chooseEndpoints, seriate, withCategoryAxis } from '../../order/seriate.ts';
 import { buildBanksPadded, verifyBank, BANK_NAMES } from '../../sysex/write.ts';
-import { listOutputs, midiSupported, requestMidi, sendBanks, sendProgramChange, sendRaw, sendTestNote, type MidiPort } from '../../midi/webmidi.ts';
+import { listOutputs, midiSupported, sendBanks, sendProgramChange, sendRaw, sendTestNote, type MidiPort } from '../../midi/webmidi.ts';
 import { P } from '../../sysex/voice.ts';
 import { FEATURE_COUNT } from '../../features/vector.ts';
 import { DEMO_PHRASE } from '../../engine/phrase.ts';
@@ -22,7 +22,7 @@ import { keyboard } from '../../audio/keyboard.ts';
 import { voiceDetails } from '../voicePanel.ts';
 import { sidebarSplitter } from '../splitter.ts';
 import { adv, disclosure, isAdvanced } from '../advanced.ts';
-import { chooseOutput, chosenOutput } from '../midiOut.ts';
+import { chosenOutput, ensureOutputAccess, outputPicker, subscribeOutput } from '../midiOut.ts';
 
 const CATEGORY_COLOURS: Record<Category, string> = {
   keys: '#6ea8fe',
@@ -76,6 +76,7 @@ let bankNames: string[] = [];
 let verification: string[] = [];
 let midiPorts: MidiPort[] = [];
 let midiOutputId = '';
+let unsubOutput: (() => void) | null = null;
 let midiMessage = '';
 /** Bank letter to when it was last sent, so a four-step manual job is trackable. */
 const sentBanks = new Map<string, number>();
@@ -594,10 +595,13 @@ async function rateTarget(value: number): Promise<void> {
 }
 
 async function connectMidi(): Promise<void> {
-  const state = await requestMidi();
-  midiPorts = state.outputs;
-  midiOutputId = chosenOutput(midiPorts);
-  midiMessage = state.error ?? (midiPorts.length ? '' : 'No MIDI outputs found. Connect the FM-1 and try again.');
+  try {
+    midiPorts = await ensureOutputAccess();
+    midiOutputId = chosenOutput(midiPorts);
+    midiMessage = midiPorts.length ? '' : 'No MIDI outputs found. Connect the FM-1 and try again.';
+  } catch (err) {
+    midiMessage = (err as Error).message;
+  }
   render();
 }
 
@@ -636,29 +640,10 @@ function midiPanel(): HTMLElement {
    *
    * Which port the synth is on is the decision this whole panel turns on, and
    * getting it wrong means pressing Send and hearing nothing - with no error,
-   * because the message went somewhere. A closed select shows one name and
-   * hides the fact that there are four others, so it has to be opened before
-   * you can even find out whether the choice was made for you correctly. There
-   * are rarely more than a handful, so they all fit.
+   * because the message went somewhere. The list is the same one the sound
+   * settings show, drawn by the same code, so the two cannot disagree.
    */
-  if (midiPorts.length) {
-    const ports = el('div', { class: 'port-list' });
-    for (const port of midiPorts) {
-      const name = `${port.name} ${port.manufacturer}`.trim();
-      ports.appendChild(el('label', { class: port.id === midiOutputId ? 'port on' : 'port' },
-        el('input', {
-          type: 'radio', name: 'midi-out', value: port.id, checked: port.id === midiOutputId,
-          onchange: () => {
-            midiOutputId = port.id;
-            // Remembered, and shared with every send button in the app.
-            chooseOutput(port.id);
-            render();
-          },
-        }),
-        el('span', {}, name)));
-    }
-    panel.appendChild(ports);
-  }
+  panel.appendChild(outputPicker());
 
   // One bank at a time, because the receiving end decides where a dump lands:
   // the unit has to be put into receive for the right bank between sends, and
@@ -1052,6 +1037,14 @@ export const view: View = {
     root = container;
     midiPorts = listOutputs();
     midiOutputId = chosenOutput(midiPorts);
+    // Chosen on the sound strip, or plugged in while this page is open: the
+    // send buttons below have to follow either.
+    unsubOutput?.();
+    unsubOutput = subscribeOutput(() => {
+      midiPorts = listOutputs();
+      midiOutputId = chosenOutput(midiPorts);
+      render();
+    });
     hovered = -1;
     selected = -1;
     restored = false;
@@ -1078,6 +1071,8 @@ export const view: View = {
     window.addEventListener('keydown', keyHandler);
   },
   unmount() {
+    unsubOutput?.();
+    unsubOutput = null;
     if (keyHandler) window.removeEventListener('keydown', keyHandler);
     keyHandler = null;
     sideEl = null;

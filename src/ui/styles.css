@@ -1150,6 +1150,16 @@ select:disabled { cursor: not-allowed; }
 .port:hover { color: var(--text); }
 .port.on { color: var(--text); background: var(--raise-2); }
 .port input { accent-color: var(--accent); margin: 0; }
+/* The output list in the sound settings. */
+.sound-out { margin-bottom: 14px; }
+/* Section heads in the sound settings: what each group of controls is for. */
+.sound-head {
+  margin: 0 0 8px; font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--muted); font-weight: 600;
+}
+.sound-out .sound-head { margin-bottom: 2px; }
+.out-missing { margin: 8px 0 0; font-size: 11.5px; }
+.sound-midi.warn { color: var(--accent-2); }
 
 /* The single button the Build page is about, and what it is about to do. */
 .build-hero { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }

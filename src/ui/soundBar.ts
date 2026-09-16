@@ -23,6 +23,7 @@ import { keyboard } from '../audio/keyboard.ts';
 import { midiSupported } from '../midi/webmidi.ts';
 import { LAYOUTS, keyRows, typingKeys, type KeyCap } from '../audio/typingKeys.ts';
 import { AUTO_PLAY_LABELS, type AutoPlay, type Player } from '../audio/player.ts';
+import { ensureOutputAccess, outputPicker, outputSummary, subscribeOutput } from './midiOut.ts';
 
 /**
  * Audition preferences, read where they are used rather than copied.
@@ -80,6 +81,31 @@ function octaveShift(): number {
   return Math.round((typingKeys.base - HOME_BASE) / 12);
 }
 
+function outputReadout(): HTMLElement | null {
+  const summary = outputSummary();
+  const openList = () => {
+    open = true;
+    render();
+  };
+  if (!summary) {
+    // No access yet: asking for it is the button's whole job.
+    return midiSupported()
+      ? el('button', {
+        class: 'sound-midi',
+        title: 'Choose which MIDI output patches are sent to',
+        onclick: () => void ensureOutputAccess().then(openList, openList),
+      }, 'choose output')
+      : null;
+  }
+  return el('button', {
+    class: summary.missing ? 'sound-midi warn' : 'sound-midi',
+    title: summary.missing
+      ? 'The output patches are sent to is not connected. Click to choose another.'
+      : 'Patches are sent here. Click to choose another output.',
+    onclick: openList,
+  }, `out: ${summary.text}`);
+}
+
 let bar: HTMLElement | null = null;
 let panel: HTMLElement | null = null;
 let player: Player;
@@ -105,6 +131,9 @@ function renderPanel(): void {
   const rows: Node[] = [];
 
   if (midiSupported()) {
+    // Headed, like the output below it: without one, "not connected" under a
+    // Connect button read as being about where patches go.
+    rows.push(el('h3', { class: 'sound-head' }, 'Play from a MIDI keyboard'));
     rows.push(el('div', { class: 'sound-row' },
       el('button', {
         class: keyboard.connected ? 'btn on' : 'btn',
@@ -153,6 +182,17 @@ function renderPanel(): void {
   } else {
     rows.push(el('div', { class: 'sound-row muted' }, 'This browser has no WebMIDI.'));
   }
+
+  /*
+   * Where patches go, as well as where notes come from.
+   *
+   * Since any patch can be sent to the synth from any sidebar, the output is
+   * as much a setting of the whole app as the input is, and it belongs next
+   * to it rather than on the one page that sends banks.
+   */
+  rows.push(el('div', { class: 'sound-out' },
+    el('h3', { class: 'sound-head' }, 'Send patches to'),
+    outputPicker()));
 
   rows.push(typingSection());
   rows.push(shortcutSection());
@@ -399,6 +439,16 @@ function render(): void {
       }, keyboard.connected ? `MIDI ${keyboard.inputs.length} in` : 'connect MIDI')
       : null,
 
+    /*
+     * Which output a send goes to, always in view.
+     *
+     * A sysex send makes no sound, so sending to the wrong port looks exactly
+     * like sending to the right one. The strip is on every screen, which makes
+     * it the one place this can be seen before pressing a send button rather
+     * than after wondering why nothing happened. Clicking opens the list.
+     */
+    outputReadout(),
+
     // Shown whenever the wheel is open, whatever opened it: a hardware wheel,
     // or two fingers on one note. It was gated on a MIDI connection, which is
     // exactly the case where the typing keys are not what moved it.
@@ -442,6 +492,8 @@ export function mountSoundBar(p: Player): void {
   // not reach it: without this, switching advanced off left three controls on
   // it that the switch had just taken away everywhere else.
   subscribeAdvanced(() => render());
+  // A remembered synth being plugged back in, or a choice made on Build.
+  subscribeOutput(() => render());
   // On unless it was switched off last time. The audio context is still locked
   // at this point, but `enable` only attaches listeners - the first key press
   // is itself the gesture that unlocks it.
