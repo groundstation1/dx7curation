@@ -1807,6 +1807,32 @@ function renderSide(): void {
     return;
   }
 
+  /*
+   * Somebody sent you this one.
+   *
+   * There is no other way to hear a patch in this sidebar short of knowing the
+   * space bar plays it - and the obvious thing to try, clicking on the map,
+   * selects a different patch. So the patch that arrived in a link gets its
+   * own play button, above everything, for as long as it is the one selected.
+   */
+  if (selected === i && linkedId !== null && store.voices[i]?.id === linkedId) {
+    sideEl.appendChild(el('div', { class: linkBlocked ? 'link-banner blocked' : 'link-banner' },
+      el('div', { class: 'link-banner-text' },
+        el('b', {}, 'Opened from a link'),
+        linkBlocked
+          ? el('div', {}, 'Your browser keeps sound off until you press something.')
+          : null),
+      el('button', {
+        class: 'btn primary',
+        onclick: () => {
+          linkBlocked = false;
+          // A click is the gesture the browser was waiting for.
+          void ctx.player.unlock().then(() => audition(i));
+          renderSide();
+        },
+      }, '\u25b6 Play')));
+  }
+
   sideEl.appendChild(voiceDetails(store, i, {
     onPlay: (n) => void audition(n),
     autoPlay: ctx.player.autoPlay,
@@ -1872,13 +1898,29 @@ function renderSide(): void {
  * Set before the view is mounted, the way presetSearch is: the module state is
  * what mount reads, so this is how another screen hands the map a destination.
  */
-export function presetSelect(index: number, opts: { play?: boolean } = {}): void {
+export function presetSelect(index: number, opts: { play?: boolean; linkedId?: number } = {}): void {
   selected = index;
   focusRating = '';
   focusCategory = '';
   searchText = '';
   playOnMount = !!opts.play;
+  // The id comes from the caller: this runs before the view is mounted, so on
+  // a first visit there is no store here to look it up in.
+  if (opts.linkedId !== undefined) {
+    linkedId = opts.linkedId;
+    linkBlocked = false;
+  }
 }
+
+/*
+ * The patch this screen was opened on from a shared link, by id.
+ *
+ * By id rather than by index, because an import between now and the next
+ * look would shift every index and put the banner on a different patch.
+ */
+let linkedId: number | null = null;
+/** Set when the browser would not let the linked patch play by itself. */
+let linkBlocked = false;
 
 /**
  * Whether the patch this screen was opened on should sound by itself.
@@ -3147,7 +3189,26 @@ export const view: View = {
     if (playOnMount && selected >= 0) {
       playOnMount = false;
       armKeyboard();
-      void ctx.player.unlock().then(() => void audition(selected, false, 'click'));
+      /*
+       * Played only if it can be played now.
+       *
+       * Queuing it behind the unlock meant a browser holding audio for a
+       * gesture would release it on the first click - which is a click on
+       * the map, on some other patch - and the linked one would sound for an
+       * instant under that one or not at all. If it cannot play now, the
+       * banner in the sidebar says so and carries the button that will.
+       */
+      const i = selected;
+      if (ctx.player.mayPlay('click')) {
+        void ctx.player.canPlayNow().then((ok) => {
+          if (selected !== i) return;
+          if (ok) void audition(i, false, 'click');
+          else {
+            linkBlocked = true;
+            renderSide();
+          }
+        });
+      }
     }
 
     const onResize = () => applyMode();

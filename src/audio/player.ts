@@ -168,6 +168,25 @@ export class Player {
     return this.ctx !== null && this.ctx.state === 'running';
   }
 
+  /**
+   * Whether sound can start right now, without a click to start it.
+   *
+   * A page opened from a link has had no user gesture, and browsers hold its
+   * audio until it has one. `resume()` in that state does not fail - in some
+   * browsers it simply never settles until a gesture arrives - so an autoplay
+   * written as `unlock().then(play)` does not play and then, much later, plays
+   * on whatever the person clicks first, which is usually something else.
+   *
+   * So this asks without waiting on the answer: start the resume, give it a
+   * moment, and report whether the context is actually running.
+   */
+  async canPlayNow(): Promise<boolean> {
+    void this.unlock().catch(() => {});
+    if (this.ready) return true;
+    await new Promise((r) => setTimeout(r, 250));
+    return this.ready;
+  }
+
   get sampleRate(): number {
     return this.ctx?.sampleRate ?? 44100;
   }

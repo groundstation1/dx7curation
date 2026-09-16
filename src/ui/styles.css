@@ -1553,6 +1553,15 @@ table.data.fixed { table-layout: fixed; }
 /* The two quiet ways to keep a linked patch, or to decline it: under the one
    loud button, side by side, at the weight of a footnote. */
 .link-keep { display: flex; justify-content: center; gap: 8px; margin-top: 10px; }
+/* The linked patch's own play button, at the top of the sidebar. */
+.link-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 0 0 14px; padding: 10px 12px;
+  background: var(--raise); border-radius: var(--radius-sm); font-size: 12px;
+}
+.link-banner-text div { color: var(--muted); margin-top: 2px; line-height: 1.4; }
+.link-banner.blocked { box-shadow: inset 0 0 0 1px var(--accent); }
+.link-banner .btn { flex: none; }
 /* The algorithm diagram on the landing screen: given room, because on that
    screen it is the only thing there is to look at. The card is already a
    surface, so the panel does not need one of its own. */

@@ -368,6 +368,15 @@ function armDropTarget(host: HTMLElement): void {
  * right forgets it, which is the correct weight for a link: you were shown a
  * sound, not handed a library.
  */
+/*
+ * Which linked patches have already played by themselves.
+ *
+ * This screen is redrawn whenever the store changes - and on a revisit the
+ * store changes several times over while the pipeline finishes - so without
+ * this every redraw started the phrase again from the top.
+ */
+const landingPlayed = new Set<string>();
+
 function linkLanding(packed: Uint8Array): HTMLElement {
   const unpacked = unpackVoice(packed);
   const name = voiceName(unpacked) || '(unnamed)';
@@ -486,8 +495,13 @@ function linkLanding(packed: Uint8Array): HTMLElement {
    * touched, and nothing can be done about that - which is why the button is
    * there, and why the keyboard is armed either way.
    */
-  if (ctx.player.mayPlay('click')) {
-    void ctx.player.unlock().then(() => ctx.player.audition(`link:${name}`, unpacked, DEMO_PHRASE));
+  // Only if the browser will let it play now - see Player.canPlayNow. The
+  // Play button is right there when it will not.
+  if (ctx.player.mayPlay('click') && !landingPlayed.has(name)) {
+    landingPlayed.add(name);
+    void ctx.player.canPlayNow().then((ok) => {
+      if (ok) void ctx.player.audition(`link:${name}`, unpacked, DEMO_PHRASE);
+    });
   }
 
   return el('div', { class: 'onboard splash' },

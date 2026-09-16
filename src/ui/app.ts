@@ -244,7 +244,7 @@ export class App {
     const map = TABS.find((t) => t.id === 'map');
     if (!map?.enabled()) return 'corpus';
     const { presetSelect } = await import('./views/map.ts');
-    presetSelect(at, { play: true });
+    presetSelect(at, { play: true, linkedId: store.voices[at]?.id });
     return 'map';
   }
 
