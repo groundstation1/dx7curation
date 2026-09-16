@@ -92,6 +92,19 @@ check('single-voice dump round-trips', () => {
   assert.equal(back.voices.length, 1);
   assert.deepEqual([...unpackVoice(back.voices[0].packed)], [...unpacked[0]]);
 });
+check('single-voice dump is byte-exact to the DX7 format', () => {
+  // What goes to the hardware, checked against the spec rather than against
+  // our own parser: F0, Yamaha, sub-status 0, format 0, a byte count of 155,
+  // the 155 parameters, a checksum that makes them sum to zero mod 128, F7.
+  const single = buildSingleVoice(unpacked[0]);
+  assert.deepEqual([...single.slice(0, 6)], [0xf0, 0x43, 0x00, 0x00, 0x01, 0x1b]);
+  assert.equal((single[4] << 7) | single[5], 155);
+  assert.deepEqual([...single.slice(6, 161)], [...unpacked[0]]);
+  const sum = single.slice(6, 162).reduce((a, b) => a + b, 0);
+  assert.equal(sum & 0x7f, 0, 'checksum does not balance');
+  assert.equal(single[162], 0xf7);
+  for (const b of single.slice(1, 162)) assert.ok(b < 0x80, 'a data byte has its high bit set');
+});
 
 // -------------------------------------------------- headerless / raw shapes
 

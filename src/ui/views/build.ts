@@ -22,6 +22,7 @@ import { keyboard } from '../../audio/keyboard.ts';
 import { voiceDetails } from '../voicePanel.ts';
 import { sidebarSplitter } from '../splitter.ts';
 import { adv, disclosure, isAdvanced } from '../advanced.ts';
+import { chooseOutput, chosenOutput } from '../midiOut.ts';
 
 const CATEGORY_COLOURS: Record<Category, string> = {
   keys: '#6ea8fe',
@@ -595,7 +596,7 @@ async function rateTarget(value: number): Promise<void> {
 async function connectMidi(): Promise<void> {
   const state = await requestMidi();
   midiPorts = state.outputs;
-  midiOutputId = midiPorts[0]?.id ?? '';
+  midiOutputId = chosenOutput(midiPorts);
   midiMessage = state.error ?? (midiPorts.length ? '' : 'No MIDI outputs found. Connect the FM-1 and try again.');
   render();
 }
@@ -649,6 +650,8 @@ function midiPanel(): HTMLElement {
           type: 'radio', name: 'midi-out', value: port.id, checked: port.id === midiOutputId,
           onchange: () => {
             midiOutputId = port.id;
+            // Remembered, and shared with every send button in the app.
+            chooseOutput(port.id);
             render();
           },
         }),
@@ -1048,7 +1051,7 @@ export const view: View = {
     ctx = c;
     root = container;
     midiPorts = listOutputs();
-    midiOutputId = midiPorts[0]?.id ?? '';
+    midiOutputId = chosenOutput(midiPorts);
     hovered = -1;
     selected = -1;
     restored = false;

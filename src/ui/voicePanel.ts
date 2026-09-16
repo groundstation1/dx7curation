@@ -18,6 +18,7 @@ import { algorithmPanel } from './algorithmDiagram.ts';
 import { CATEGORIES, CATEGORY_LABELS, subcategoryLabel, type Category } from '../cluster/category.ts';
 import { categoryColour } from './colour.ts';
 import { patchLinkFor } from './patchLink.ts';
+import { sendToDeviceButton } from './midiOut.ts';
 import { P } from '../sysex/voice.ts';
 import { buildSingleVoice } from '../sysex/write.ts';
 import type { Store } from './state.ts';
@@ -133,6 +134,9 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
           });
         },
       }, '\u21d7 link'),
+      // Straight to the hardware, into its edit buffer: the quickest way to
+      // hear what a patch really does, and nothing stored is touched.
+      sendToDeviceButton(v.unpacked, 'voice-dl'),
       el('button', {
         class: 'voice-dl',
         title: 'Download this patch as a single-voice .syx',

@@ -32,6 +32,7 @@ import { FEATURE_DEFS } from '../../features/vector.ts';
 import { runTask } from '../task.ts';
 import { loadBlock, loadingBrand, type LoadBlock, type LoadBands } from '../loading.ts';
 import { dropPendingLink, peekPendingLink, patchLinkFor } from '../patchLink.ts';
+import { sendToDeviceButton } from '../midiOut.ts';
 import { unpackVoice, voiceName } from '../../sysex/voice.ts';
 import { buildSingleVoice } from '../../sysex/write.ts';
 import { DEMO_PHRASE } from '../../engine/phrase.ts';
@@ -415,7 +416,10 @@ function linkLanding(packed: Uint8Array): HTMLElement {
             window.setTimeout(() => { b.textContent = '\u21d7 link'; }, 1400);
           }, () => {});
         },
-      }, '\u21d7 link')),
+      }, '\u21d7 link'),
+      // Somebody sent you a sound and the synth is plugged in: this is the
+      // shortest possible route from the link to your hands.
+      sendToDeviceButton(unpacked, 'btn quiet')),
   );
 
   /*
