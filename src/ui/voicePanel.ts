@@ -105,10 +105,14 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
           `algorithm ${(v.unpacked[P.algorithm] & 31) + 1}`,
           `  ·  feedback ${v.unpacked[P.feedback] & 7}`,
           v.pinned ? '  ·  favourite' : '')),
-      // One patch, as a single-voice dump. Every DX7 editor and every clone
-      // reads this, and wanting exactly the one you are looking at - to load
-      // on the device, to send to someone, to keep - is a good deal more
-      // common than wanting all forty thousand.
+      /*
+       * The three ways to take a patch somewhere else, stacked.
+       *
+       * Side by side they were wider than the name beside them in a sidebar
+       * of ordinary width, and pushed it to an ellipsis - the one thing on
+       * the panel that says which patch this is.
+       */
+      el('div', { class: 'voice-acts' },
       /*
        * The patch itself, as a link.
        *
@@ -134,9 +138,13 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
           });
         },
       }, '\u21d7 link'),
-      // Straight to the hardware, into its edit buffer: the quickest way to
-      // hear what a patch really does, and nothing stored is touched.
+      // Straight to the hardware: the quickest way to hear what a patch really
+      // does. Destructive on the FM-1, which is why its first press asks.
       sendToDeviceButton(v.unpacked, 'voice-dl'),
+      // One patch, as a single-voice dump. Every DX7 editor and every clone
+      // reads this, and wanting exactly the one you are looking at - to load
+      // on the device, to send to someone, to keep - is a good deal more
+      // common than wanting all forty thousand.
       el('button', {
         class: 'voice-dl',
         title: 'Download this patch as a single-voice .syx',
@@ -144,7 +152,7 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
           e.stopPropagation();
           downloadBytes(buildSingleVoice(v.unpacked), patchFile(v.name));
         },
-      }, '↓ .syx')));
+      }, '↓ .syx'))));
   }
 
   // The algorithm, drawn. Two patches on the same algorithm are the same

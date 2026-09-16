@@ -6,11 +6,14 @@
  * chosen in the sound settings, shown on the sound strip, remembered between
  * visits, and read by every send button and by Build.
  *
- * A single patch goes as a DX7 single-voice dump - 163 bytes, format 0. On a
- * DX7 that lands in the edit buffer: it replaces the sound you are playing and
- * leaves every stored preset alone, which is exactly right for "what does this
- * sound like on the real thing". The FM-1 accepts the format, needs no receive
- * mode, and ignores the channel nibble, so channel 0 is as good as any.
+ * A single patch goes as a DX7 single-voice dump - 163 bytes, format 0. The
+ * FM-1 accepts the format, needs no receive mode, and ignores the channel
+ * nibble, so channel 0 is as good as any.
+ *
+ * Where it lands is the thing to be careful about. A DX7 puts a single-voice
+ * dump in its edit buffer and leaves the stored voices alone. The FM-1 does
+ * not: it writes the patch over whichever preset is selected, and there is no
+ * undo. So the first send asks first - see `confirmOverwrite`.
  */
 import { listOutputs, midiSupported, onPortsChanged, requestMidi, sendRaw, type MidiPort } from '../midi/webmidi.ts';
 import { buildSingleVoice } from '../sysex/write.ts';
@@ -145,7 +148,67 @@ export async function sendVoiceToDevice(unpacked: Uint8Array): Promise<string> {
   return ports.find((p) => p.id === id)?.name ?? 'the synth';
 }
 
-const SEND_LABEL = '→ FM-1';
+// Generic on purpose: the output can be any DX7-compatible synth, and the
+// strip already says which one.
+const SEND_LABEL = '→ synth';
+
+const SKIP_WARNING = 'midi.skipOverwriteWarning';
+
+/**
+ * Say, once, that this is destructive on the FM-1.
+ *
+ * A single-voice dump there is written over the selected preset with no undo,
+ * and nothing about a small arrow button in a sidebar suggests that - so the
+ * first press explains it and asks. Worded conditionally, because on a DX7
+ * and on most things that copy it the same message goes to an edit buffer and
+ * nothing is lost.
+ *
+ * "Don't show again" is only remembered when the answer is Send. Ticking it
+ * and then backing out is not agreeing to be sent without asking.
+ */
+function confirmOverwrite(): Promise<boolean> {
+  if (getSetting(SKIP_WARNING, false)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const skip = el('input', { type: 'checkbox' }) as HTMLInputElement;
+    const close = (ok: boolean) => {
+      window.removeEventListener('keydown', onKey, true);
+      scrim.remove();
+      if (ok && skip.checked) setSetting(SKIP_WARNING, true);
+      resolve(ok);
+    };
+    // Escape declines. Every other key is kept from the views underneath - the
+    // space bar plays a patch on the rating screen - but not prevented, so
+    // Enter and space press whichever button has focus, which is Send to begin
+    // with and Cancel once somebody tabs to it.
+    const onKey = (e: KeyboardEvent) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close(false);
+      }
+    };
+    const send = el('button', { class: 'btn danger', onclick: () => close(true) }, 'Send');
+    const dialog = el('div', { class: 'modal', role: 'alertdialog', 'aria-modal': 'true' },
+      el('h2', {}, 'This overwrites a sound'),
+      el('p', {},
+        'If you use the FM-1, the patch replaces the currently selected sound, ',
+        'and there is no way to undo it. Pick a preset you don\u2019t mind losing first.'),
+      el('label', { class: 'field modal-skip' }, skip, 'Don\u2019t show this again'),
+      el('div', { class: 'modal-act' },
+        el('button', { class: 'btn', onclick: () => close(false) }, 'Cancel'),
+        send));
+    // A click on the dimmed page is a no, and so is anything but the buttons.
+    const scrim = el('div', {
+      class: 'modal-scrim',
+      onclick: (e: Event) => { if (e.target === scrim) close(false); },
+    }, dialog);
+    // Capture phase, so the typing keyboard and the views' own shortcuts do not
+    // also act on Enter and Escape while the question is open.
+    window.addEventListener('keydown', onKey, true);
+    document.body.appendChild(scrim);
+    send.focus();
+  });
+}
 
 /**
  * The send button, for anywhere a patch is shown.
@@ -161,7 +224,7 @@ export function sendToDeviceButton(unpacked: Uint8Array, className: string): HTM
   const button = document.createElement('button');
   button.className = className;
   button.textContent = SEND_LABEL;
-  button.title = 'Send to the synth as a single-voice dump. It replaces the sound you are playing, not a stored preset.';
+  button.title = 'Send to the synth as a single-voice dump. On the FM-1 this overwrites the selected preset.';
   let timer = 0;
   const flash = (text: string, title?: string) => {
     button.textContent = text;
@@ -169,8 +232,9 @@ export function sendToDeviceButton(unpacked: Uint8Array, className: string): HTM
     window.clearTimeout(timer);
     timer = window.setTimeout(() => { button.textContent = SEND_LABEL; }, 1600);
   };
-  button.addEventListener('click', (e) => {
+  button.addEventListener('click', async (e) => {
     e.stopPropagation();
+    if (!(await confirmOverwrite())) return;
     sendVoiceToDevice(unpacked).then(
       (port) => flash('sent', `Sent to ${port}.`),
       (err: Error) => flash('not sent', err.message),

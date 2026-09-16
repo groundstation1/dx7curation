@@ -130,6 +130,17 @@ function renderPanel(): void {
 
   const rows: Node[] = [];
 
+  // Closed from inside as well as from the gear, which is at the other end of
+  // the strip and easy to lose once the panel is open above it.
+  rows.push(el('button', {
+    class: 'sound-close',
+    title: 'Close sound settings',
+    onclick: () => {
+      open = false;
+      render();
+    },
+  }, '\u00d7'));
+
   if (midiSupported()) {
     // Headed, like the output below it: without one, "not connected" under a
     // Connect button read as being about where patches go.

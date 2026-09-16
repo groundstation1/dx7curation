@@ -591,10 +591,36 @@ select:disabled { cursor: not-allowed; }
 /* Opens upward, so reaching for the bend range never moves the app. This one
    does get a surface: it is a block of controls rather than a strip, and on
    bare black the rows would have nothing to sit on. */
+/* As wide as what is in it. Stretched across the dock it was a long dark bar
+   with everything crammed into its left third. */
 .sound-panel {
-  padding: 16px 16px 8px; margin-bottom: var(--gut);
+  position: relative;
+  padding: 16px 44px 8px 16px; margin-bottom: var(--gut);
   background: var(--surface); border-radius: var(--radius);
+  width: max-content; max-width: min(720px, 100%);
 }
+.sound-close {
+  position: absolute; top: 8px; right: 8px;
+  width: 28px; height: 28px; padding: 0; border: none; border-radius: var(--radius-sm);
+  background: none; color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer;
+}
+.sound-close:hover { color: var(--text); background: var(--raise); }
+
+/* A question the app has to ask before doing something it cannot undo. */
+.modal-scrim {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(4, 5, 8, 0.55); padding: 20px;
+}
+.modal {
+  width: min(440px, 100%); padding: 22px 22px 18px;
+  background: var(--surface); border-radius: var(--radius);
+  box-shadow: var(--float);
+}
+.modal h2 { margin: 0 0 10px; font-size: 16px; }
+.modal p { margin: 0 0 16px; line-height: 1.55; color: var(--muted); font-size: 12.5px; }
+.modal-skip { font-size: 12px; }
+.modal-act { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .sound-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; }
 
 /* Every key the app answers to.
@@ -938,6 +964,13 @@ select:disabled { cursor: not-allowed; }
    Only the first takes the space; the pair then hugs the right edge together,
    spaced by the header's own gap. */
 .voice-dl + .voice-dl { margin-left: 0; }
+/* The link, the send and the download, one above the other at the right of
+   the header, all the same width so they read as a set. */
+.voice-acts {
+  margin-left: auto; flex: none;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+}
+.voice-acts .voice-dl { margin-left: 0; text-align: left; }
 .voice-dl {
   margin-left: auto; flex: none;
   padding: 5px 9px; border: none; border-radius: var(--radius-sm);
