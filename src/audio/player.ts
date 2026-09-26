@@ -233,6 +233,29 @@ export class Player {
     return this.muted;
   }
 
+  private muteListeners = new Set<() => void>();
+
+  /** Told when muting changes, so the strip can redraw its speaker. */
+  onMuteChange(fn: () => void): () => void {
+    this.muteListeners.add(fn);
+    return () => this.muteListeners.delete(fn);
+  }
+
+  /**
+   * Unmute, because somebody pressed a button that says play.
+   *
+   * Mute is a setting you forget you left on, and a Play button that makes no
+   * sound reads as a broken button rather than as a muted app - worse on the
+   * screens where the button is the whole point, like a patch somebody sent
+   * you. Pressing it is as clear a request for sound as there is. Automatic
+   * playback does not do this: only an explicit press overrides the mute.
+   */
+  unmuteForPlay(): void {
+    if (!this.muted) return;
+    this.setMuted(false);
+    for (const fn of this.muteListeners) fn();
+  }
+
   private remember(key: string, buf: AudioBuffer): void {
     this.cache.set(key, buf);
     this.cacheOrder.push(key);

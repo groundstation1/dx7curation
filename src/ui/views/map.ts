@@ -422,6 +422,8 @@ let matched: Set<number> | null = null;
  * meaningful entry.
  */
 let focusOrigin: '' | 'mine' | 'bundled' = '';
+/** Only patches read straight off a synth - offered once there are any. */
+let focusDevice = false;
 
 // interpolation
 let interpolateMode = getSetting('map.interpolate', false);
@@ -694,8 +696,20 @@ function computeLayout(): void {
   visible = [];
   for (let i = 0; i < n; i++) {
     if (!store.analysis[i]) continue;
-    if (canFoldSounds && !store.isMergeRepresentative(i)) continue;
-    if (canFoldFamily && !store.isFamilyRepresentative(i)) continue;
+    /*
+     * Asked for what came off the synth, show that - not what it resembles.
+     *
+     * Folding keeps one dot per group, and the dot is whichever member was
+     * chosen to represent it. A preset read off the FM-1 is very often a
+     * near-copy of a patch the library already has - the synth ships with the
+     * DX7 factory sounds - so it was folded under the library copy, which is
+     * not tagged, and the filter for downloaded patches found nothing at all.
+     * While that filter is on, those patches are exempt from folding and
+     * appear at their own positions, as themselves.
+     */
+    const pulledOwn = focusDevice && store.fromDevice(i) !== null;
+    if (canFoldSounds && !store.isMergeRepresentative(i) && !pulledOwn) continue;
+    if (canFoldFamily && !store.isFamilyRepresentative(i) && !pulledOwn) continue;
     if (searchMode === 'only' && matched && !matched.has(i)) continue;
     rawX[i] = ax.value(i);
     rawY[i] = ay.value(i);
@@ -1826,6 +1840,7 @@ function renderSide(): void {
         class: 'btn primary',
         onclick: () => {
           linkBlocked = false;
+          ctx.player.unmuteForPlay();
           // A click is the gesture the browser was waiting for.
           void ctx.player.unlock().then(() => audition(i));
           renderSide();
@@ -1836,6 +1851,7 @@ function renderSide(): void {
   sideEl.appendChild(voiceDetails(store, i, {
     onPlay: (n) => void audition(n),
     autoPlay: ctx.player.autoPlay,
+    unmute: () => ctx.player.unmuteForPlay(),
     onHover: (n) => {
       // Leaving the list puts everything back on whatever is selected - the
       // keyboard, and the sound too. Having gone down the family to compare
@@ -1944,12 +1960,13 @@ export function presetSearch(text: string, scope: SearchScope = 'all'): void {
 
 function applyFilters(): void {
   query = parseQuery(searchText);
-  const filtering = isActiveQuery(query) || focusCategory !== '' || focusRating !== '' || focusOrigin !== '';
+  const filtering = isActiveQuery(query) || focusCategory !== '' || focusRating !== '' || focusOrigin !== '' || focusDevice;
   matched = filtering ? new Set<number>() : null;
   if (matched) {
     const store = ctx.store;
     for (let i = 0; i < store.voices.length; i++) {
       if (focusOrigin === 'mine' && !store.isMine(i)) continue;
+      if (focusDevice && !store.fromDevice(i)) continue;
       if (focusOrigin === 'bundled' && store.isMine(i)) continue;
       const cat = store.categoryOf(i);
       if (focusCategory && cat !== focusCategory) continue;
@@ -2753,7 +2770,12 @@ function showSelect(): HTMLElement {
     onchange: (e: Event) => {
       const value = (e.target as HTMLSelectElement).value;
       focusSub = '';
-      if (value === 'unrated' || value.startsWith('min') || value.startsWith('or')) {
+      focusDevice = value === 'device';
+      if (focusDevice) {
+        focusRating = '';
+        orUnrated = false;
+        focusCategory = '';
+      } else if (value === 'unrated' || value.startsWith('min') || value.startsWith('or')) {
         // "or4" is four-or-better plus the unrated; "min4" is four-or-better.
         orUnrated = value.startsWith('or');
         focusRating = value === 'unrated'
@@ -2774,7 +2796,17 @@ function showSelect(): HTMLElement {
       applyFilters();
     },
   },
-    el('option', { value: '', selected: focusCategory === '' && focusRating === '' }, 'everything'),
+    el('option', { value: '', selected: focusCategory === '' && focusRating === '' && !focusDevice }, 'everything'),
+    /*
+     * The patches read off the synth, once there are some.
+     *
+     * In this control rather than beside it because it answers the same
+     * question - which of these am I looking at - and because this is the one
+     * the map and the list share, so choosing it narrows both.
+     */
+    ctx.store.hasDeviceVoices() || focusDevice
+      ? el('option', { value: 'device', selected: focusDevice }, 'downloaded from FM-1')
+      : null,
     // Two ways to narrow the map, in one control because they are the same
     // question - which of these am I looking at - and only ever one at a time.
     // The group labels are the separator.
@@ -3267,11 +3299,14 @@ export const view: View = {
      * pickers on each of those would be a waste. Only the appearance or
      * disappearance of the embedding changes what the axis list can contain.
      */
-    let hadEmbedding = ctx.store.embedding !== null;
+    // By reference, not by presence: a rebuild after an import replaces one
+    // layout with a longer one, and the new patches only appear if that is
+    // noticed too.
+    let lastEmbedding = ctx.store.embedding;
     const unsubStore = ctx.store.subscribe(() => {
-      const has = ctx.store.embedding !== null;
-      if (has === hadEmbedding) return;
-      hadEmbedding = has;
+      if (ctx.store.embedding === lastEmbedding) return;
+      lastEmbedding = ctx.store.embedding;
+      const has = lastEmbedding !== null;
       // Whatever was asked for before the axes existed can finally be drawn.
       const wanted = deferredPreset && PRESETS.find((p) => p.id === deferredPreset);
       const ids = new Set(axes().map((a) => a.id));

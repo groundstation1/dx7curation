@@ -24,6 +24,8 @@ import { buildSingleVoice } from '../sysex/write.ts';
 import type { Store } from './state.ts';
 
 export interface VoicePanelOptions {
+  /** Lift the app's mute; called when the panel's own Play button is pressed. */
+  unmute?: () => void;
   /** Replay this voice. Omitted, the Play button is left out. */
   onPlay?: (index: number) => void;
   /**
@@ -104,7 +106,11 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
         el('div', { class: 'muted', style: { marginTop: '2px' } },
           `algorithm ${(v.unpacked[P.algorithm] & 31) + 1}`,
           `  ·  feedback ${v.unpacked[P.feedback] & 7}`,
-          v.pinned ? '  ·  favourite' : '')),
+          v.pinned ? '  ·  favourite' : '',
+          // Where it came from, when that was the synth itself: the one
+          // provenance worth seeing on every screen, since it is the only one
+          // that says "this is what was on my device".
+          store.fromDevice(i) ? el('span', { class: 'dev-tag' }, `from ${store.fromDevice(i)}`) : null)),
       /*
        * The three ways to take a patch somewhere else, stacked.
        *
@@ -199,7 +205,11 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
     row.appendChild(el('button', {
       class: 'act-btn',
       title: 'Play the demo phrase',
-      onclick: () => opts.onPlay?.(i),
+      onclick: () => {
+        // A press on a button marked Play is a request for sound, mute or not.
+        opts.unmute?.();
+        opts.onPlay?.(i);
+      },
     }, '▶ Play'));
   }
   row.appendChild(el('button', {

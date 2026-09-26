@@ -505,6 +505,12 @@ export function mountSoundBar(p: Player): void {
   subscribeAdvanced(() => render());
   // A remembered synth being plugged back in, or a choice made on Build.
   subscribeOutput(() => render());
+  // A Play button elsewhere lifting the mute: the speaker and the stored
+  // setting both have to follow.
+  p.onMuteChange(() => {
+    setSetting('audio.muted', p.isMuted);
+    render();
+  });
   // On unless it was switched off last time. The audio context is still locked
   // at this point, but `enable` only attaches listeners - the first key press
   // is itself the gesture that unlocks it.

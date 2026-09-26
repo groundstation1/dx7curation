@@ -540,6 +540,7 @@ function render(): void {
     el('aside', { class: 'detail-side' }, voiceDetails(store, i, {
       onPlay: () => void play(),
       autoPlay: ctx.player.autoPlay,
+      unmute: () => ctx.player.unmuteForPlay(),
       onHover: (n) => {
         // Back to the patch being rated, sound included: it is the one the
         // screen is about, and you were only visiting the family.

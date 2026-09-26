@@ -86,6 +86,14 @@ const PRINCIPALS: Credit[] = [
       + 'dump over MIDI, which is what every decision here is aimed at filling.',
   },
   {
+    name: 'fm1-read-voice',
+    href: 'https://github.com/czietz/fm1-read-voice',
+    who: 'Christian Zietz',
+    what: 'Worked out how to ask an FM-1 for the sound it is playing, which is what '
+      + '"Download voice from FM-1" does.',
+    licence: 'MIT',
+  },
+  {
     name: 'Claude',
     href: 'https://claude.com/claude-code',
     who: 'Anthropic',

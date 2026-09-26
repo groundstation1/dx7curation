@@ -405,7 +405,7 @@ export class Store {
    */
   async ingestFiles(
     files: File[],
-    opts: { userSupplied?: boolean; pinned?: boolean; onProgress?: (label: string, done: number, total: number) => void } = {},
+    opts: { userSupplied?: boolean; pinned?: boolean; device?: string; onProgress?: (label: string, done: number, total: number) => void } = {},
   ): Promise<IngestSummary> {
     return runTask(`reading ${fmtCount(files.length)} file${files.length === 1 ? '' : 's'}`,
       (task) => this.ingestInto(files, opts, task));
@@ -413,7 +413,7 @@ export class Store {
 
   private async ingestInto(
     files: File[],
-    opts: { userSupplied?: boolean; pinned?: boolean; onProgress?: (label: string, done: number, total: number) => void },
+    opts: { userSupplied?: boolean; pinned?: boolean; device?: string; onProgress?: (label: string, done: number, total: number) => void },
     task: TaskHandle,
   ): Promise<IngestSummary> {
     const summary: IngestSummary = {
@@ -462,6 +462,7 @@ export class Store {
             container: raw.container,
             checksumOk: raw.checksumOk,
             ...(at > 0 ? { at, atFrom } : {}),
+            ...(opts.device ? { device: opts.device } : {}),
           }],
           pinned: opts.pinned ?? false,
           clampedBytes: changed,
@@ -1115,9 +1116,35 @@ export class Store {
   pendingPass(): 'analysis' | 'clusters' | 'embedding' | null {
     if (this.voices.length > 0 && !this.analysisComplete) return 'analysis';
     if (!this.analysisComplete) return null;
-    if (!this.graph) return 'clusters';
-    if (!this.embedding && this.voices.length > Store.EMBED_MIN) return 'embedding';
+    /*
+     * Missing, or built for fewer voices than there are now.
+     *
+     * Only checking for missing left newly imported patches off the map for
+     * the rest of the session: an import keeps the existing layout, whose
+     * coordinates stop at the old voice count, so the new voices had no
+     * position and were quietly dropped from the neighbourhood plot until a
+     * reload noticed the size had changed. The same goes for a grouping pass
+     * that was already running when more patches arrived - it finishes, and
+     * describes a corpus that no longer exists.
+     */
+    const n = this.voices.length;
+    if (!this.graph || !this.clusters || this.clusters.labels.length < n) return 'clusters';
+    if (n > Store.EMBED_MIN && (!this.embedding || this.embedding.length < n * 2)) return 'embedding';
     return null;
+  }
+
+  /** The synth a voice was read off, if any of its copies came from one. */
+  fromDevice(index: number): string | null {
+    const sources = this.voices[index]?.sources;
+    if (!sources) return null;
+    for (const s of sources) if (s.device) return s.device;
+    return null;
+  }
+
+  /** Whether anything in the library was read straight off a synth. */
+  hasDeviceVoices(): boolean {
+    for (let i = 0; i < this.voices.length; i++) if (this.fromDevice(i)) return true;
+    return false;
   }
 
   private advancing = false;

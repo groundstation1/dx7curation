@@ -31,6 +31,33 @@ this project through msfa's own sources, which Dexed distributes under Apache
 2.0 in its `Source/msfa/` tree. No code from the GPL-licensed parts of Dexed
 is used here.
 
+## Reading a voice from the FM-1 — MIT
+
+`src/midi/fm1.ts` is a TypeScript port of the 7-bit packing and command
+framing from **fm1-read-voice** by Christian Zietz,
+<https://github.com/czietz/fm1-read-voice>, which worked out how to read the
+current voice back from an M-Vave FM-1.
+
+    Copyright (c) 2026 Christian Zietz
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to
+    deal in the Software without restriction, including without limitation the
+    rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+    sell copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+    IN THE SOFTWARE.
+
 ## Patch data — CC0 1.0
 
 `public/bundles/` carries the **Yamaha DX7 patch library** compiled by

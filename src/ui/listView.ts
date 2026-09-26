@@ -92,7 +92,9 @@ const COLUMNS: Column[] = [
       return el('span', { class: 'list-name' },
         el('i', { style: { background: cat ? categoryColour(cat) : 'var(--raise-2)' } }),
         v.name || '(unnamed)',
-        v.pinned ? el('span', { class: 'warn', title: 'favourite' }, ' ●') : null);
+        v.pinned ? el('span', { class: 'warn', title: 'favourite' }, ' ●') : null,
+        // Read off the synth rather than imported from a file.
+        store.fromDevice(i) ? el('span', { class: 'dev-tag', title: `downloaded from the ${store.fromDevice(i)}` }, store.fromDevice(i)) : null);
     },
   },
   {

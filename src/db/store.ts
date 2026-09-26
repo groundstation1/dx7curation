@@ -24,6 +24,14 @@ export interface VoiceSource {
    * yours however many collections also happen to carry it.
    */
   bundle?: string;
+  /**
+   * The synth this copy was read straight off, if it was - 'FM-1' today.
+   *
+   * Set per source like `bundle`, and for the same reason: pulling a patch you
+   * already had adds a source to the voice you already had, and that voice
+   * then truthfully counts as having come off the device.
+   */
+  device?: string;
   /** The name this copy carried, which may differ from the survivor's. */
   name: string;
   container: string;

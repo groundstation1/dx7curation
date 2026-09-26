@@ -1562,6 +1562,22 @@ table.data.fixed { table-layout: fixed; }
 .link-banner-text div { color: var(--muted); margin-top: 2px; line-height: 1.4; }
 .link-banner.blocked { box-shadow: inset 0 0 0 1px var(--accent); }
 .link-banner .btn { flex: none; }
+/* The FM-1 entry on Sources, and the flag that says it is only for that synth. */
+.fm1-head { display: flex; align-items: baseline; gap: 10px; }
+.fm1-head h2 { margin: 0; }
+.fm1-flag {
+  font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted); border: 1px solid var(--hair); border-radius: 3px; padding: 1px 6px;
+}
+.fm1-panel .hint { margin: 6px 0 12px; }
+.fm1-panel .row { align-items: center; }
+
+/* Read off the synth: a small solid tag, the same wherever a patch is named. */
+.dev-tag {
+  display: inline-block; margin-left: 6px; padding: 0 5px; vertical-align: 1px;
+  border-radius: 3px; background: var(--raise-2); color: var(--text);
+  font-size: 9.5px; letter-spacing: 0.04em; line-height: 1.6; font-weight: 600;
+}
 /* The algorithm diagram on the landing screen: given room, because on that
    screen it is the only thing there is to look at. The card is already a
    surface, so the panel does not need one of its own. */

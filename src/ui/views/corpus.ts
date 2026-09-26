@@ -33,7 +33,8 @@ import { runTask } from '../task.ts';
 import { loadBlock, loadingBrand, type LoadBlock, type LoadBands } from '../loading.ts';
 import { dropPendingLink, peekPendingLink, patchLinkFor } from '../patchLink.ts';
 import { sendToDeviceButton } from '../midiOut.ts';
-import { unpackVoice, voiceName } from '../../sysex/voice.ts';
+import { clampVoice, packVoice, unpackVoice, voiceName } from '../../sysex/voice.ts';
+import { readFm1Voice } from '../../midi/fm1.ts';
 import { buildSingleVoice } from '../../sysex/write.ts';
 import { DEMO_PHRASE } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
@@ -377,40 +378,182 @@ function armDropTarget(host: HTMLElement): void {
  */
 const landingPlayed = new Set<string>();
 
-function linkLanding(packed: Uint8Array): HTMLElement {
+/*
+ * Reading the current voice off the FM-1.
+ *
+ * The result screen shows the patch from the bytes straight away, and the
+ * import runs behind it - it is the same path a dropped .syx file takes, so
+ * the voice is deduplicated, merged with a copy you already had, and tagged as
+ * having come off the device. Imports are queued rather than overlapping,
+ * because two of them rewriting the voice list at once is not safe, and
+ * "pull another" can be pressed before the last one has landed.
+ */
+interface Pulled {
+  packed: Uint8Array;
+  /** Already in the library before this pull, matched on parameters. */
+  existed: boolean;
+  /** Where the import has got to. */
+  state: 'adding' | 'added' | 'failed';
+  error?: string;
+}
+
+let pulled: Pulled | null = null;
+let pulling = false;
+let pullError = '';
+let pullCount = 0;
+let pullQueue: Promise<void> = Promise.resolve();
+
+async function pullFromFm1(): Promise<void> {
+  if (pulling) return;
+  pulling = true;
+  pullError = '';
+  render();
+  let unpacked: Uint8Array;
+  try {
+    unpacked = await readFm1Voice();
+  } catch (err) {
+    pulling = false;
+    pullError = (err as Error).message;
+    render();
+    return;
+  }
+  pulling = false;
+  const packed = packVoice(clampVoice(Uint8Array.from(unpacked)).voice);
+  const entry: Pulled = { packed, existed: ctx.store.indexOfPacked(packed) >= 0, state: 'adding' };
+  pulled = entry;
+  pullCount++;
+  void ctx.player.canPlayNow().then((ok) => {
+    if (ok && pulled === entry) void ctx.player.audition(`pull:${pullCount}`, unpackVoice(packed), DEMO_PHRASE);
+  });
+  render();
+
+  pullQueue = pullQueue.then(async () => {
+    /*
+     * Let the screen paint first.
+     *
+     * A `then` callback is a microtask and runs before the browser gets to
+     * draw, and the import reads the whole library back - four and a half
+     * seconds on thirty thousand voices, much of it on this thread. Started
+     * straight away, it held the result screen off for all of that, which
+     * is the opposite of showing the patch from its bytes the moment it
+     * arrives.
+     */
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-');
+    const file = new File([buildSingleVoice(unpackVoice(packed)) as BlobPart], `FM-1 ${stamp}.syx`,
+      { type: 'application/octet-stream', lastModified: Date.now() });
+    try {
+      await ctx.store.ingestFiles([file], { userSupplied: true, device: 'FM-1' });
+      entry.state = 'added';
+    } catch (err) {
+      entry.state = 'failed';
+      entry.error = (err as Error).message;
+    }
+    if (pulled === entry) render();
+    // The new voice has no measurements, no family and no place on the map
+    // yet; the same chain that finishes any import finishes this one.
+    void autoAdvance();
+  });
+}
+
+/** The Sources entry: FM-1 only, and only where there is WebMIDI to use. */
+function fm1Panel(): HTMLElement | null {
+  if (!midiSupported()) return null;
+  return el('div', { class: 'panel fm1-panel' },
+    el('div', { class: 'fm1-head' },
+      el('h2', {}, 'Download voice from FM-1'),
+      el('span', { class: 'fm1-flag' }, 'FM-1 only')),
+    el('p', { class: 'hint' }, 'Loads the currently selected preset from the FM-1 into DX7 curator.'),
+    el('div', { class: 'row' },
+      el('button', {
+        class: 'btn',
+        disabled: pulling,
+        onclick: () => void pullFromFm1(),
+      }, pulling ? 'Reading\u2026' : 'Download voice'),
+      pullError ? el('span', { class: 'warn' }, pullError) : null),
+  );
+}
+
+/** What just came off the synth, and the way to get the next one. */
+function pullResult(entry: Pulled): HTMLElement {
+  const intro = entry.existed
+    ? 'Read off the FM-1. You already had this one - same parameters, whatever it is called - '
+      + 'so your copy is now tagged as having come from the synth.'
+    : 'Read off the FM-1 and added to your library.';
+  const status = entry.state === 'adding'
+    ? 'Adding to your library\u2026'
+    : entry.state === 'failed'
+      ? `Could not add it: ${entry.error}`
+      : entry.existed ? 'Tagged in your library.' : 'In your library, tagged as from the FM-1.';
+
+  const again = el('div', { class: 'splash-card' },
+    el('h2', {}, 'Pull another'),
+    el('p', {}, 'Select a different preset on the FM-1, then read it in.'),
+    el('div', { class: entry.state === 'failed' ? 'splash-fine warn' : 'splash-fine' }, status),
+    pullError ? el('p', { class: 'warn' }, pullError) : null,
+    el('div', { class: 'splash-act' }, el('button', {
+      class: 'btn primary big wide',
+      disabled: pulling,
+      onclick: () => void pullFromFm1(),
+    }, pulling ? 'Reading\u2026' : 'Download voice')),
+    el('div', { class: 'link-keep' }, el('button', {
+      class: 'btn quiet',
+      onclick: () => {
+        pulled = null;
+        pullError = '';
+        ctx.player.stop();
+        render();
+      },
+    }, 'Done')),
+  );
+
+  return el('div', { class: 'onboard splash' },
+    el('button', {
+      class: 'splash-close',
+      title: 'Close',
+      onclick: () => {
+        pulled = null;
+        pullError = '';
+        ctx.player.stop();
+        render();
+      },
+    }, '\u00d7'),
+    loadingBrand(),
+    el('div', { class: 'splash-choices two' }, voiceCard(entry.packed, intro, { tag: 'FM-1' }), again),
+  );
+}
+
+/**
+ * One patch, shown from its bytes alone: name, diagram, play, and the ways to
+ * keep it.
+ *
+ * Shared by the two screens a patch can arrive on without having been
+ * imported first - a link somebody sent, and a voice read off the FM-1 - so
+ * they look and behave like the same thing, which they are.
+ *
+ * Nothing here needs the patch to be in the library: the algorithm is read
+ * from the bytes and the engine plays straight from them. That is why the
+ * diagram is the one part of the voice panel that can appear - everything
+ * else there is measurement, and there is none until a patch is analysed.
+ */
+function voiceCard(packed: Uint8Array, intro: string, opts: { send?: boolean; tag?: string } = {}): HTMLElement {
   const unpacked = unpackVoice(packed);
   const name = voiceName(unpacked) || '(unnamed)';
-  // Armed straight away, so a MIDI or typing keyboard plays it without anyone
-  // having to find a button first.
   keyboard.setPatch(unpacked);
-
-  const play = el('button', {
-    class: 'btn primary big wide',
-    onclick: () => {
-      void ctx.player.unlock().then(() => ctx.player.audition(`link:${name}`, unpacked, DEMO_PHRASE));
-    },
-  }, 'Play it');
-
-  const patchCard = el('div', { class: 'splash-card primary' },
-    el('h2', {}, name),
-    el('p', {}, 'Somebody sent you this patch. It travelled inside the link — ',
-      'there is no copy of it anywhere but the address bar you just opened.'),
+  return el('div', { class: 'splash-card primary' },
+    el('h2', {}, name, opts.tag ? el('span', { class: 'dev-tag' }, opts.tag) : null),
+    el('p', {}, intro),
     el('p', { class: 'muted' },
       `algorithm ${(unpacked[P.algorithm] & 31) + 1}`,
-      `  ·  feedback ${unpacked[P.feedback] & 7}`),
-    /*
-     * The same diagram the sidebar draws, because this one can be drawn.
-     *
-     * Most of the voice panel is measurements, and there are none here - the
-     * patch was never imported, so it has no features, no category and no
-     * neighbours. The algorithm is different: it is read straight out of the
-     * bytes, and it is the part that tells you what kind of instrument you are
-     * looking at. Clicking an operator opens its envelope, exactly as it does
-     * everywhere else in the app.
-     */
-    el('div', { class: 'link-diagram' },
-      algorithmPanel(unpacked[P.algorithm] & 31, unpacked)),
-    el('div', { class: 'splash-act' }, play),
+      `  \u00b7  feedback ${unpacked[P.feedback] & 7}`),
+    el('div', { class: 'link-diagram' }, algorithmPanel(unpacked[P.algorithm] & 31, unpacked)),
+    el('div', { class: 'splash-act' }, el('button', {
+      class: 'btn primary big wide',
+      onclick: () => {
+        ctx.player.unmuteForPlay();
+        void ctx.player.unlock().then(() => ctx.player.audition(`card:${name}`, unpacked, DEMO_PHRASE));
+      },
+    }, 'Play it')),
     el('div', { class: 'link-keep' },
       el('button', {
         class: 'btn quiet',
@@ -426,10 +569,18 @@ function linkLanding(packed: Uint8Array): HTMLElement {
           }, () => {});
         },
       }, '\u21d7 link'),
-      // Somebody sent you a sound and the synth is plugged in: this is the
-      // shortest possible route from the link to your hands.
-      sendToDeviceButton(unpacked, 'btn quiet')),
+      // Sending a patch back to the synth it was just read from would only
+      // overwrite it with itself, so the pull screen leaves this out.
+      opts.send ? sendToDeviceButton(unpacked, 'btn quiet') : null),
   );
+}
+
+function linkLanding(packed: Uint8Array): HTMLElement {
+  const unpacked = unpackVoice(packed);
+  const name = voiceName(unpacked) || '(unnamed)';
+
+  const patchCard = voiceCard(packed, 'Somebody sent you this patch. It travelled inside the link \u2014 '
+    + 'there is no copy of it anywhere but the address bar you just opened.', { send: true });
 
   /*
    * What is offered beside the patch depends on whether there is a library.
@@ -1300,6 +1451,11 @@ function render(): void {
    * Only while the library is empty: with a corpus to put it in, a link is
    * handled by opening or importing the patch and this never runs.
    */
+  if (pulled) {
+    container.appendChild(el('div', { class: 'splash-scrim' }, pullResult(pulled)));
+    return;
+  }
+
   const incoming = peekPendingLink();
   if (incoming) {
     container.appendChild(el('div', { class: 'splash-scrim' }, linkLanding(incoming)));
@@ -1347,6 +1503,8 @@ function render(): void {
   // The same two choices the first screen offers, at the top of the screen you
   // would go to in order to make either of them.
   page.appendChild(choicesRow());
+  const fm1 = fm1Panel();
+  if (fm1) page.appendChild(fm1);
   if (store.voices.length > 0 && store.lastIngest) {
     page.appendChild(el('div', { class: 'panel' }, lastImport(store.lastIngest)));
   }

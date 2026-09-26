@@ -575,6 +575,7 @@ function renderSide(): void {
       if (v) void ctx.player.audition(v.id, v.unpacked, DEMO_PHRASE);
     },
     autoPlay: ctx.player.autoPlay,
+    unmute: () => ctx.player.unmuteForPlay(),
     onRate: (r) => void rateTarget(r),
     onChange: () => {
       renderSide();
