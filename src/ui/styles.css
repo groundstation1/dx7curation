@@ -1579,7 +1579,7 @@ table.data.fixed { table-layout: fixed; }
 .g-t.ku { fill: var(--accent-2); }
 /* Depth and sensitivity side by side: pitch with its sensitivity, amp with
    the operators it reaches. */
-.g-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); gap: 3px 12px; }
+.g-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(max(108px, 40%), 1fr)); gap: 3px 12px; }
 .g-meter, .g-ams-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .g-meter-k { font-size: 9.5px; color: var(--muted); flex: none; width: 3.6em; }
 .g-meter-bar {
@@ -1595,7 +1595,10 @@ table.data.fixed { table-layout: fixed; }
 .g-ams i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); opacity: 0.8; }
 .g-ams b {
   position: absolute; inset: 0; display: grid; place-items: center;
-  font: 400 8.5px var(--mono); color: var(--text);
+  font: 700 8.5px var(--mono); color: var(--text);
+  /* Light blue fill under light digits: a dark halo keeps them readable at
+     every fill height. */
+  text-shadow: 0 0 2px var(--bg), 0 0 2px var(--bg), 0 0 1px var(--bg);
 }
 .g-ams.rest b { color: var(--muted); opacity: 0.6; }
 .g-ruler { display: flex; align-items: center; gap: 8px; }
