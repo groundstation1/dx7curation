@@ -2,7 +2,8 @@
  * phase/delta are uint32 in C, so every accumulation here is masked with >>> 0. */
 import { rateState, sinLookup } from './tables.ts';
 
-const lfoSource = [
+/** LFO rate in Hz for each speed setting 0-99. Exported for the sidebar's readout. */
+export const lfoSource = [
   0.062541, 0.125031, 0.312393, 0.43712, 0.62461, 0.750694, 0.93633, 1.125302,
   1.249609, 1.436782, 1.560915, 1.752081, 1.875117, 2.062494, 2.247191, 2.374451,
   2.560492, 2.686728, 2.873976, 2.99895, 3.188013, 3.36984, 3.500175, 3.682224,

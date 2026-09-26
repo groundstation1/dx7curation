@@ -470,7 +470,7 @@ function fm1Panel(): HTMLElement | null {
         class: 'btn',
         disabled: pulling,
         onclick: () => void pullFromFm1(),
-      }, pulling ? 'Reading\u2026' : 'Download voice'),
+      }, pulling ? 'Reading\u2026' : 'Pull voice'),
       pullError ? el('span', { class: 'warn' }, pullError) : null),
   );
 }
@@ -496,7 +496,7 @@ function pullResult(entry: Pulled): HTMLElement {
       class: 'btn primary big wide',
       disabled: pulling,
       onclick: () => void pullFromFm1(),
-    }, pulling ? 'Reading\u2026' : 'Download voice')),
+    }, pulling ? 'Reading\u2026' : 'Pull voice')),
     el('div', { class: 'link-keep' }, el('button', {
       class: 'btn quiet',
       onclick: () => {

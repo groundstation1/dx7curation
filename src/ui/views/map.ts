@@ -1092,10 +1092,39 @@ function draw(): void {
    */
   const snap = (v: number) => Math.round(v * dpr) / dpr;
 
+  /*
+   * Matches are drawn on top, and the fewer they are the brighter.
+   *
+   * Drawn in the same pass at the same crowding-eased weight as everything
+   * else, a handful of results came out as faint as an ordinary dot in a busy
+   * region, half of them underneath grey ones - greying the rest was not
+   * enough to find them. The crowding that justified the low weight is a
+   * property of the whole corpus, not of the matches: forty results scattered
+   * over the map do not overlap at all. So they get a second pass of their
+   * own, weighted by how many of them there are compared with the rest, up to
+   * full brightness and a light ring when they are sparse.
+   */
+  let matchAlpha = alpha;
+  let ringMatches = false;
+  const onTop: number[] = [];
+  if (highlight) {
+    let n = 0;
+    for (const i of visible) if (highlight.has(i)) n++;
+    const share = visible.length ? n / visible.length : 1;
+    // 2% or less of what is on screen: full weight; a third or more: as usual.
+    const t = Math.max(0, Math.min(1, Math.log(share / 0.02) / Math.log(0.33 / 0.02)));
+    matchAlpha = round100(1 - t * (1 - Math.max(alpha, 0.45)));
+    ringMatches = share < 0.1;
+  }
+
   g.globalAlpha = 1;
   for (const i of drawOrder) {
     const [px, py] = toScreen(i, w, h);
     if (px < -20 || py < -20 || px > w + 20 || py > h + 20) continue;
+    if (highlight && highlight.has(i) && !(lassoSet && !lassoSet.has(i))) {
+      onTop.push(i);
+      continue;
+    }
     const dimmed = (lassoSet && !lassoSet.has(i)) || (highlight && !highlight.has(i));
     const r = radiusOf(i);
     /*
@@ -1113,6 +1142,28 @@ function draw(): void {
       : sprite(colourOf(i), r, alpha, dpr);
     const size = spr.width / dpr;
     g.drawImage(spr, snap(px - size / 2), snap(py - size / 2), size, size);
+  }
+  if (onTop.length) {
+    if (ringMatches) {
+      g.globalAlpha = 0.55;
+      g.strokeStyle = '#e8eaf0';
+      g.lineWidth = 1;
+      g.beginPath();
+      for (const i of onTop) {
+        const [px, py] = toScreen(i, w, h);
+        const r = radiusOf(i) + 2.5;
+        g.moveTo(px + r, py);
+        g.arc(px, py, r, 0, Math.PI * 2);
+      }
+      g.stroke();
+      g.globalAlpha = 1;
+    }
+    for (const i of onTop) {
+      const [px, py] = toScreen(i, w, h);
+      const spr = sprite(colourOf(i), radiusOf(i) + (ringMatches ? 1 : 0), matchAlpha, dpr);
+      const size = spr.width / dpr;
+      g.drawImage(spr, snap(px - size / 2), snap(py - size / 2), size, size);
+    }
   }
 
   // Favourites get a ring, so they are findable at a glance.

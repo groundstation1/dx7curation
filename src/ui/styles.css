@@ -1562,22 +1562,66 @@ table.data.fixed { table-layout: fixed; }
 .link-banner-text div { color: var(--muted); margin-top: 2px; line-height: 1.4; }
 .link-banner.blocked { box-shadow: inset 0 0 0 1px var(--accent); }
 .link-banner .btn { flex: none; }
-/* The whole-patch settings under the operators: a label and a run of small
-   values per line. Anything at its resting point is dimmed, so what stays
-   bright is what the patch actually does. */
-.g-panel { margin: 12px 0 4px; display: grid; gap: 4px; font-size: 11px; }
-.g-row { display: grid; grid-template-columns: 64px 1fr; align-items: baseline; gap: 8px; }
+/* The whole-patch settings under the operators, drawn in the operators' own
+   vocabulary. Anything at its resting point is dimmed, so what stays bright
+   is what the patch actually does. */
+.g-panel { margin: 12px 0 4px; display: grid; gap: 6px; font-size: 11px; }
+.g-row { display: grid; grid-template-columns: 64px 1fr; align-items: start; gap: 8px; }
 .g-key {
   font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--muted); white-space: nowrap;
+  color: var(--muted); white-space: nowrap; padding-top: 1px;
 }
+.g-body { min-width: 0; display: grid; gap: 4px; }
 .g-row.rest .g-key { opacity: 0.45; }
-.g-vals { display: flex; flex-wrap: wrap; gap: 3px 4px; }
-.g-val {
-  font-family: var(--mono); padding: 0 5px; border-radius: 3px;
-  background: var(--raise); color: var(--text); line-height: 1.7; white-space: nowrap;
+.g-row.rest .g-body { opacity: 0.4; }
+.g-plot { display: block; width: 100%; height: auto; }
+.g-t { fill: var(--muted); font-family: var(--mono); font-size: 9px; }
+.g-t.ku { fill: var(--accent-2); }
+/* Depth and sensitivity side by side: pitch with its sensitivity, amp with
+   the operators it reaches. */
+.g-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); gap: 3px 12px; }
+.g-meter, .g-ams-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.g-meter-k { font-size: 9.5px; color: var(--muted); flex: none; width: 3.6em; }
+.g-meter-bar {
+  flex: 1; height: 5px; border-radius: 3px; background: var(--raise-2); overflow: hidden; min-width: 20px;
 }
-.g-val.rest { background: none; color: var(--muted); opacity: 0.55; }
+.g-meter-bar i { display: block; height: 100%; background: var(--accent); }
+.g-meter-v { font-family: var(--mono); font-size: 10px; color: var(--text); flex: none; min-width: 1.6em; text-align: right; }
+.g-meter.rest .g-meter-bar, .g-meter.rest .g-meter-v { opacity: 0.4; }
+.g-ams {
+  position: relative; flex: 1; height: 13px; min-width: 9px; max-width: 16px;
+  border-radius: 2px; background: var(--raise-2); overflow: hidden;
+}
+.g-ams i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); opacity: 0.8; }
+.g-ams b {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font: 400 8.5px var(--mono); color: var(--text);
+}
+.g-ams.rest b { color: var(--muted); opacity: 0.6; }
+.g-ruler { display: flex; align-items: center; gap: 8px; }
+.g-ruler-track { position: relative; flex: 1; height: 12px; }
+.g-ruler-track::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--raise-2);
+}
+.g-ruler-track i {
+  position: absolute; top: 3px; bottom: 3px; width: 1px; background: var(--muted); opacity: 0.5;
+}
+.g-ruler-track i.mid { top: 1px; bottom: 1px; opacity: 0.9; }
+.g-ruler-track b {
+  position: absolute; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px;
+  border-radius: 50%; background: var(--accent);
+}
+/* A checkbox that is a readout: square, ticked or not, and nothing about it
+   says click. */
+.g-check {
+  display: inline-grid; place-items: center; width: 11px; height: 11px; margin-top: 1px;
+  border: 1px solid var(--muted); border-radius: 2px; cursor: default;
+}
+.g-check.on { border-color: var(--accent); background: var(--accent); }
+.g-check.on::after {
+  content: ''; width: 5px; height: 2.5px; margin-top: -2px;
+  border: solid var(--on-accent); border-width: 0 0 1.5px 1.5px; transform: rotate(-45deg);
+}
 
 /* The FM-1 entry on Sources, and the flag that says it is only for that synth. */
 .fm1-head { display: flex; align-items: baseline; gap: 10px; }
