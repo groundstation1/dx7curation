@@ -1102,7 +1102,7 @@ function draw(): void {
    * property of the whole corpus, not of the matches: forty results scattered
    * over the map do not overlap at all. So they get a second pass of their
    * own, weighted by how many of them there are compared with the rest, up to
-   * full brightness and a light ring when they are sparse.
+   * full brightness and a spark when they are sparse.
    */
   let matchAlpha = alpha;
   let ringMatches = false;
@@ -1144,18 +1144,27 @@ function draw(): void {
     g.drawImage(spr, snap(px - size / 2), snap(py - size / 2), size, size);
   }
   if (onTop.length) {
+    // A spark on each: four thin arms on the diagonals, tapering to a point,
+    // so a sparse result catches the eye without reading as a selection ring.
     if (ringMatches) {
-      g.globalAlpha = 0.55;
-      g.strokeStyle = '#e8eaf0';
-      g.lineWidth = 1;
+      g.globalAlpha = 0.75;
+      g.fillStyle = '#e8eaf0';
       g.beginPath();
       for (const i of onTop) {
         const [px, py] = toScreen(i, w, h);
-        const r = radiusOf(i) + 2.5;
-        g.moveTo(px + r, py);
-        g.arc(px, py, r, 0, Math.PI * 2);
+        const inner = radiusOf(i) * 0.6;
+        const outer = radiusOf(i) + 6;
+        const half = 0.9;
+        for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+          const ux = dx / Math.SQRT2;
+          const uy = dy / Math.SQRT2;
+          g.moveTo(px + ux * inner - uy * half, py + uy * inner + ux * half);
+          g.lineTo(px + ux * outer, py + uy * outer);
+          g.lineTo(px + ux * inner + uy * half, py + uy * inner - ux * half);
+          g.closePath();
+        }
       }
-      g.stroke();
+      g.fill();
       g.globalAlpha = 1;
     }
     for (const i of onTop) {

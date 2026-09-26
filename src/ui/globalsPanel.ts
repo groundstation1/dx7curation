@@ -196,8 +196,8 @@ function lfoPlot(u: Uint8Array): SVGSVGElement {
 }
 
 /** A horizontal meter, `value` out of `max`, dimmed at zero. */
-function meter(label: string, value: number, max: number, title: string): HTMLElement {
-  return el('span', { class: value === 0 ? 'g-meter rest' : 'g-meter', title },
+function meter(label: string, value: number, max: number, title: string, unreachable = false): HTMLElement {
+  return el('span', { class: value === 0 || unreachable ? 'g-meter rest' : 'g-meter', title },
     el('span', { class: 'g-meter-k' }, label),
     el('span', { class: 'g-meter-bar' }, el('i', { style: { width: `${(value / max) * 100}%` } })),
     el('span', { class: 'g-meter-v' }, String(value)));
@@ -258,9 +258,11 @@ export function globalsPanel(u: Uint8Array): HTMLElement {
     row('LFO', lfoInert,
       lfoPlot(u),
       el('div', { class: 'g-meters' },
-        meter('pitch', pmd, 99, 'LFO pitch depth - vibrato'),
+        // Each depth is dimmed when nothing can hear it: vibrato needs pitch
+        // sensitivity, tremolo needs an operator that it reaches.
+        meter('pitch', pmd, 99, 'LFO pitch depth - vibrato', pms === 0),
         meter('sens', pms, 7, 'pitch mod sensitivity: how much the LFO and the mod wheel move the pitch'),
-        meter('amp', amd, 99, 'LFO amp depth - tremolo'),
+        meter('amp', amd, 99, 'LFO amp depth - tremolo', !anyAms),
         amsCells(u))),
     row('transpose', transpose === 0, transposeRuler(transpose)),
     row('osc sync', !oscSync,
