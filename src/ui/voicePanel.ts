@@ -19,6 +19,7 @@ import { CATEGORIES, CATEGORY_LABELS, subcategoryLabel, type Category } from '..
 import { categoryColour } from './colour.ts';
 import { patchLinkFor } from './patchLink.ts';
 import { sendToDeviceButton } from './midiOut.ts';
+import { globalsPanel } from './globalsPanel.ts';
 import { P } from '../sysex/voice.ts';
 import { buildSingleVoice } from '../sysex/write.ts';
 import type { Store } from './state.ts';
@@ -165,6 +166,8 @@ export function voiceDetails(store: Store, i: number, opts: VoicePanelOptions = 
   // instrument wired differently, and that is much faster to take in as a
   // picture than as a number between 1 and 32.
   panel.appendChild(algorithmPanel(v.unpacked[P.algorithm] & 31, v.unpacked));
+  // And everything that is not an operator, right under them.
+  panel.appendChild(globalsPanel(v.unpacked));
 
   /*
    * The three things you actually do to a patch, in one block.

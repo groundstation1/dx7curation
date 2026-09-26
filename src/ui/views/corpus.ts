@@ -40,6 +40,7 @@ import { DEMO_PHRASE } from '../../engine/phrase.ts';
 import { keyboard } from '../../audio/keyboard.ts';
 import { P } from '../../sysex/voice.ts';
 import { algorithmPanel } from '../algorithmDiagram.ts';
+import { globalsPanel } from '../globalsPanel.ts';
 
 const SWEEP_POINTS = [0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.16, 0.22, 0.3];
 
@@ -547,6 +548,8 @@ function voiceCard(packed: Uint8Array, intro: string, opts: { send?: boolean; ta
       `algorithm ${(unpacked[P.algorithm] & 31) + 1}`,
       `  \u00b7  feedback ${unpacked[P.feedback] & 7}`),
     el('div', { class: 'link-diagram' }, algorithmPanel(unpacked[P.algorithm] & 31, unpacked)),
+    // Read from the bytes too, so it can be here even with no analysis.
+    globalsPanel(unpacked),
     el('div', { class: 'splash-act' }, el('button', {
       class: 'btn primary big wide',
       onclick: () => {

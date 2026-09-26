@@ -1562,6 +1562,23 @@ table.data.fixed { table-layout: fixed; }
 .link-banner-text div { color: var(--muted); margin-top: 2px; line-height: 1.4; }
 .link-banner.blocked { box-shadow: inset 0 0 0 1px var(--accent); }
 .link-banner .btn { flex: none; }
+/* The whole-patch settings under the operators: a label and a run of small
+   values per line. Anything at its resting point is dimmed, so what stays
+   bright is what the patch actually does. */
+.g-panel { margin: 12px 0 4px; display: grid; gap: 4px; font-size: 11px; }
+.g-row { display: grid; grid-template-columns: 64px 1fr; align-items: baseline; gap: 8px; }
+.g-key {
+  font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); white-space: nowrap;
+}
+.g-row.rest .g-key { opacity: 0.45; }
+.g-vals { display: flex; flex-wrap: wrap; gap: 3px 4px; }
+.g-val {
+  font-family: var(--mono); padding: 0 5px; border-radius: 3px;
+  background: var(--raise); color: var(--text); line-height: 1.7; white-space: nowrap;
+}
+.g-val.rest { background: none; color: var(--muted); opacity: 0.55; }
+
 /* The FM-1 entry on Sources, and the flag that says it is only for that synth. */
 .fm1-head { display: flex; align-items: baseline; gap: 10px; }
 .fm1-head h2 { margin: 0; }
